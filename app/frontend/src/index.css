@@ -43,8 +43,10 @@
   --color-danger-line: #f8b4b4;
   --color-danger-tint: #fffbfb;
 
+  --color-warn: #d97706;
   --color-warn-bg: #fef3c7;
   --color-warn-ink: #92400e;
+  --color-warn-line: #fcd34d;
 
   /* --- shadcn semantic tokens ------------------------------------------ */
   --color-background: #f9fafb;

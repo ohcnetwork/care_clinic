@@ -16,7 +16,7 @@ import { toast } from "@/components/ui/sonner";
 import { bridge, logToHost, onCareEvent } from "@/lib/bridge";
 import { errorText, firstLine } from "@/lib/format";
 import { RUN_STEPS, type RunStep } from "@/lib/run-steps";
-import type { Backup, CareUpdate } from "@/types";
+import type { Backup, CareUpdate, StorageReport } from "@/types";
 
 export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
@@ -108,6 +108,8 @@ type CareStore = {
   backups: Backup[];
   backupsError: string;
   autostart: boolean;
+  storage: StorageReport | null;
+  recheckStorage: () => Promise<void>;
   refresh: () => Promise<void>;
   reloadBackups: () => Promise<void>;
   runAction: (action: string, adminPassword?: string) => Promise<void>;
@@ -152,6 +154,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const [autostart, setAutostartState] = useState(false);
   const [trouble, setTrouble] = useState(false);
   const [careUpdate, setCareUpdate] = useState<CareUpdate | null>(null);
+  const [storage, setStorage] = useState<StorageReport | null>(null);
   const [bootError, setBootError] = useState<Error | null>(null);
 
   // Refs shadow the state the event handlers and the poll timer read, so they
@@ -294,6 +297,14 @@ export function CareProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setBackupsError(firstLine(errorText(e)));
       log(`backups: ${errorText(e)}`);
+    }
+  }, [log]);
+
+  const recheckStorage = useCallback(async () => {
+    try {
+      setStorage(await bridge.RecheckStorage());
+    } catch (e) {
+      log(`storage: ${errorText(e)}`);
     }
   }, [log]);
 
@@ -448,6 +459,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       return;
     }
     setTab("overview");
+    void bridge.StorageStatus().then(setStorage, (e) => log(`storage: ${errorText(e)}`));
     await reloadBackups();
     await refresh();
     await syncAutostart();
@@ -565,6 +577,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
         setBusy(false);
         void refresh();
         void reloadBackups();
+        void recheckStorage();
         void bridge.GetState().then((state) => {
           restorePendingRef.current = state.restore_pending;
           setRestorePending(state.restore_pending);
@@ -588,6 +601,9 @@ export function CareProvider({ children }: { children: ReactNode }) {
       onCareEvent("care-update", (update: CareUpdate) => {
         setCareUpdate(update);
       }),
+      onCareEvent("care-storage", (report: StorageReport) => {
+        setStorage(report);
+      }),
       onCareEvent("uninstalled", () => {
         if (flowRef.current === "remove") {
           void bridge.ExitUninstall();
@@ -609,7 +625,17 @@ export function CareProvider({ children }: { children: ReactNode }) {
       }),
     ];
     return () => unsubscribes.forEach((off) => off?.());
-  }, [failInstall, log, refresh, reloadBackups, setBusy, setRun, setStepDone, setFlow]);
+  }, [
+    failInstall,
+    log,
+    recheckStorage,
+    refresh,
+    reloadBackups,
+    setBusy,
+    setRun,
+    setStepDone,
+    setFlow,
+  ]);
 
   // --- boot + status poll ----------------------------------------------
   useEffect(() => {
@@ -678,6 +704,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
       backups,
       backupsError,
       autostart,
+      storage,
+      recheckStorage,
       refresh,
       reloadBackups,
       runAction,
@@ -691,7 +719,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
       run, startInstall, retryInstall, restartSetup, openPanel,
       tab, busy, busyLabel, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
-      restorePending, version, backups, backupsError, autostart, refresh, reloadBackups,
+      restorePending, version, backups, backupsError, autostart, storage, recheckStorage,
+      refresh, reloadBackups,
       runAction, setAutostart, restore, restoreFile, uninstall, log,
     ],
   );

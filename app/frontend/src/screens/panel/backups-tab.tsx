@@ -2,12 +2,13 @@ import { Database, FolderOpen, HardDrive } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 
 import { InfoButton } from "@/components/field";
+import { LEVEL_BADGE, StorageMeter } from "@/components/storage-meter";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { bridge } from "@/lib/bridge";
-import { errorText, firstLine, megabytes } from "@/lib/format";
+import { diskSize, errorText, firstLine, megabytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useCare } from "@/state/care-store";
 import type { ImportedBackup } from "@/types";
@@ -159,7 +160,7 @@ export function BackupsTab() {
 
 /** Where backups are written, and how to point them somewhere else (a USB drive). */
 function BackupFolderRow() {
-  const { busy, restorePending, log } = useCare();
+  const { busy, restorePending, log, storage, recheckStorage } = useCare();
   const [dir, setDir] = useState("");
   const [problem, setProblem] = useState("");
   const [working, setWorking] = useState(false);
@@ -176,6 +177,7 @@ function BackupFolderRow() {
     try {
       setDir(await bridge.SetBackupDir(chosen));
       toast("Backups will go to the new folder");
+      void recheckStorage();
     } catch (e) {
       setProblem(firstLine(errorText(e)));
       log(`backup folder: ${errorText(e)}`);
@@ -184,23 +186,98 @@ function BackupFolderRow() {
     }
   };
 
+  const space = storage?.backup;
+  const run = storage?.last_run;
+  const failed = run?.state === "failed";
+  const tone = space?.level ?? "unknown";
+  const canChange = !(busy || working || restorePending);
+
   return (
     <>
-      <div className="flex items-center gap-3 rounded-xl border border-line bg-card px-4 py-3.5 shadow-card">
-        <span className="flex size-[30px] flex-none items-center justify-center rounded-sm bg-brand-bg text-brand-ink">
-          <HardDrive className="size-4" strokeWidth={2} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs font-semibold tracking-[0.04em] text-muted-foreground uppercase">
-            Backups are saved to
+      {failed ? (
+        <Alert variant="danger" className="items-start">
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold">
+              {run.reason === "disk_full"
+                ? "The last automatic backup failed because the backup drive is full."
+                : "The last automatic backup failed."}
+            </div>
+            <div className="mt-0.5">
+              {run.reason === "disk_full"
+                ? `It needed about ${diskSize(run.need_bytes)} and ${diskSize(run.free_bytes)} was free. Free up space on that drive, or choose another folder. The next backup runs automatically.`
+                : `${run.message ? `Cause: ${run.message}. ` : ""}Try Back up now; if it fails again, check the log under Advanced.`}
+            </div>
           </div>
-          <div className="truncate font-mono text-[13.5px] font-semibold text-ink">
-            {dir || "…"}
+          {run.reason === "disk_full" ? (
+            <Button disabled={!canChange} onClick={() => void change()}>
+              Choose another folder
+            </Button>
+          ) : null}
+        </Alert>
+      ) : storage?.stale ? (
+        <Alert variant="danger">
+          No backup in over a day. Check the backup drive is plugged in, then press Back up now.
+        </Alert>
+      ) : null}
+
+      <div className="rounded-xl border border-line bg-card px-4 py-3.5 shadow-card">
+        <div className="flex items-center gap-3">
+          <span
+            className={cn(
+              "flex size-[30px] flex-none items-center justify-center rounded-sm",
+              tone === "critical"
+                ? "bg-danger-bg text-danger-ink"
+                : tone === "low"
+                  ? "bg-warn-bg text-warn-ink"
+                  : "bg-brand-bg text-brand-ink",
+            )}
+          >
+            <HardDrive className="size-4" strokeWidth={2} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold tracking-[0.04em] text-muted-foreground uppercase">
+              Backups are saved to
+            </div>
+            <div className="truncate font-mono text-[13.5px] font-semibold text-ink">
+              {dir || "…"}
+            </div>
           </div>
+          {space && space.total > 0 ? (
+            <Badge variant={LEVEL_BADGE[tone].variant} size="sm">
+              {LEVEL_BADGE[tone].label}
+            </Badge>
+          ) : null}
+          <Button disabled={!canChange} onClick={() => void change()}>
+            {working ? "Switching…" : "Change"}
+          </Button>
         </div>
-        <Button disabled={busy || working || restorePending} onClick={() => void change()}>
-          {working ? "Switching…" : "Change"}
-        </Button>
+        {space && space.total > 0 ? (
+          <div className="mt-3 pl-[42px]">
+            <StorageMeter free={space.free} total={space.total} level={tone} />
+            <div className="mt-1.5 flex items-baseline justify-between gap-3 text-[12.5px]">
+              <span
+                className={cn(
+                  tone === "critical"
+                    ? "text-danger-ink"
+                    : tone === "low"
+                      ? "text-warn-ink"
+                      : "text-muted-foreground",
+                )}
+              >
+                {space.message}
+              </span>
+              <span className="flex-none font-mono text-[12px] text-faint">
+                {diskSize(space.free)} free of {diskSize(space.total)}
+              </span>
+            </div>
+            {space.shares_docker_drive ? (
+              <div className="mt-1 text-[12.5px] text-muted-foreground">
+                Same drive as the clinic&apos;s data. A USB drive keeps the backups safe if this
+                computer&apos;s drive fails.
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {problem ? (
         <div className="-mt-1 text-[12.5px] leading-[1.5] text-danger-ink">{problem}</div>

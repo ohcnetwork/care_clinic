@@ -1,10 +1,11 @@
-import { ArrowDownToLine, ArrowUpRight, TriangleAlert } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, HardDrive, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Screen, ScreenBody } from "@/components/screen";
 import { Button } from "@/components/ui/button";
 import { bridge } from "@/lib/bridge";
 import { useCare, type PanelTab } from "@/state/care-store";
+import type { StorageReport } from "@/types";
 import { AdvancedTab } from "./advanced-tab";
 import { BackupsTab } from "./backups-tab";
 import { OverviewTab } from "./overview-tab";
@@ -17,8 +18,18 @@ const TAB_META: Record<PanelTab, { title: string; subtitle: string }> = {
 };
 
 export function PanelScreen() {
-  const { tab, mdnsName, reloadBackups, trouble, careUpdate, applyCareUpdate, dismissCareUpdate, busy } =
-    useCare();
+  const {
+    tab,
+    setTab,
+    mdnsName,
+    reloadBackups,
+    trouble,
+    careUpdate,
+    applyCareUpdate,
+    dismissCareUpdate,
+    busy,
+    storage,
+  } = useCare();
   const [diagnosing, setDiagnosing] = useState(false);
   const meta = TAB_META[tab];
 
@@ -49,6 +60,21 @@ export function PanelScreen() {
       {/* The update is already downloaded and built - this asks for a moment of
           downtime, not for a wait. "Later" defers it to the next start, where
           it costs nothing, so neither answer is the wrong one. */}
+      {storage?.level === "critical" && storage.headline && !trouble ? (
+        <div className="flex items-center gap-3 border-b border-danger-bg bg-danger-tint px-[34px] py-3">
+          <HardDrive className="size-4 flex-none text-danger-ink" strokeWidth={2.2} />
+          <div className="min-w-0 flex-1 text-[13px] leading-[1.45] text-danger-ink">
+            {storage.headline}{" "}
+            <span className="text-muted-foreground">{storageAdvice(storage)}</span>
+          </div>
+          {tab !== storageTab(storage) ? (
+            <Button variant="primary" onClick={() => setTab(storageTab(storage))}>
+              See details
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {careUpdate && !trouble ? (
         <div className="flex items-center gap-3 border-b border-line bg-brand-bg px-[34px] py-3">
           <ArrowDownToLine className="size-4 flex-none text-brand-ink" strokeWidth={2.2} />
@@ -94,4 +120,29 @@ export function PanelScreen() {
       </ScreenBody>
     </Screen>
   );
+}
+
+function backupProblem(storage: StorageReport): boolean {
+  return (
+    storage.last_run.state === "failed" || storage.stale || storage.backup.level === "critical"
+  );
+}
+
+function storageTab(storage: StorageReport): PanelTab {
+  const driveFull = (storage.drives ?? []).some((d) => d.level === "critical");
+  return !driveFull && backupProblem(storage) ? "backups" : "overview";
+}
+
+function storageAdvice(storage: StorageReport): string {
+  if ((storage.drives ?? []).some((d) => d.level === "critical")) {
+    return "Free up space now, or the clinic will stop saving data.";
+  }
+  const run = storage.last_run;
+  if (run.state === "failed" && run.reason !== "disk_full") {
+    return run.message ? `Cause: ${run.message}. Try Back up now.` : "Try Back up now.";
+  }
+  if (run.state === "failed" || storage.backup.level === "critical") {
+    return "Free up space on the backup drive or choose another folder.";
+  }
+  return "Check the backup folder is plugged in and CARE is running.";
 }

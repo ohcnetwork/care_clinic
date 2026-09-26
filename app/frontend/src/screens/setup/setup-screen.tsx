@@ -18,11 +18,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePasswordStrength } from "@/hooks/use-password-strength";
 import { bridge } from "@/lib/bridge";
-import { errorText, normaliseHost } from "@/lib/format";
+import { diskSize, errorText, normaliseHost } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useCare, type SetupStep } from "@/state/care-store";
 import type { SetupForm } from "@/state/forms";
-import type { RestartPlan } from "@/types";
+import type { BackupSpace, RestartPlan } from "@/types";
 import { CheckRows } from "./check-rows";
 import { RestartDialog } from "./restart-dialog";
 import { PasswordPair } from "./password-pair";
@@ -52,6 +52,7 @@ export function SetupScreen({
   const [verifyNote, setVerifyNote] = useState("");
   const [showAdminInfo, setShowAdminInfo] = useState(false);
   const [backupDirProblem, setBackupDirProblem] = useState("");
+  const [backupSpace, setBackupSpace] = useState<BackupSpace | null>(null);
   const [restart, setRestart] = useState<RestartPlan | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [fixing, setFixing] = useState(false);
@@ -142,6 +143,17 @@ export function SetupScreen({
   }, []);
 
   useEffect(() => () => window.clearTimeout(hostTimer.current), []);
+
+  useEffect(() => {
+    let live = true;
+    void bridge.BackupDirSpace(form.backupDir).then(
+      (space) => live && setBackupSpace(space),
+      () => live && setBackupSpace(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, [form.backupDir]);
 
   const onHostChange = (value: string) => {
     setVerifyNote("");
@@ -357,6 +369,19 @@ export function SetupScreen({
               {backupDirProblem ? (
                 <div className="-mt-2 text-[12.5px] leading-[1.5] text-danger-ink">
                   {backupDirProblem}
+                </div>
+              ) : backupSpace && backupSpace.total > 0 ? (
+                <div className="-mt-2 text-[12.5px] leading-[1.5] text-muted-foreground">
+                  <span className={backupSpace.level === "low" ? "text-warn-ink" : undefined}>
+                    {diskSize(backupSpace.free)} free on this drive. Each backup needs about{" "}
+                    {diskSize(backupSpace.need)} to start with, and grows with the clinic.
+                  </span>
+                  {backupSpace.shares_docker_drive ? (
+                    <div className="mt-0.5">
+                      This is the same drive as the clinic&apos;s data. A USB drive keeps the
+                      backups safe if this computer&apos;s drive fails.
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

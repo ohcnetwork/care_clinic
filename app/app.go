@@ -32,6 +32,8 @@ type App struct {
 	adv     *mdns.Advertiser
 	advStop chan struct{}
 
+	store storageWatch
+
 	osUninstall  bool
 	removeTarget string
 }

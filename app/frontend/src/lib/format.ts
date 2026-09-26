@@ -19,6 +19,13 @@ export function mmss(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+export function diskSize(bytes: number): string {
+  const gb = bytes / 2 ** 30;
+  if (gb >= 10) return `${Math.round(gb)} GB`;
+  if (gb >= 1) return `${gb.toFixed(1)} GB`;
+  return `${Math.round(bytes / 2 ** 20)} MB`;
+}
+
 export function megabytes(bytes: number): string {
   return bytes ? `${(bytes / 1e6).toFixed(1)} MB` : "";
 }
