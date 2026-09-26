@@ -63,7 +63,7 @@ func dockerAdvice() (missing, stopped string) {
 
 func composeAdvice() string {
 	if runtime.GOOS == "linux" {
-		return "Docker is running, but the Compose plugin is missing. Install docker-compose-plugin with your package manager."
+		return "Docker is running, but the Compose plugin is missing. Choose Install Docker to add it."
 	}
 	return "Docker is running, but the Compose v2 plugin is missing. Update Rancher Desktop."
 }

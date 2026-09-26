@@ -195,3 +195,19 @@ func TestMacSigningRetainsExistingConfiguration(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsInstallerRejectsDamagedDownloads(t *testing.T) {
+	data, err := os.ReadFile("../../build/windows/installer/project.nsi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checks []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 && strings.EqualFold(fields[0], "CRCCheck") {
+			checks = append(checks, strings.Join(fields, " "))
+		}
+	}
+	if len(checks) != 1 || checks[0] != "CRCCheck force" {
+		t.Fatalf("the installer must always verify itself before running (CRCCheck force), found %q", checks)
+	}
+}

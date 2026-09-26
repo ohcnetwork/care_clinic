@@ -95,8 +95,9 @@ CARE Desktop has no telemetry, analytics or crash reporting. It uses the interne
 only when the person setting up or operating the clinic asks for something that
 needs it:
 
-- **Server setup** installs Rancher Desktop and Git if they are missing (from github.com,
-  winget, or the operating system's own package tools), clones the CARE backend
+- **Server setup** installs Docker (Rancher Desktop on macOS/Windows) and Git if they are missing (pinned,
+  checksum-verified installers from github.com, or the operating system's own
+  package tools), clones the CARE backend
   and frontend from github.com, pulls the PostgreSQL, Redis, Silo and Caddy images
   from Docker Hub, and builds the CARE images, fetching their package dependencies.
 - **The Windows installer** contains Microsoft's WebView2 bootstrapper, which

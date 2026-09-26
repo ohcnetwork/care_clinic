@@ -37,7 +37,7 @@ esac
 		{"hang", false},
 	} {
 		t.Run(tc.state, func(t *testing.T) {
-			pr := NewProvisioner(proc.Runner{Env: append(os.Environ(), "CARE_DOCKER_PROBE="+tc.state)}, nil)
+			pr := NewProvisioner(proc.Runner{Env: append(os.Environ(), "CARE_DOCKER_PROBE="+tc.state)}, nil, nil)
 			start := time.Now()
 			if got := pr.dockerDaemonUp(); got != tc.want {
 				t.Fatalf("daemon up = %v, want %v", got, tc.want)
@@ -46,17 +46,5 @@ esac
 				t.Fatalf("probe exceeded its timeout: %s", elapsed)
 			}
 		})
-	}
-}
-
-func TestVersionFromTagURL(t *testing.T) {
-	got, err := versionFromTagURL("https://github.com/rancher-sandbox/rancher-desktop/releases/tag/v1.24.0")
-	if err != nil || got != "1.24.0" {
-		t.Fatalf("got %q, %v; want 1.24.0", got, err)
-	}
-	for _, bad := range []string{"", "https://github.com/rancher-sandbox/rancher-desktop/releases", "/releases/tag/v"} {
-		if _, err := versionFromTagURL(bad); err == nil {
-			t.Fatalf("expected an error for %q", bad)
-		}
 	}
 }
