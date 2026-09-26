@@ -68,8 +68,13 @@ func (a *App) ensureInstallDir() (string, error) {
 		}
 		return os.WriteFile(target, data, mode)
 	})
-	return dest, err
+	if err != nil {
+		return dest, err
+	}
+	return dest, os.MkdirAll(filepath.Join(dest, backupStateDir), 0o755)
 }
+
+const backupStateDir = "backup-state"
 
 func (a *App) engine() *clinic.Clinic {
 	cfg := a.loadConfig()

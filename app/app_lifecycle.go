@@ -33,6 +33,7 @@ func (a *App) startup(ctx context.Context) {
 		prereq.EnsureRancherSettings()
 	}()
 	go a.watchForCareUpdates()
+	go a.watchStorage()
 }
 
 const screenMargin = 80

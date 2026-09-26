@@ -4,7 +4,15 @@ import { bridge } from "@/lib/bridge";
 import type { ToolPlan } from "@/types";
 
 export type CheckTone = "wait" | "ok" | "bad";
-export type CheckId = "residue" | "wsl" | "docker" | "git" | "mdns" | "clinic" | "network";
+export type CheckId =
+  | "residue"
+  | "wsl"
+  | "docker"
+  | "git"
+  | "disk"
+  | "mdns"
+  | "clinic"
+  | "network";
 
 /**
  * Which prerequisites are worth testing.
@@ -92,6 +100,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   const [wsl, setWsl] = useState<Result | null>(null);
   const [docker, setDocker] = useState<Result>(WAITING);
   const [git, setGit] = useState<Result>(WAITING);
+  const [disk, setDisk] = useState<Result & { message: string }>({ ...WAITING, message: "" });
   const [mdns, setMdns] = useState<Result>(WAITING);
   const [clinic, setClinic] = useState<Result>(WAITING);
   const [network, setNetwork] = useState<Result | null>(null);
@@ -212,6 +221,23 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
     return result;
   }, []);
 
+  const checkDisk = useCallback(async (): Promise<Result> => {
+    setDisk({ ...WAITING, message: "" });
+    let result: Result & { message: string };
+    try {
+      const status = await bridge.DiskStatus();
+      result = {
+        state: status.ok ? "ok" : "bad",
+        how: status.ok ? "" : status.how || status.message,
+        message: status.message,
+      };
+    } catch (e) {
+      result = { state: "bad", how: String(e), message: "" };
+    }
+    setDisk(result);
+    return result;
+  }, []);
+
   /**
    * Is the clinic actually serving? Only meaningful once it is installed, which
    * is why it carries a Start button rather than an install one.
@@ -286,20 +312,31 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   const recheckAll = useCallback(async (): Promise<CheckTone> => {
     setInFlight((n) => n + 1);
     try {
-      const [r, w, d, g, m, c, n] = await Promise.all([
+      const [r, w, d, g, s, m, c, n] = await Promise.all([
         inSetup ? checkResidue() : null,
         checkWSL(),
         checkDocker(),
         inSetup ? checkGit() : null,
+        checkDisk(),
         checkMDNS(),
         inSetup ? null : checkClinic(),
         checkNetwork(),
       ]);
-      return summarise([r, w, d, g, m, c, n].filter((x): x is Result => x !== null));
+      return summarise([r, w, d, g, s, m, c, n].filter((x): x is Result => x !== null));
     } finally {
       setInFlight((n) => n - 1);
     }
-  }, [inSetup, checkResidue, checkWSL, checkDocker, checkGit, checkMDNS, checkClinic, checkNetwork]);
+  }, [
+    inSetup,
+    checkResidue,
+    checkWSL,
+    checkDocker,
+    checkGit,
+    checkDisk,
+    checkMDNS,
+    checkClinic,
+    checkNetwork,
+  ]);
 
   useEffect(() => {
     void recheckAll();
@@ -337,6 +374,18 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
         ...git,
       });
     }
+    const { message: diskMessage, ...diskResult } = disk;
+    list.push({
+      id: "disk",
+      title: "Free disk space",
+      detail: [
+        inSetup ? "At least 30 GB for the clinic software and data" : "Room for the clinic's data",
+        diskMessage,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      ...diskResult,
+    });
     list.push({
       id: "mdns",
       title: "Network name",
@@ -360,7 +409,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
       });
     }
     return withPrerequisites(list);
-  }, [inSetup, clinic, docker, git, host, mdns, network, residue, wsl]);
+  }, [inSetup, clinic, disk, docker, git, host, mdns, network, residue, wsl]);
 
   const overall = useMemo(
     () => summarise(checks.map((c) => ({ state: c.state, how: c.how }))),

@@ -135,6 +135,8 @@ executable directory or current shell directory contains the backups.
 ```text
 <installation>/
 |-- backend.env
+|-- backup-state/
+|   `-- backup-status        # last scheduled run: running, ok, or failed and why
 |-- keys/
 |   |-- backup-cert.pem
 |   `-- backup-key.pem.enc
@@ -156,6 +158,7 @@ The backup service's mounts in
 | `/backups` | Writable backup destination supplied through `BACKUP_DIR`. |
 | `/keys` | Read-only installation keys directory. The writer uses the certificate, not the private key or its password. |
 | `/minio-data` | Read-only mount of the storage data volume for archiving. |
+| `/state` | Writable `<installation>/backup-state`, holding `backup-status` from each scheduled run. |
 
 The Compose file also has a raw relative backup-path fallback. Running Compose
 outside the desktop's configured environment is not equivalent to using the
@@ -315,14 +318,59 @@ external command output is automatically secret-free.
 [`Clinic.BackupNow()`](../app/internal/clinic/backup.go):
 
 1. Refuses to run if the certificate-presence check says encryption is absent.
-2. Generates a timestamp in Go.
-3. Runs `sh /backup.sh once manual-<timestamp>` using `docker compose exec -T`
+2. Refuses to run if the backup folder's drive has less free space than a
+   database-only backup needs (see below), naming both sizes.
+3. Generates a timestamp in Go.
+4. Runs `sh /backup.sh once manual-<timestamp>` using `docker compose exec -T`
    in the already running `backup` service.
-4. Logs the resulting `care-manual-<timestamp>.dump.enc` path, explicitly
+5. Logs the resulting `care-manual-<timestamp>.dump.enc` path, explicitly
    describing it as database-only.
 
 It does not start a stopped clinic or create a files archive. An execution
-failure reports that CARE must be running to take the backup.
+failure re-checks free space first, so a full drive is reported as such; any
+other failure reports that CARE must be running to take the backup.
+
+### Space checks and the status file
+
+A backup run briefly holds more than its final size: each member is written as
+plaintext, sealed next to it, and only then is the plaintext removed. With `d`
+the dump size and `f` the files archive size of the newest daily set, the peak
+is `max(2d, d + 2f)`. The required space is that peak plus a quarter for growth
+plus 256 MB, and never less than 1 GB. A database-only (manual) run uses `2d`.
+With no earlier set, the script estimates from `pg_database_size` and
+`du -sk /minio-data`; the app uses the 1 GB floor.
+
+The same formula lives in two places that must agree:
+`storage.BackupNeed` in Go and `need_kb` in `backup.sh`.
+
+| Where | Check | On failure |
+| --- | --- | --- |
+| Choosing a folder (setup and Backups tab) | `ValidateBackupDir` compares free space on the chosen drive with the need sized from the *current* folder's backups. | The folder is refused with both sizes. A folder on the clinic data drive is accepted, with a note recommending a USB drive. |
+| Every scheduled run | `check_space` before anything is written. | Nothing is written; `[backup] ERROR: not enough space in the backup folder`; retention skipped. |
+| Any step failing mid-run | `disk_full` re-reads `df`: under 256 MB free, or under the need, is classified as a full drive. | Reason `disk_full` instead of `error`. |
+
+Scheduled runs write `backup-state/backup-status` under the install folder
+(mounted at `/state`), never in the backup folder, which may be the full drive:
+
+```text
+state=failed        # running | ok | failed
+reason=disk_full    # disk_full | error | empty
+at=1767225600
+need_kb=1048576
+free_kb=1024
+message=not enough space in the backup folder
+```
+
+The app reads it on each storage check. `failed` raises the red panel banner
+and an alert on the Backups tab with the sizes and a "Choose another folder"
+button. Independently, if the clinic is running, no run is in progress, and the
+newest backup file is more than 26 hours old, the report is marked `stale`,
+which catches a sidecar that is not running at all. A `running` state older than
+6 hours is treated as abandoned so a killed container cannot hide staleness.
+
+With retention `0` (keep forever) the Backups tab also shows roughly how many
+days of backups still fit: free space minus the need, divided by the newest set's
+size. Under 30 days is shown as `low`.
 
 Manual and scheduled backup creation share the same script implementation,
 including its certificate/database-password guards and locking. There is no
@@ -432,6 +480,7 @@ There is no database/files transaction for pruning.
 | Failure point | What can already exist | Reported behavior |
 | --- | --- | --- |
 | Certificate/password guard or lock acquisition | Existing backups remain; no new set is intentionally written. | Refuse startup/attempt. |
+| Not enough free space | Nothing new. | Refuse before writing; status `failed` / `disk_full`; retention skipped. |
 | Final-name collision | The colliding entry is retained. | Refuse overwrite before the relevant work; scheduled mode checks both names before dumping. |
 | Dump, verification, encryption, or publication | An intermediate file can remain if cleanup also fails. | Fail the step; skip retention. |
 | Files step after dump publication | A new database-only dump may already be visible. | Fail the set; skip retention, rather than claiming a complete set. |
@@ -1146,7 +1195,8 @@ The two runtime deployment sources in scope are:
 
 | Source file | Current role |
 | --- | --- |
-| [`deployments/scripts/backup.sh`](../deployments/scripts/backup.sh) | Unattended loop and manual one-shot mode; encrypted database/files publication, advisory locking, temporary cleanup, and retention. |
+| [`deployments/scripts/backup.sh`](../deployments/scripts/backup.sh) | Unattended loop and manual one-shot mode; free-space check, encrypted database/files publication, advisory locking, temporary cleanup, retention, and the `backup-status` file. |
+| [`storage/backup.go`](../app/internal/storage/backup.go) | Newest-set sizing, `BackupNeed`, days-left estimate, and `backup-status` parsing. |
 | [`deployments/backup.Dockerfile`](../deployments/backup.Dockerfile) | PostgreSQL-image-derived tool image with OpenSSL added. |
 
 ### Older design notes versus current implementation

@@ -120,6 +120,7 @@ services:
       - ./scripts/backup.sh:/backup.sh:ro
       - ${BACKUP_DIR:-./db-backups}:/backups
       - ./keys:/keys:ro
+      - ./backup-state:/state
       - minio-data:/minio-data:ro
     entrypoint: ["/bin/sh", "/backup.sh"]
     depends_on:

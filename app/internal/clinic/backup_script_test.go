@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,13 @@ case "$name" in
 		fi
 		exec "$BACKUP_TEST_FIND" "$@"
 		;;
+	df)
+		if [ -n "$BACKUP_TEST_FREE_KB" ]; then
+			printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\nfixture 99999999 0 %s 1%% /backups\n' "$BACKUP_TEST_FREE_KB"
+			exit 0
+		fi
+		exec "$BACKUP_TEST_DF" "$@"
+		;;
 	sleep)
 		[ "$1" = 86400 ] || exit 97
 		: > "$BACKUP_TEST_ROOT/sleeping"
@@ -131,7 +139,7 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dir := range []string{"bin", "backups", "minio-data"} {
+	for _, dir := range []string{"bin", "backups", "minio-data", "state"} {
 		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -140,6 +148,7 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 		"BACKUP_DIR=/backups":        `BACKUP_DIR="$BACKUP_TEST_ROOT/backups"`,
 		"MINIO_DIR=/minio-data":      `MINIO_DIR="$BACKUP_TEST_ROOT/minio-data"`,
 		"CERT=/keys/backup-cert.pem": `CERT="$BACKUP_TEST_ROOT/cert"`,
+		"STATE_DIR=/state":           `STATE_DIR="$BACKUP_TEST_ROOT/state"`,
 	} {
 		if strings.Count(string(script), old+"\n") != 1 {
 			t.Fatalf("cannot isolate backup script assignment %q", old)
@@ -151,7 +160,7 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"flock", "date", "pg_dump", "pg_restore", "tar", "openssl", "mv", "rm", "find", "sleep"} {
+	for _, name := range []string{"flock", "date", "pg_dump", "pg_restore", "tar", "openssl", "mv", "rm", "find", "sleep", "df"} {
 		if err := os.WriteFile(filepath.Join(root, "bin", name), []byte(backupScriptCommands), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -172,6 +181,10 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	df, err := exec.LookPath("df")
+	if err != nil {
+		t.Fatal(err)
+	}
 	flock, _ := exec.LookPath("flock")
 	return &backupScriptFixture{
 		root:  root,
@@ -185,6 +198,8 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 			"BACKUP_TEST_RM="+rm,
 			"BACKUP_TEST_FIND="+find,
 			"BACKUP_TEST_SLEEP="+sleep,
+			"BACKUP_TEST_DF="+df,
+			"BACKUP_TEST_FREE_KB=",
 			"BACKUP_TEST_FLOCK="+flock,
 			"BACKUP_TEST_FAIL=",
 			"BACKUP_TEST_HOLD=",
@@ -551,5 +566,93 @@ func TestBackupScriptWritersSerialize(t *testing.T) {
 			f.write(t, "wake")
 			runs["daily"].wait(t, 99)
 		})
+	}
+}
+
+func (f *backupScriptFixture) status(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.root, "state", "backup-status"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestBackupScriptRefusesWhenBackupFolderIsFull(t *testing.T) {
+	f := newBackupScriptFixture(t)
+	output := f.start(t, "daily", nil, "BACKUP_TEST_FREE_KB=1024").wait(t, 99)
+	if !strings.Contains(output, "not enough space in the backup folder") || strings.Contains(output, ": SUCCESS") {
+		t.Fatalf("full folder was not refused:\n%s", output)
+	}
+	if strings.Contains(f.trace(t), "daily pg_dump\n") {
+		t.Fatalf("backup started writing on a full folder:\n%s", f.trace(t))
+	}
+	status := f.status(t)
+	for _, want := range []string{"state=failed\n", "reason=disk_full\n", "free_kb=1024\n", "need_kb=1048576\n"} {
+		if !strings.Contains(status, want) {
+			t.Fatalf("status missing %q:\n%s", want, status)
+		}
+	}
+	f.checkFile(t, "care-20260102-030405.dump.enc", false)
+}
+
+func TestBackupScriptSizesNeedFromLatestSet(t *testing.T) {
+	const need = (1024*1024+2*2*1024*1024)*5/4 + 262144
+	for _, tc := range []struct {
+		free int
+		ok   bool
+	}{{need - 1, false}, {need, true}} {
+		t.Run(strconv.Itoa(tc.free), func(t *testing.T) {
+			f := newBackupScriptFixture(t)
+			for name, size := range map[string]int64{
+				"care-20260101-020000.dump.enc":    1 << 30,
+				"files-20260101-020000.tar.gz.enc": 2 << 30,
+			} {
+				fh, err := os.Create(filepath.Join(f.root, "backups", name))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := fh.Truncate(size); err != nil {
+					t.Fatal(err)
+				}
+				if err := fh.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			output := f.start(t, "daily", nil, "BACKUP_TEST_FREE_KB="+strconv.Itoa(tc.free)).wait(t, 99)
+			if strings.Contains(output, "SUCCESS") != tc.ok {
+				t.Fatalf("free=%d KB, need=%d KB:\n%s", tc.free, need, output)
+			}
+			want := "state=ok\n"
+			if !tc.ok {
+				want = "need_kb=" + strconv.Itoa(need) + "\n"
+			}
+			if !strings.Contains(f.status(t), want) {
+				t.Fatalf("status missing %q:\n%s", want, f.status(t))
+			}
+		})
+	}
+}
+
+func TestBackupScriptRecordsOrdinaryFailure(t *testing.T) {
+	f := newBackupScriptFixture(t)
+	f.start(t, "daily", nil, "BACKUP_TEST_FAIL=tar", "BACKUP_TEST_FREE_KB=99999999").wait(t, 99)
+	status := f.status(t)
+	if !strings.Contains(status, "state=failed\n") || !strings.Contains(status, "reason=error\n") {
+		t.Fatalf("ordinary failure recorded as:\n%s", status)
+	}
+}
+
+func TestBackupScriptManualRefusesWhenFull(t *testing.T) {
+	f := newBackupScriptFixture(t)
+	output := f.start(t, "manual", []string{"once", "manual-20260102-030405"}, "BACKUP_TEST_FREE_KB=10").wait(t, 1)
+	if !strings.Contains(output, "not enough space in the backup folder") {
+		t.Fatalf("manual backup on a full folder:\n%s", output)
+	}
+	if strings.Contains(f.trace(t), "manual pg_dump\n") {
+		t.Fatalf("manual backup started writing on a full folder:\n%s", f.trace(t))
+	}
+	if _, err := os.Stat(filepath.Join(f.root, "state", "backup-status")); !os.IsNotExist(err) {
+		t.Fatalf("manual backup touched the daily status: %v", err)
 	}
 }

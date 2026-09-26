@@ -1,4 +1,8 @@
+import { Database, HardDrive, Server } from "lucide-react";
+import { useState } from "react";
+
 import { Spinner } from "@/components/spinner";
+import { StorageRow } from "@/components/storage-meter";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -46,6 +50,7 @@ export function OverviewTab() {
     backups,
     mdnsName,
     setTab,
+    storage,
   } = useCare();
 
   const view = SYSTEM[system === "unknown" ? "stopped" : system];
@@ -54,6 +59,25 @@ export function OverviewTab() {
   const stopped = !running && !partial;
   const unreachable = system === "unknown" && systemDetail !== "";
   const latest = backups[0];
+  const lastRun = storage?.last_run;
+  const backupFailed = lastRun?.state === "failed";
+  const backupStale = storage?.stale ?? false;
+  const backupTitle = backupFailed
+    ? "Last backup failed"
+    : backupStale
+      ? "Backups have stopped"
+      : latest
+        ? "Up to date"
+        : "No backups yet";
+  const backupSub = backupFailed
+    ? lastRun?.reason === "disk_full"
+      ? "The backup drive is full."
+      : lastRun?.message
+        ? `Cause: ${lastRun.message}.`
+        : "See the Backups tab."
+    : latest
+      ? `Last ${shortDate(latest.label)}${latest.encrypted ? ", encrypted" : ""}`
+      : "Run one now or wait for the daily backup";
 
   const copyAddress = () =>
     void navigator.clipboard.writeText(mdnsName).then(
@@ -162,14 +186,15 @@ export function OverviewTab() {
           <div className="text-[11.5px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
             Backups
           </div>
-          <div className="mt-[7px] text-base font-bold text-ink">
-            {latest ? "Up to date" : "No backups yet"}
+          <div
+            className={cn(
+              "mt-[7px] text-base font-bold",
+              backupFailed || backupStale ? "text-danger-ink" : "text-ink",
+            )}
+          >
+            {backupTitle}
           </div>
-          <div className="mt-1 text-[13px] text-muted-foreground">
-            {latest
-              ? `Last ${shortDate(latest.label)}${latest.encrypted ? ", encrypted" : ""}`
-              : "Run one now or wait for the daily backup"}
-          </div>
+          <div className="mt-1 text-[13px] text-muted-foreground">{backupSub}</div>
           <div className="min-h-3.5 flex-1" />
           <div className="flex gap-2">
             <Button onClick={() => setTab("backups")}>View backups</Button>
@@ -183,6 +208,91 @@ export function OverviewTab() {
           </div>
         </Card>
       </div>
+
+      <StorageCard />
     </div>
+  );
+}
+
+const SHARED_DRIVE_NOTE =
+  "Same drive as the clinic's data. A USB drive keeps the backups safe if this computer's drive fails.";
+
+function StorageCard() {
+  const { storage, recheckStorage, setTab } = useCare();
+  const [checking, setChecking] = useState(false);
+
+  const recheck = async () => {
+    setChecking(true);
+    try {
+      await recheckStorage();
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const drives = storage?.drives ?? [];
+  const backup = storage?.backup;
+  const checkedAt = storage?.checked_at
+    ? new Date(storage.checked_at * 1000).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-3 px-5 pt-4 pb-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[11.5px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
+            Storage
+          </div>
+          <div className="mt-0.5 text-[12.5px] text-faint">
+            {checkedAt ? `Checked at ${checkedAt} · every 5 minutes` : "Checking…"}
+          </div>
+        </div>
+        <Button disabled={checking} onClick={() => void recheck()}>
+          {checking ? <Spinner className="size-3.5" /> : null}
+          {checking ? "Checking…" : "Check now"}
+        </Button>
+      </div>
+      {drives.map((drive) => (
+        <StorageRow
+          key={drive.id}
+          className="border-t border-hair"
+          icon={drive.id === "vm" ? Server : HardDrive}
+          label={drive.label}
+          path={drive.id === "vm" ? undefined : drive.path}
+          free={drive.free}
+          total={drive.total}
+          level={drive.level}
+          message={drive.message}
+          note={
+            drive.id === "vm"
+              ? "The virtual disk Rancher Desktop keeps the clinic's database and uploads in."
+              : undefined
+          }
+        />
+      ))}
+      {backup && backup.dir ? (
+        <StorageRow
+          className="border-t border-hair"
+          icon={Database}
+          label="Backups"
+          path={backup.dir}
+          free={backup.free}
+          total={backup.total}
+          level={backup.level}
+          message={backup.message}
+          note={backup.shares_docker_drive ? SHARED_DRIVE_NOTE : undefined}
+          action={
+            backup.level !== "ok" ? (
+              <Button size="sm" onClick={() => setTab("backups")}>
+                Change folder
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : null}
+    </Card>
   );
 }

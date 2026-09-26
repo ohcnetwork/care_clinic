@@ -88,6 +88,58 @@ export type CareUpdate = { backend: string; frontend: string };
 
 export type CareCheck = { running: boolean; found: boolean };
 
+export type StorageLevel = "ok" | "low" | "critical" | "unknown";
+
+export type DiskStatus = {
+  ok: boolean;
+  message: string;
+  how: string;
+  free: number;
+  need: number;
+};
+
+export type StorageDrive = {
+  id: "docker" | "vm";
+  label: string;
+  path: string;
+  free: number;
+  total: number;
+  level: StorageLevel;
+  message: string;
+};
+
+export type BackupSpace = {
+  dir: string;
+  free: number;
+  total: number;
+  need: number;
+  set_bytes: number;
+  days_left: number;
+  shares_docker_drive: boolean;
+  level: StorageLevel;
+  message: string;
+};
+
+export type BackupRun = {
+  state: "" | "ok" | "failed" | "running";
+  reason: "" | "disk_full" | "error";
+  at: number;
+  need_bytes: number;
+  free_bytes: number;
+  message: string;
+};
+
+export type StorageReport = {
+  checked_at: number;
+  level: StorageLevel;
+  headline: string;
+  drives: StorageDrive[] | null;
+  backup: BackupSpace;
+  last_run: BackupRun;
+  newest_backup_at: number;
+  stale: boolean;
+};
+
 export type AppUpdate = {
   current: string;
   version: string;

@@ -158,7 +158,7 @@ func (a *App) ValidateBackupDir(dir string) string {
 		return "That folder already holds backups or a recovery key from another CARE installation. Choose a different folder, and leave that one as it is so those backups stay restorable."
 	}
 	if dir == "" {
-		return ""
+		return a.backupSpaceProblem(target)
 	}
 	info, err := os.Stat(dir)
 	switch {
@@ -183,7 +183,7 @@ func (a *App) ValidateBackupDir(dir string) string {
 	name := probe.Name()
 	_ = probe.Close()
 	_ = os.Remove(name)
-	return ""
+	return a.backupSpaceProblem(target)
 }
 
 func (a *App) SetMDNSName(name string) error {

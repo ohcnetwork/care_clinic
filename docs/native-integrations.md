@@ -37,6 +37,7 @@ This guide describes the current source, not the older behavior recorded in
 - [LAN names and mDNS](#lan-names-and-mdns)
 - [Windows network repair](#windows-network-repair)
 - [Docker and Git prerequisites](#docker-and-git-prerequisites)
+- [Disk space and storage monitoring](#disk-space-and-storage-monitoring)
 - [Health and port checks](#health-and-port-checks)
 - [Login startup and restart detection](#login-startup-and-restart-detection)
 - [Error handling and ownership rules](#error-handling-and-ownership-rules)
@@ -1417,6 +1418,54 @@ approval, additional OS components, login renewal, or restart. Opening an
 already-installed tool is different from downloading one. These helpers do not
 establish whether subsequent clinic image pulls, repository clones, or external
 services are reachable; see [Clinic lifecycle](clinic-lifecycle.md).
+
+## Disk space and storage monitoring
+
+Sources: [diskspace](../app/internal/sys/diskspace/diskspace.go),
+[storage](../app/internal/storage/storage.go), and
+[app_storage.go](../app/app_storage.go).
+
+`diskspace.Of(path)` walks up to the nearest folder that exists, then reads the
+space available to this user (`statfs` on macOS/Linux, `GetDiskFreeSpaceEx` on
+Windows) and a volume id (device number, or the volume mount path on Windows).
+The volume id is how two folders are recognised as the same drive.
+
+### Which drives are measured
+
+| Drive | Path | Why |
+| --- | --- | --- |
+| Clinic data | `storage.DockerDataDir()`: `~/Library/Application Support/rancher-desktop/lima` on macOS, `%LOCALAPPDATA%\rancher-desktop` on Windows, `/var/lib/docker` on Linux. | Images and the Postgres/MinIO volumes live here, inside Rancher Desktop's VM disk. The install folder only holds a few MB of compose files. |
+| Rancher Desktop disk | `docker compose exec -T backup df -Pk /` (macOS/Windows, only while the clinic answers). | The VM disk has its own ceiling (Lima defaults to 100 GB), so the host can have room while the VM is full. |
+| Backups | The configured backup folder. | See [backup space](backups-and-restore.md#space-checks-and-the-status-file). |
+
+### Thresholds
+
+| When | Rule | Effect |
+| --- | --- | --- |
+| Setup, "Free disk space" row | Clinic data drive has at least 30 GB; the install folder's drive, if different, at least 1 GB. | Blocks Continue, like every other row. |
+| After setup, the same row in "See what's wrong" | Clinic data drive has at least 5 GB. | Red row naming the drive. |
+| Background monitor | Below 10 GB is `low`, below 5 GB is `critical`, for each drive. | `low` shows amber on the Overview storage card; `critical` shows the red panel banner and a system notification. |
+
+If a drive cannot be measured the setup row passes with a note rather than
+blocking on an unknown.
+
+### The background monitor
+
+`watchStorage` runs for the server role: first check 20 seconds after launch,
+then every 5 minutes, stopping with the mDNS watcher on shutdown. Each check
+builds a `storage.Report` (drives, backup space, the sidecar's last run, newest
+backup time), caches it for `StorageStatus()`, and emits `care-storage`. The UI
+never polls; it reads the cached report on panel boot, listens for the event,
+and calls `RecheckStorage()` after every panel action and the "Check now"
+button.
+
+A system notification is sent once per distinct critical headline, and re-armed
+when the level drops back below critical. Notifications are best-effort: when
+the OS refuses authorization or the build has no bundle identity, only the
+in-app banner appears.
+
+The monitor only runs while the app is open. The backup script's own space
+check and status file cover the hours the app is closed.
 
 ## Health and port checks
 

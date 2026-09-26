@@ -5,8 +5,10 @@ import type {
   AppState,
   AppUpdate,
   Backup,
+  BackupSpace,
   CarePlugin,
   ChannelStatus,
+  DiskStatus,
   DockerStatus,
   Health,
   ImportedBackup,
@@ -14,6 +16,7 @@ import type {
   NetworkStatus,
   ResidueReport,
   RestartPlan,
+  StorageReport,
   ToolPlan,
   WSLStatus,
 } from "./types";
@@ -48,6 +51,10 @@ declare global {
           ValidatePassword(pw: string): Promise<string>;
           ValidateDomain(name: string): Promise<string>;
           ValidateBackupDir(dir: string): Promise<string>;
+          BackupDirSpace(dir: string): Promise<BackupSpace>;
+          DiskStatus(): Promise<DiskStatus>;
+          StorageStatus(): Promise<StorageReport>;
+          RecheckStorage(): Promise<StorageReport>;
           SetMDNSName(name: string): Promise<void>;
           VerifyAdminPassword(pw: string): Promise<boolean>;
           ClinicAction(action: string, adminPassword: string): Promise<void>;
