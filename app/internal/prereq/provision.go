@@ -2,6 +2,8 @@ package prereq
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,17 +15,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ohcnetwork/care_desktop/app/internal/release"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
 
 type Provisioner struct {
-	Log func(string)
-	run proc.Runner
+	Log  func(string)
+	run  proc.Runner
+	pins *release.Pins
 }
 
-func NewProvisioner(run proc.Runner, log func(string)) *Provisioner {
-	return &Provisioner{Log: log, run: run}
+func NewProvisioner(run proc.Runner, pins *release.Pins, log func(string)) *Provisioner {
+	return &Provisioner{Log: log, run: run, pins: pins}
 }
 
 func (pr *Provisioner) logln(s string) {
@@ -33,8 +37,6 @@ func (pr *Provisioner) logln(s string) {
 }
 
 const (
-	rancherLatestURL = "https://github.com/rancher-sandbox/rancher-desktop/releases/latest"
-	rancherDownload  = "https://github.com/rancher-sandbox/rancher-desktop/releases/download/v"
 	rancherPageURL   = "https://rancherdesktop.io/"
 	dockerEnginePage = "https://docs.docker.com/engine/install/"
 	gitPageURL       = "https://git-scm.com/downloads"
@@ -95,14 +97,17 @@ func (pr *Provisioner) dockerInstallPlan() ToolPlan {
 		p.Detail = "Downloads Rancher Desktop, the open source Docker engine, and installs it. " +
 			"Windows will ask for permission. Keep this computer connected to the internet."
 	case "linux":
-		pm := linuxPackageManager()
-		if pm == "" {
+		if _, ok := linuxArch(runtime.GOARCH); !ok || !hasCommand("systemctl") {
 			p.Action, p.Label = ActionManual, "Get Docker"
-			p.Detail = "Install Docker Engine and the Compose plugin with your distribution's package manager."
+			p.Detail = "Install Docker Engine and the Compose plugin for this system."
 			return p
 		}
-		p.Detail = "Installs Docker Engine and the Compose plugin with " + pm +
-			", then starts it. You'll be asked for your password."
+		if pr.dockerDaemonUp() {
+			p.Detail = "Downloads the Docker Compose plugin and installs it. You'll be asked for your password."
+			return p
+		}
+		p.Detail = "Downloads Docker Engine and the Compose plugin, installs them, and starts Docker. " +
+			"You'll be asked for your password. Keep this computer connected to the internet."
 	default:
 		p.Action, p.Label = ActionManual, "Get Docker"
 		p.Detail = "Install Docker for this system."
@@ -127,12 +132,8 @@ func (pr *Provisioner) GitPlan() ToolPlan {
 		p.Detail = "Asks macOS to install its developer command line tools, which include Git. " +
 			"A system window will appear - choose Install."
 	case "windows":
-		if !hasCommand("winget") {
-			p.Action, p.Label = ActionManual, "Get Git"
-			p.Detail = "Download and install Git for Windows."
-			return p
-		}
-		p.Detail = "Installs Git using Windows' own installer (winget)."
+		p.Detail = "Downloads Git for Windows and installs it. " +
+			"Windows will ask for permission. Keep this computer connected to the internet."
 	case "linux":
 		pm := linuxPackageManager()
 		if pm == "" {
@@ -181,16 +182,11 @@ func (pr *Provisioner) InstallDocker() (string, error) {
 }
 
 func (pr *Provisioner) installDockerDarwin() error {
-	version, err := latestRancherVersion()
+	d, err := rancherDownload(pr.pins, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
 	}
-	arch := "x86_64"
-	if runtime.GOARCH == "arm64" {
-		arch = "aarch64"
-	}
-	name := "Rancher.Desktop-" + version + "." + arch + ".dmg"
-	dmg, err := pr.download(rancherDownload+version+"/"+name, name)
+	dmg, err := pr.download(d)
 	if err != nil {
 		return err
 	}
@@ -237,28 +233,18 @@ func (pr *Provisioner) installDockerWindows() (string, error) {
 		return "", fmt.Errorf("WSL 2 is not on yet, and Rancher Desktop will not install without it; " +
 			"turn it on in the WSL 2 step, restart if Windows asks, then install Docker")
 	}
-	err := pr.installRancherFromGitHub()
-	if err == nil {
-		return "", pr.afterWindowsDockerInstall()
-	}
-	if !hasCommand("winget") {
-		return "", err
-	}
-	pr.logln("Falling back to Windows' own installer (winget), which reports no progress: " + err.Error())
-	if wingetErr := pr.runElevated("winget", "install", "-e", "--id", "SUSE.RancherDesktop",
-		"--accept-package-agreements", "--accept-source-agreements"); wingetErr != nil {
+	if err := pr.installRancherWindows(); err != nil {
 		return "", err
 	}
 	return "", pr.afterWindowsDockerInstall()
 }
 
-func (pr *Provisioner) installRancherFromGitHub() error {
-	version, err := latestRancherVersion()
+func (pr *Provisioner) installRancherWindows() error {
+	d, err := rancherDownload(pr.pins, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
 	}
-	name := "Rancher.Desktop.Setup." + version + ".msi"
-	msi, err := pr.download(rancherDownload+version+"/"+name, name)
+	msi, err := pr.download(d)
 	if err != nil {
 		return err
 	}
@@ -340,64 +326,6 @@ func (pr *Provisioner) afterWindowsDockerInstall() error {
 	return nil
 }
 
-func latestRancherVersion() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), downloadHeaderTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, rancherLatestURL, nil)
-	if err != nil {
-		return "", err
-	}
-	client := downloadClient()
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("could not find the latest Rancher Desktop release: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	version, err := versionFromTagURL(resp.Header.Get("Location"))
-	if err != nil {
-		return "", err
-	}
-	return version, nil
-}
-
-func versionFromTagURL(location string) (string, error) {
-	_, tag, ok := strings.Cut(location, "/releases/tag/v")
-	if !ok || tag == "" || strings.ContainsAny(tag, "/ ") {
-		return "", fmt.Errorf("could not read the latest Rancher Desktop version from %q - "+
-			"install it yourself from %s", location, rancherPageURL)
-	}
-	return tag, nil
-}
-
-func (pr *Provisioner) installDockerLinux() error {
-	pm := linuxPackageManager()
-	if pm == "" {
-		return fmt.Errorf("no supported package manager found - install Docker from %s", dockerHelpURL())
-	}
-	var install string
-	switch pm {
-	case "apt":
-		install = "apt-get update && apt-get install -y docker.io docker-compose-plugin"
-	case "dnf":
-		install = "dnf install -y docker docker-compose-plugin"
-	case "zypper":
-		install = "zypper --non-interactive install docker docker-compose"
-	case "pacman":
-		install = "pacman -Sy --noconfirm docker docker-compose"
-	}
-	sh := install +
-		" && systemctl enable --now docker" +
-		" && usermod -aG docker " + elevate.ShQuote(currentUsername())
-	pr.logln("Installing Docker Engine with " + pm + "...")
-	if err := elevate.Run(sh, true); err != nil {
-		return fmt.Errorf("could not install Docker: %w", err)
-	}
-	pr.logln("Docker installed. If the check below still fails, log out and back in " +
-		"so this account picks up its new 'docker' group membership.")
-	return pr.waitForDocker(30 * time.Second)
-}
-
 func (pr *Provisioner) InstallGit() (string, error) {
 	switch runtime.GOOS {
 	case "darwin":
@@ -410,33 +338,25 @@ func (pr *Provisioner) InstallGit() (string, error) {
 			"Choose Install in the window macOS just opened and wait for it to finish, " +
 			"then choose Check again.", nil
 	case "windows":
-		if !hasCommand("winget") {
-			return "", fmt.Errorf("winget isn't available - install Git from %s", gitPageURL)
-		}
-		pr.logln("Installing Git with winget...")
-		if err := pr.run.Run("winget", "install", "-e", "--id", "Git.Git",
-			"--accept-package-agreements", "--accept-source-agreements"); err != nil {
+		d := gitWindowsDownload(pr.pins)
+		exe, err := pr.download(d)
+		if err != nil {
 			return "", err
 		}
+		defer func() { _ = os.Remove(exe) }()
+		pr.logln("Running the Git for Windows installer. Windows will ask for permission...")
+		if err := pr.runElevated(exe, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCANCEL", "/SP-"); err != nil {
+			return "", fmt.Errorf("could not install Git for Windows: %w", err)
+		}
+		pr.logln("Git installed.")
 		return "Git is installed.\n\nChoose Check again to continue.", nil
 	case "linux":
 		pm := linuxPackageManager()
 		if pm == "" {
 			return "", fmt.Errorf("no supported package manager found - install git from %s", gitPageURL)
 		}
-		var sh string
-		switch pm {
-		case "apt":
-			sh = "apt-get update && apt-get install -y git"
-		case "dnf":
-			sh = "dnf install -y git"
-		case "zypper":
-			sh = "zypper --non-interactive install git"
-		case "pacman":
-			sh = "pacman -Sy --noconfirm git"
-		}
 		pr.logln("Installing git with " + pm + "...")
-		if err := elevate.Run(sh, true); err != nil {
+		if err := elevate.Run(linuxInstallCommand(pm, "git"), true); err != nil {
 			return "", err
 		}
 		return "Git is installed.\n\nChoose Check again to continue.", nil
@@ -646,15 +566,16 @@ func downloadClient() *http.Client {
 	return &http.Client{Transport: tr}
 }
 
-func (pr *Provisioner) download(url, name string) (string, error) {
-	pr.logln("Downloading " + name + " from " + hostOf(url) + "...")
+func (pr *Provisioner) download(d Download) (string, error) {
+	name := d.Name
+	pr.logln("Downloading " + name + " from " + hostOf(d.URL) + "...")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stall := time.AfterFunc(downloadStallTimeout, cancel)
 	defer stall.Stop()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.URL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -672,7 +593,8 @@ func (pr *Provisioner) download(url, name string) (string, error) {
 		return "", err
 	}
 	path := f.Name()
-	_, err = io.Copy(f, &progressReader{
+	sum := sha256.New()
+	_, err = io.Copy(io.MultiWriter(f, sum), &progressReader{
 		r:     resp.Body,
 		total: resp.ContentLength,
 		log:   pr.logln,
@@ -692,7 +614,13 @@ func (pr *Provisioner) download(url, name string) (string, error) {
 		_ = os.Remove(path)
 		return "", closeErr
 	}
-	pr.logln("Downloaded " + name + ".")
+	if got := hex.EncodeToString(sum.Sum(nil)); got != d.SHA256 {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("the downloaded %s is not the file this version of CARE was tested with "+
+			"(expected SHA-256 %s, got %s), so it was not installed - try again, and report this if it keeps happening",
+			name, d.SHA256, got)
+	}
+	pr.logln("Downloaded " + name + " and verified its checksum.")
 	return path, nil
 }
 

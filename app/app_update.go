@@ -131,6 +131,8 @@ const (
 	maxDownloadBytes = 512 << 20
 
 	downloadTimeout = 30 * time.Minute
+
+	updateDownloadAttempts = 2
 )
 
 type AppUpdate struct {
@@ -189,22 +191,13 @@ func (a *App) InstallAppUpdate() error {
 		if !ok {
 			return fmt.Errorf("release %s publishes no checksums, so its installer cannot be verified", version)
 		}
-		dir, err := os.MkdirTemp("", "care-desktop-update-")
-		if err != nil {
-			return err
-		}
-		a.logln("Downloading CARE Desktop " + version + " (" + asset.Name + ")...")
-		path := filepath.Join(dir, asset.Name)
-		sum, err := download(asset.URL, path)
-		if err != nil {
-			return err
-		}
 		want, err := expectedSum(sums.URL, asset.Name)
 		if err != nil {
 			return err
 		}
-		if sum != want {
-			return fmt.Errorf("the downloaded installer does not match the checksum published with release %s", version)
+		path, err := downloadVerified(asset, want, version, a.logln)
+		if err != nil {
+			return err
 		}
 		a.logln("Download verified. Opening the installer...")
 		return a.launchInstaller(path)
@@ -323,6 +316,34 @@ func download(url, path string) (string, error) {
 		return nil
 	})
 	return digest, err
+}
+
+func downloadVerified(asset ghAsset, want, version string, log func(string)) (string, error) {
+	dir, err := os.MkdirTemp("", "care-desktop-update-")
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, asset.Name)
+	var problem string
+	for attempt := 1; attempt <= updateDownloadAttempts; attempt++ {
+		log("Downloading CARE Desktop " + version + " (" + asset.Name + ")...")
+		sum, err := download(asset.URL, path)
+		switch {
+		case err != nil:
+			problem = err.Error()
+		case sum != want:
+			problem = "its SHA-256 is " + sum + " but release " + version + " publishes " + want
+		default:
+			return path, nil
+		}
+		_ = os.Remove(path)
+		if attempt < updateDownloadAttempts {
+			log("The download was incomplete or damaged (" + problem + "). Trying once more...")
+		}
+	}
+	_ = os.RemoveAll(dir)
+	return "", fmt.Errorf("the CARE Desktop %s update didn't download properly and was deleted without being installed (%s). "+
+		"Check this computer's internet connection and choose Update again", version, problem)
 }
 
 func expectedSum(url, name string) (string, error) {

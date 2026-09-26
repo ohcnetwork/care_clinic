@@ -428,6 +428,18 @@ CARE_BE_REPO=backend
 CARE_FE_REPO=frontend
 CARE_BE_REF=main
 CARE_FE_REF=main
+RANCHER_VERSION=1.24.0
+RANCHER_MACOS_ARM64_SHA256=` + strings.Repeat("a", 64) + `
+RANCHER_MACOS_X86_64_SHA256=` + strings.Repeat("b", 64) + `
+RANCHER_WINDOWS_SHA256=` + strings.Repeat("c", 64) + `
+GIT_WINDOWS_VERSION=2.55.0.windows.5
+GIT_WINDOWS_SHA256=` + strings.Repeat("d", 64) + `
+DOCKER_LINUX_VERSION=29.8.1
+DOCKER_LINUX_X86_64_SHA256=` + strings.Repeat("e", 64) + `
+DOCKER_LINUX_AARCH64_SHA256=` + strings.Repeat("f", 64) + `
+COMPOSE_LINUX_VERSION=5.5.1
+COMPOSE_LINUX_X86_64_SHA256=` + strings.Repeat("1", 64) + `
+COMPOSE_LINUX_AARCH64_SHA256=` + strings.Repeat("2", 64) + `
 `)},
 		"install/docker-compose.yml": {Data: []byte("must not be installed\n")},
 	}
