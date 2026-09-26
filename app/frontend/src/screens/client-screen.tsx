@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { bridge } from "@/lib/bridge";
@@ -45,6 +46,12 @@ export function ClientScreen() {
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<FriendlyError | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [removeApp, setRemoveApp] = useState(false);
+  const [canRemoveApp, setCanRemoveApp] = useState(false);
+
+  useEffect(() => {
+    void bridge.CanRemoveApp().then(setCanRemoveApp, () => setCanRemoveApp(false));
+  }, []);
 
   const saved = savedAddress !== "";
   const host = saved ? displayHost(savedAddress) : address.trim();
@@ -61,8 +68,19 @@ export function ClientScreen() {
     setRemoveError(null);
     try {
       await bridge.DisconnectClient();
-      window.location.reload();
     } catch (e) {
+      setRemoveError(friendlyClientError(e));
+      setBusy(false);
+      return;
+    }
+    if (!removeApp) {
+      window.location.reload();
+      return;
+    }
+    try {
+      await bridge.RemoveApp();
+    } catch (e) {
+      setSavedAddress("");
       setRemoveError(friendlyClientError(e));
     } finally {
       setBusy(false);
@@ -189,6 +207,16 @@ export function ClientScreen() {
               data is deleted, and you can connect again at any time.
               Your computer may ask for your password.
             </AlertDialogDescription>
+            {canRemoveApp ? (
+              <label className="flex cursor-pointer items-center gap-2.5 text-[13px] text-ink2">
+                <Checkbox
+                  checked={removeApp}
+                  disabled={busy}
+                  onCheckedChange={(v) => setRemoveApp(v === true)}
+                />
+                <span>Also remove the CARE Desktop app from this computer.</span>
+              </label>
+            ) : null}
             {removeError ? <div className="mt-3"><ErrorPanel error={removeError} /></div> : null}
             <AlertDialogFooter>
               <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>

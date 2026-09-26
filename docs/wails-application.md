@@ -224,8 +224,8 @@ The frontend refreshes `GetState` after connection or cleanup. A saved URL can
 represent an incomplete installation, so **Disconnect** remains
 available after a failed attempt. The confirmation explains that no server
 data is removed. Pre-existing roots are preserved and may still allow browser
-access. Successful uninstall returns to role selection. OS uninstall removes the
-executable separately. See [client trust and removal](native-integrations.md#native-client-setup-and-trust-on-first-use).
+access. Successful uninstall returns to role selection unless **Also remove the CARE
+Desktop app** was ticked; see [removing the desktop app](cleanup-and-uninstall.md#removing-the-desktop-app). See [client trust and removal](native-integrations.md#native-client-setup-and-trust-on-first-use).
 
 #### Server setup and lifecycle
 
@@ -310,6 +310,10 @@ File selection is not restore authorization. Full validation and data replacemen
 | `LogPath()` | `string` | Current diagnostic log path; may be empty if file logging is unavailable. |
 | `OpenLogFolder()` | `void` | Opens/reveals the log with the OS file browser; errors if no log file is available. |
 | `WasAutostartLaunched()` | `boolean` | Whether process arguments contain `--autostart`. |
+| `UninstallRequested()` | `boolean` | Whether the Windows uninstaller started this process with `--uninstall`. |
+| `ExitUninstall()` | `void` | Waits for any running job, then quits. The process exit code tells the uninstaller whether the setup is gone. |
+| `CanRemoveApp()` | `boolean` | Whether this copy can remove itself: a macOS app bundle outside the disk image, or a Windows install with `uninstall.exe`. Always false in `--uninstall` mode. |
+| `RemoveApp()` | `void` | Waits for any running job, refuses while the computer is still set up, then quits and removes the app. |
 | `AutostartEnabled()` | `boolean` | Reads the platform's login-startup state. |
 | `SetAutostart(on)` | `void` | Sync. Changes the platform login-startup entry. |
 

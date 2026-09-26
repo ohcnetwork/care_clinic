@@ -31,6 +31,9 @@ type App struct {
 	advMu   sync.Mutex
 	adv     *mdns.Advertiser
 	advStop chan struct{}
+
+	osUninstall  bool
+	removeTarget string
 }
 
 func NewApp(installFS fs.FS, log *applog.Logger) (*App, error) {

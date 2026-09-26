@@ -7,6 +7,7 @@ import { PanelScreen } from "@/screens/panel/panel-screen";
 import { SetupScreen } from "@/screens/setup/setup-screen";
 import { RoleScreen } from "@/screens/role-screen";
 import { ClientScreen } from "@/screens/client-screen";
+import { RemoveScreen } from "@/screens/remove-screen";
 import { useCare } from "@/state/care-store";
 import { EMPTY_SETUP_FORM, type SetupForm } from "@/state/forms";
 
@@ -34,9 +35,13 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      {care.ready && care.flow !== "role" && care.flow !== "client" ? <Rail /> : null}
+      {care.ready && care.flow !== "role" && care.flow !== "client" && care.flow !== "remove" ? (
+        <Rail />
+      ) : null}
       {care.ready ? (
-        care.flow === "role" ? (
+        care.flow === "remove" ? (
+          <RemoveScreen />
+        ) : care.flow === "role" ? (
           <RoleScreen />
         ) : care.flow === "client" ? (
           <ClientScreen />

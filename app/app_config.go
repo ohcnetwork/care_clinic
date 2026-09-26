@@ -187,11 +187,11 @@ func (a *App) ClearRole() error {
 		if cfg.Role == "" {
 			return nil
 		}
-		installed, err := a.installDirInUse()
+		set, err := a.setUp()
 		if err != nil {
 			return err
 		}
-		if installed || cfg != (Config{Role: cfg.Role, MDNSName: cfg.MDNSName}) {
+		if set {
 			return fmt.Errorf("this computer is already set up as a %s; uninstall its current setup first", cfg.Role)
 		}
 		if err := a.resetConfigAfterUninstall(); err != nil {

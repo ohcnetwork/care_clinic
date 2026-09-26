@@ -18,6 +18,9 @@ import (
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.fitWindowToScreen()
+	if a.osUninstall {
+		return
+	}
 	a.refreshInstallDir()
 	a.advStop = make(chan struct{})
 	a.startAdvertise()
@@ -147,7 +150,7 @@ func (a *App) beforeClose(context.Context) (prevent bool) {
 	if a.closing {
 		return false
 	}
-	if a.loadConfig().Role != roleServer {
+	if a.osUninstall || a.loadConfig().Role != roleServer {
 		a.closing = true
 		return false
 	}

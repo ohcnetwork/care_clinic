@@ -344,7 +344,7 @@ replaced. Only the draft job has write permission.
 
 macOS preserves the existing optional Developer ID signing/notarization flow and
 secret names; without credentials it retains Wails' ad-hoc signature. Windows
-application and installer are signed through SignPath when its configuration is
+application, uninstaller and installer are signed through SignPath when its configuration is
 present, otherwise left unsigned. The release manifest records each platform's
 actual status; these remain preview releases.
 

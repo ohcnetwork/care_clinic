@@ -75,6 +75,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_plugins.go`](../app/app_plugins.go) | Authorized plugin configuration access through the domain manager. | [Configuration](configuration-and-settings.md). |
 | [`app_backup.go`](../app/app_backup.go) | Listing/import inspection, restore dispatch, backup picker, and backup-directory changes. | [Backups](backups-and-restore.md), [Wails application](wails-application.md). |
 | [`app_uninstall.go`](../app/app_uninstall.go) | Authorized normal uninstall, removal checkpoint, post-cleanup scan, local-state cleanup and event. | [Cleanup](cleanup-and-uninstall.md). |
+| [`app_osremove.go`](../app/app_osremove.go) | `--uninstall`/`--uninstall-check` modes for the Windows uninstaller, the shared "still set up" check, and in-app removal of the desktop app. | [Cleanup](cleanup-and-uninstall.md#removing-the-desktop-app). |
 | [`app_residue.go`](../app/app_residue.go) | Residue scanning, recovery of old install location, confirmed purge, preserving the selected first-run name. | [Cleanup](cleanup-and-uninstall.md). |
 | [`password.go`](../app/password.go) | Shared setup password policy. | [Wails application](wails-application.md). |
 | [`app_env_test.go`](../app/app_env_test.go) | Synthetic-app regressions for concurrent settings reads, guards, conflicting writes, and saved retention values. | [Configuration](configuration-and-settings.md). |
@@ -145,6 +146,11 @@ app/internal/
     |   |-- applog.go
     |   |-- dir.go
     |   `-- rotate.go
+    |-- appremoval/
+    |   |-- appremoval.go
+    |   |-- trash_darwin.go
+    |   |-- trash_other.go
+    |   `-- appremoval_test.go
     |-- atomicfile/
     |   |-- atomicfile.go
     |   |-- replace_darwin.go
@@ -195,6 +201,7 @@ app/internal/
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
 | [`sys/proc`](../app/internal/sys/proc) | Child-process creation, runner context/output, PATH repair. | [Native integrations](native-integrations.md). |
 | [`sys/atomicfile`](../app/internal/sys/atomicfile) | Durable single-file replacement across OSes. | [Native integrations](native-integrations.md). |
+| [`sys/appremoval`](../app/internal/sys/appremoval) | Locating and removing the installed desktop app (macOS Trash, Windows uninstaller), other-instance and other-account checks. | [Cleanup](cleanup-and-uninstall.md#removing-the-desktop-app). |
 | [`sys/applog`](../app/internal/sys/applog) | Diagnostic sink, native log location, bounded rotation. | [Native integrations](native-integrations.md). |
 | [`sys/elevate`](../app/internal/sys/elevate) | Interpreter quoting and batching privileged native steps. | [Native integrations](native-integrations.md). |
 | [`sys/hosts`](../app/internal/sys/hosts) | Owned loopback hostname entries and verified removal. | [Native integrations](native-integrations.md). |
@@ -237,6 +244,8 @@ app/frontend/
     |   `-- run-steps.ts
     |-- state/
     |   `-- care-store.tsx
+    |-- screens/
+    |   `-- remove-screen.tsx
     `-- screens/panel/
         |-- advanced-tab.tsx
         |-- update-panel.tsx
@@ -254,6 +263,7 @@ app/frontend/
 | [`care-store.tsx`](../app/frontend/src/state/care-store.tsx) | Async-job completion handling, boot/start request, status polling, restore-pending behavior. |
 | [`run-steps.ts`](../app/frontend/src/lib/run-steps.ts) | Progress milestones derived from backend log messages. |
 | [`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx) | Collects the local admin password and passes it to protected settings/plugin/removal requests. |
+| [`remove-screen.tsx`](../app/frontend/src/screens/remove-screen.tsx) | The screen the Windows uninstaller opens: server uninstall, client disconnect or unfinished-setup cleanup, then exit. |
 | [`update-panel.tsx`](../app/frontend/src/screens/panel/update-panel.tsx) | The Advanced -> Updates section: CARE branch status and the desktop release updater. |
 | [`env-editor.tsx`](../app/frontend/src/screens/panel/env-editor.tsx) | Concurrent environment reads, draft changes, writes and apply action. |
 | [`env-file.ts`](../app/frontend/src/lib/env-file.ts) | Line-based environment parsing, value quoting, change application. |
