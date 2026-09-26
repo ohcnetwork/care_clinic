@@ -168,8 +168,12 @@ These checks do not stage the kit or build a release.
 | Third-party bases | `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE`, `CORAZA_VERSION`. |
 | Built-image names | `BACKUP_IMAGE`, `CADDY_WAF_IMAGE`, `BACKEND_IMAGE`, `FRONTEND_IMAGE`. |
 | CARE sources | `CARE_BE_REPO`, `CARE_FE_REPO`, `CARE_BE_REF`, `CARE_FE_REF`. |
+| Prerequisite installers | `RANCHER_VERSION`, `RANCHER_MACOS_ARM64_SHA256`, `RANCHER_MACOS_X86_64_SHA256`, `RANCHER_WINDOWS_SHA256`, `GIT_WINDOWS_VERSION`, `GIT_WINDOWS_SHA256`, `DOCKER_LINUX_VERSION`, `DOCKER_LINUX_X86_64_SHA256`, `DOCKER_LINUX_AARCH64_SHA256`, `COMPOSE_LINUX_VERSION`, `COMPOSE_LINUX_X86_64_SHA256`, `COMPOSE_LINUX_AARCH64_SHA256`. |
 
-The version format is `X.Y.Z` or `X.Y.Z-dev`.
+The version format is `X.Y.Z` or `X.Y.Z-dev`. `RANCHER_VERSION`,
+`DOCKER_LINUX_VERSION`, and `COMPOSE_LINUX_VERSION` are `X.Y.Z`,
+`GIT_WINDOWS_VERSION` is `X.Y.Z.windows.N`, and each `*_SHA256` is 64 lowercase
+hex characters; see [pinned prerequisite downloads](native-integrations.md#pinned-prerequisite-downloads).
 
 `CARE_BE_REF` and `CARE_FE_REF` name the **branch** a release follows, not a
 commit. Releases currently track `develop`: a branch of verified commits, so
@@ -194,8 +198,9 @@ Manual releases derive their identity from the selected commit:
 | Automatically created tag | `vX.Y.Z`, pointing to the workflow's source commit. |
 | CARE backend and frontend refs | A branch name to follow, or a full commit hash to pin. |
 
-The workflow rejects missing/duplicate manifest identity values and an existing
-release version before building installers. Maintainers do not need to edit
+The workflow rejects missing/duplicate manifest identity values, an existing
+release version, and any pinned prerequisite whose download is missing or whose
+SHA-256 differs before building installers. Maintainers do not need to edit
 Wails metadata or create tags. See the [release runbook](releases.md) for preparing,
 building, reviewing, publishing, and recovering a release.
 

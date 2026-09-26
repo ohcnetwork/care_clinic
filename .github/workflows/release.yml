@@ -87,9 +87,72 @@ jobs:
               exit 1 ;;
           esac
 
+  prerequisites:
+    name: Verify pinned prerequisites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - name: Download each pinned installer and compare its SHA-256
+        run: |
+          node <<'PREREQS'
+          const fs = require("fs");
+          const crypto = require("crypto");
+          const env = fs.readFileSync("deployments/.env", "utf8");
+          const value = key => {
+            const matches = [...env.matchAll(new RegExp(`^${key}=([^\\r\\n]*)$`, "gm"))];
+            if (matches.length !== 1) throw new Error(`Expected one ${key} in deployments/.env`);
+            return matches[0][1].trim();
+          };
+          const numeric = key => {
+            const version = value(key);
+            if (!/^[0-9]+\.[0-9]+\.[0-9]+$/.test(version)) throw new Error(`${key} must be X.Y.Z`);
+            return version;
+          };
+          const rancher = numeric("RANCHER_VERSION");
+          const docker = numeric("DOCKER_LINUX_VERSION");
+          const compose = numeric("COMPOSE_LINUX_VERSION");
+          const git = value("GIT_WINDOWS_VERSION");
+          const gitMatch = git.match(/^([0-9]+\.[0-9]+\.[0-9]+)\.windows\.([1-9][0-9]*)$/);
+          if (!gitMatch) throw new Error("GIT_WINDOWS_VERSION must be X.Y.Z.windows.N");
+          const gitName = `Git-${gitMatch[1]}${gitMatch[2] === "1" ? "" : "." + gitMatch[2]}-64-bit.exe`;
+          const rancherReleases = `https://github.com/rancher-sandbox/rancher-desktop/releases/download/v${rancher}/`;
+          const downloads = [
+            {key: "RANCHER_MACOS_ARM64_SHA256", url: `${rancherReleases}Rancher.Desktop-${rancher}.aarch64.dmg`},
+            {key: "RANCHER_MACOS_X86_64_SHA256", url: `${rancherReleases}Rancher.Desktop-${rancher}.x86_64.dmg`},
+            {key: "RANCHER_WINDOWS_SHA256", url: `${rancherReleases}Rancher.Desktop.Setup.${rancher}.msi`},
+            {key: "GIT_WINDOWS_SHA256", url: `https://github.com/git-for-windows/git/releases/download/v${git}/${gitName}`},
+            ...["x86_64", "aarch64"].flatMap(arch => [
+              {key: `DOCKER_LINUX_${arch.toUpperCase()}_SHA256`, url: `https://download.docker.com/linux/static/stable/${arch}/docker-${docker}.tgz`},
+              {key: `COMPOSE_LINUX_${arch.toUpperCase()}_SHA256`, url: `https://github.com/docker/compose/releases/download/v${compose}/docker-compose-linux-${arch}`},
+            ]),
+          ].map(download => ({...download, expected: value(download.key)}));
+          const verify = async ({key, url, expected}) => {
+            if (!/^[0-9a-f]{64}$/.test(expected)) throw new Error(`${key} must be 64 lowercase hex characters`);
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`${url} returned HTTP ${response.status}`);
+            const hash = crypto.createHash("sha256");
+            for await (const chunk of response.body) hash.update(chunk);
+            const actual = hash.digest("hex");
+            if (actual !== expected) throw new Error(`${key}=${expected} but ${url} has SHA-256 ${actual}`);
+            console.log(`${actual}  ${url}`);
+          };
+          Promise.allSettled(downloads.map(verify)).then(results => {
+            const failures = results.filter(result => result.status === "rejected");
+            for (const failure of failures) console.log(`::error::${failure.reason.message}`);
+            if (failures.length > 0) process.exitCode = 1;
+          });
+          PREREQS
+
   checks:
     name: Check and build selected commit
-    needs: prepare
+    needs: [prepare, prerequisites]
     uses: ./.github/workflows/ci.yml
 
   # SignPath signs PE files but cannot open an NSIS installer, so the application
@@ -436,6 +499,17 @@ jobs:
           - Exact dependency pins: release-config.env
           - Build identity: release-manifest.json
           - File integrity: SHA256SUMS (not a publisher signature)
+
+          ### Verify your download
+
+          A damaged download is rejected on its own: the Windows installer checks itself
+          before it runs and asks for a new copy, and macOS will not open a damaged disk
+          image. To check a file by hand, compare its SHA-256 with its line in SHA256SUMS:
+
+              Windows (PowerShell): Get-FileHash CARE-Desktop-$VERSION-windows-amd64-setup.exe
+              macOS (Terminal):     shasum -a 256 CARE-Desktop-$VERSION-macos.dmg
+
+          If they differ, delete the file and download it again.
 
           Before publishing, review the installers, test on a disposable clinic,
           and add upgrade notes, database migration requirements, and known limitations.

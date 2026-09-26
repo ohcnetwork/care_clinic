@@ -244,11 +244,11 @@ executable separately. See [client trust and removal](native-integrations.md#nat
 | `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves the branch heads and builds a newer commit into the `-next` images. A network failure is logged, not surfaced. A check already in flight is joined rather than refused, so pressing "Check now" during the automatic check is not an error. |
 | `DismissCareUpdate()` | `void` | Sync. Records the staged commits as declined so the banner stops. The staged build still applies at the next start. |
 | `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
-| `InstallAppUpdate()` | `void` | Job. Downloads this platform's installer, verifies it against the release `SHA256SUMS`, launches it, and quits. |
+| `InstallAppUpdate()` | `void` | Job. Downloads this platform's installer, verifies it against the release `SHA256SUMS` (retrying once), launches it, and quits. |
 
 `InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job is refused as "an operation is still running". `quitAfterJob` waits for the job lock to be released and quits then.
 
-The download is capped and checksum-verified before it is launched: an installer arrives from the network and replaces the application, so an unbounded or unverified body is not something a clinic should be asked to run. Windows runs the downloaded installer, which needs this app closed. macOS opens the disk image and leaves the copy to the operator; in-place bundle replacement is not implemented.
+The download is capped and checksum-verified before it is launched: an installer arrives from the network and replaces the application, so an unbounded or unverified body is not something a clinic should be asked to run. A download that fails or whose SHA-256 differs from `SHA256SUMS` is deleted and fetched once more, since a dropped connection is the usual cause; if the second attempt is also bad, the temporary folder is removed and the operator is told the update didn't download properly and to choose Update again. Nothing unverified is ever opened. Windows runs the downloaded installer, which needs this app closed. macOS opens the disk image and leaves the copy to the operator; in-place bundle replacement is not implemented.
 | `ScanResidue()` | `ResidueReport` | Query. Inspects owned files, Docker resources, saved password presence, and native traces. Inspection errors propagate. |
 | `PurgeResidue()` | `void` | Sync. Refuses a normal installed clinic; requires a native destructive confirmation when residue exists. Preserves backups. |
 
