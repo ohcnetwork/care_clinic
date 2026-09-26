@@ -33,6 +33,7 @@ protection.
 | `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE` | Deliberately chosen image versions; use immutable digests when available. |
 | `CORAZA_VERSION` | The WAF module version used to build the proxy. |
 | `BACKUP_IMAGE`, `CADDY_WAF_IMAGE`, `BACKEND_IMAGE`, `FRONTEND_IMAGE` | Local output image names. These are not upstream version selectors; normally leave them alone. |
+| `RANCHER_*`, `GIT_WINDOWS_*`, `DOCKER_LINUX_*`, `COMPOSE_LINUX_*` | The exact Rancher Desktop, Git for Windows, and Linux Docker Engine/Compose downloads the app installs. See [below](#bump-a-pinned-prerequisite). |
 
 Changing these branches changes what every installed clinic follows from its
 next update check onward, not only what this release ships. Only point them at
@@ -40,6 +41,38 @@ a branch whose commits are verified.
 
 Do not add passwords, signing credentials, or clinic-specific data to this file:
 the exact file is embedded in the app and attached to the release.
+
+### Bump a pinned prerequisite
+
+Only bump to a stable upstream release, and test the new installer on a clean
+machine for each platform before releasing it.
+
+1. Set the version without a leading `v`: `RANCHER_VERSION` (for example
+   `1.24.0`), `GIT_WINDOWS_VERSION` (the Git for Windows tag, for example
+   `2.55.0.windows.5`), `DOCKER_LINUX_VERSION` (a `docker-<version>.tgz` listed at
+   `download.docker.com/linux/static/stable/x86_64/`, for example `29.8.1`), or
+   `COMPOSE_LINUX_VERSION` (the `docker/compose` release, for example `5.5.1`).
+2. Compute the SHA-256 of each file from its official release page:
+
+   ```sh
+   v=1.24.0; r=https://github.com/rancher-sandbox/rancher-desktop/releases/download/v$v
+   for f in Rancher.Desktop-$v.aarch64.dmg Rancher.Desktop-$v.x86_64.dmg Rancher.Desktop.Setup.$v.msi; do
+     curl -fsSL "$r/$f" | shasum -a 256
+   done
+   curl -fsSL https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.5/Git-2.55.0.5-64-bit.exe | shasum -a 256
+   for a in x86_64 aarch64; do
+     curl -fsSL https://download.docker.com/linux/static/stable/$a/docker-29.8.1.tgz | shasum -a 256
+     curl -fsSL https://github.com/docker/compose/releases/download/v5.5.1/docker-compose-linux-$a | shasum -a 256
+   done
+   ```
+
+3. Put each hash in its `*_SHA256` key. Rancher also publishes a
+   `<file>.sha512sum` beside each installer, and Compose a
+   `docker-compose-linux-<arch>.sha256`; checking against them confirms the file
+   you hashed is the one upstream released.
+
+The release workflow downloads each pinned installer again and fails if any hash
+differs, so a wrong or missing value cannot reach a draft.
 
 `deployments/.env` is the version source of truth. Do not maintain
 `app/wails.json`'s `info.productVersion` by hand. The staging script synchronizes
@@ -70,6 +103,7 @@ succeeds. For `CARE_DESKTOP_VERSION=0.1.1`, the tag is `v0.1.1`.
 | Stage | Behavior |
 | --- | --- |
 | Validate | Reject malformed/duplicate version values, moving FE/BE refs, and a version that already has a draft or published release. |
+| Verify prerequisites | In parallel with validation, download every pinned Rancher Desktop, Git for Windows, Docker Engine, and Compose file from upstream and compare its SHA-256 with `deployments/.env`. A missing file or a different hash fails the release before anything is built. |
 | Check and build | Call the same CI workflow used by PRs: lint, race tests, frontend checks, and real macOS/Windows native builds. No separate untested release rebuild. |
 | Windows signing | With the SignPath configuration, submit the CI-built `CARE Desktop.exe` and `uninstall.exe` for signing in one request, rebuild the NSIS installer around the signed files with the installer inputs CI produced, and submit the installer for signing. Each request waits for an approver. Without the configuration, both jobs are skipped and the CI installer is used unsigned. |
 | macOS signing | With the existing credentials, sign the app with hardened runtime, notarize/staple it, then sign and notarize/staple the DMG. Otherwise explicitly report ad-hoc signing. |
@@ -94,6 +128,21 @@ The manifest's `source_commit` identifies the desktop source. The configuration
 records the CARE FE/BE revisions and image pins. Checksums detect altered or
 incomplete downloads; they are **not** publisher signatures or clinic TLS
 certificate fingerprints.
+
+Damaged downloads are rejected without anyone comparing checksums by hand:
+
+- **First install on Windows:** `project.nsi` sets `CRCCheck force`, so the
+  installer verifies itself before it runs. A truncated or corrupted copy stops
+  with NSIS's "Installer integrity check has failed… obtain a new copy" message,
+  and `/NCRC` cannot skip the check. A test fails if the setting is removed.
+- **First install on macOS:** the UDZO disk image carries its own checksums, and
+  macOS refuses to open a damaged one.
+- **In-app updates:** the app checks the installer against `SHA256SUMS`, retries
+  a bad download once, then deletes it and asks the operator to update again. See
+  [app updates](wails-application.md).
+
+The draft's notes include a "Verify your download" section with the
+`Get-FileHash` and `shasum -a 256` commands for checking a file by hand.
 
 The combined package is also retained as the `care-release-assets` workflow
 artifact for 14 days. These temporary Actions artifacts are for maintainers;

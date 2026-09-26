@@ -105,8 +105,8 @@ environment, browser, or architecture is supported or has been integration-teste
 | Atomic replacement | Rename within the destination directory, then sync that directory. | `MoveFileEx` with replacement and write-through flags. | Same Unix replacement implementation as macOS. |
 | Login startup | Per-user LaunchAgent plist. | Per-user `HKCU` Run value. | Per-user `.desktop` autostart file under `~/.config`. |
 | Restart detection/action | No pending-restart detection; `Now` returns an unsupported error. | Two registry-key probes; restart action schedules `shutdown /r` after five seconds. | No pending-restart detection; `Now` returns an unsupported error. |
-| Automated Docker setup | Download architecture-selected Rancher Desktop DMG. | Prefer `winget`, otherwise download and run the Rancher Desktop MSI. | Package-manager commands plus `systemctl` and `usermod`. |
-| Automated Git setup | Launch Command Line Tools installer with `xcode-select --install`. | `winget`, otherwise a manual-download plan. | Supported package manager, otherwise a manual plan. |
+| Automated Docker setup | Download the pinned, architecture-selected Rancher Desktop DMG and verify its SHA-256. | Download the pinned Rancher Desktop MSI, verify its SHA-256, and run it. | Download Docker's pinned static engine and Compose plugin, verify their SHA-256, install them with a systemd unit, `groupadd`, and `usermod`. |
+| Automated Git setup | Launch Command Line Tools installer with `xcode-select --install`. | Download the pinned Git for Windows installer, verify its SHA-256, and run it silently. | Supported package manager, otherwise a manual plan. |
 
 Other `GOOS` values are not a general supported-platform promise. For example,
 some helpers have default branches, but `atomicfile` only supplies replacement
@@ -1054,9 +1054,10 @@ status request.
 - If Docker's daemon is not answering but an installation is detected, the plan
   offers to open/start Docker.
 - Otherwise Docker gets an install plan, or a manual plan on an unsupported
-  platform/package-manager combination.
-- Git uses installation plans where implemented; Windows without `winget` and
-  Linux without a supported package manager get manual guidance.
+  platform, including Linux on an architecture other than x86_64/aarch64 or
+  without `systemctl`.
+- Git uses installation plans where implemented; Linux without a supported
+  package manager gets manual guidance.
 
 Plan selection is deliberately small. For example, an already-running daemon
 with the wrong container mode or missing Compose can still lead to an install
@@ -1089,17 +1090,11 @@ with `DOCKER_HOST` pinned to Rancher Desktop's socket or named pipe (see
 installed" rather than "not running" when the Rancher Desktop application is
 absent, even if some other `docker` binary is on PATH.
 
-Asset names carry the release version, so there is no fixed download URL.
-`latestRancherVersion` sends a `HEAD` request to
-`https://github.com/rancher-sandbox/rancher-desktop/releases/latest` with
-redirects disabled and reads the version out of the `Location` tag URL.
-`versionFromTagURL` rejects a missing or unexpected location rather than
-building a download URL for an empty version. This avoids both a pinned version
-that rots and the rate-limited JSON API.
-
-The downloader then fetches
-`.../releases/download/v<version>/Rancher.Desktop-<version>.aarch64.dmg` for an
-arm64 build, or the `x86_64` asset otherwise. It requests administrator
+The Rancher Desktop version is pinned, never resolved at install time: see
+[Pinned prerequisite downloads](#pinned-prerequisite-downloads). The downloader
+fetches `.../releases/download/v<RANCHER_VERSION>/Rancher.Desktop-<version>.aarch64.dmg`
+for an arm64 build, or the `x86_64` asset for an amd64 build, and verifies it
+against `RANCHER_MACOS_ARM64_SHA256` or `RANCHER_MACOS_X86_64_SHA256`. It requests administrator
 approval to attach the image on a temporary mount point it owns, replace
 `/Applications/Rancher Desktop.app`, and detach.
 
@@ -1182,17 +1177,13 @@ can be." `installDockerWindows` keeps the same guard as a backstop for a stale
 interface or a direct call, logging the refusal before returning it — an
 unlogged refusal is invisible when reading back what happened.
 
-With WSL 2 in place the MSI from github.com is the primary route, because it
-reports download progress the way macOS does; winget is the fallback, and it is
-noted in the log as reporting none. Elevating winget is what removed its output
-from the log, since an elevated child started through `Start-Process` does not
-stream back. Its dependency resolution was the reason to prefer it, and that
-reason disappeared once WSL became a prerequisite of its own. The fallback still
-runs `winget install -e --id SUSE.RancherDesktop` with package/source agreement
-acceptance, elevated. The primary route resolves the latest version the same way
-macOS does and downloads
-`.../releases/download/v<version>/Rancher.Desktop.Setup.<version>.msi`. There is
-no architecture-selection branch for that Windows download.
+With WSL 2 in place the app downloads the pinned
+`.../releases/download/v<RANCHER_VERSION>/Rancher.Desktop.Setup.<version>.msi`
+and verifies it against `RANCHER_WINDOWS_SHA256`. There is no winget fallback:
+winget installs whatever version its catalog currently lists, which would defeat
+the pin, and its dependency resolution stopped mattering once WSL became a
+prerequisite of its own. A failed download or checksum is reported as it is.
+There is no architecture-selection branch; the Windows build is amd64 only.
 
 The direct installer runs elevated as
 `msiexec /i <msi> /qn /norestart /l*v <log>`. A quiet install prints nothing, so
@@ -1302,22 +1293,38 @@ each `OpenDocker`:
 
 **Linux Docker**
 
-Package managers are considered in order: `apt` via `apt-get`, `dnf`, `zypper`,
-then `pacman`. The installed Docker/Compose package names are:
+Linux runs Docker Engine natively; Rancher Desktop is never used there. So that
+every distribution gets the same, pinned engine, the app installs Docker's
+official static binaries rather than distribution packages, in
+[linux_docker.go](../app/internal/prereq/linux_docker.go):
 
-| Manager | Docker and Compose packages requested |
-| --- | --- |
-| apt | `docker.io docker-compose-plugin`, after updating the package index |
-| dnf | `docker docker-compose-plugin` |
-| zypper | `docker docker-compose` |
-| pacman | `docker docker-compose`, with a package-database sync |
+1. Download `docker-<DOCKER_LINUX_VERSION>.tgz` from
+   `download.docker.com/linux/static/stable/<arch>/` and
+   `docker-compose-linux-<arch>` from the `docker/compose` GitHub release, and
+   verify both against the pinned SHA-256 for the machine's architecture
+   (`x86_64` or `aarch64`).
+2. In one `pkexec` shell: install `iptables` with the package manager if it is
+   missing (dockerd needs it), extract the archive, copy its binaries to
+   `/usr/local/bin`, copy Compose to
+   `/usr/local/lib/docker/cli-plugins/docker-compose`, write
+   `/etc/systemd/system/docker.service`, `groupadd -f docker`,
+   `usermod -aG docker <user>`, `systemctl daemon-reload`, and
+   `systemctl enable --now docker`. A `trap` removes the root-owned extraction
+   directory whatever the outcome.
 
-The privileged sequence then runs `systemctl enable --now docker` and adds the
-current user to the `docker` group with `usermod -aG docker`. This grants
-substantial host control through Docker, not merely a cosmetic login preference.
-The package assumes those packages, systemd commands, group tools, and `pkexec`
-are available. Distribution repositories vary; these commands are not proof of
-universal Linux installation support.
+The unit runs `/usr/local/bin/dockerd`, which starts and manages its own
+containerd, so no separate containerd service is installed. dockerd gives
+`/var/run/docker.sock` to the `docker` group because that group exists. Adding the
+user to it grants substantial host control through Docker, not merely a cosmetic
+login preference.
+
+If a Docker daemon is already answering and only Compose is missing, the app
+installs just the pinned Compose plugin and leaves the existing engine, including
+a distribution-packaged one, alone.
+
+Static binaries are not updated by the distribution. The engine a clinic runs
+changes only when a CARE release bumps `DOCKER_LINUX_VERSION`, so a Docker
+security fix reaches clinics through a CARE release.
 
 It waits up to the nominal 30-second Linux post-install limit. A newly added
 group may not apply to the current desktop process until logout/login. An error
@@ -1329,8 +1336,11 @@ that every installation step was rolled back.
 - macOS launches `xcode-select --install` and returns instructions to finish the
   separate system dialog. It does not use Homebrew or wait for all tools to
   finish installing.
-- Windows invokes `winget` for `Git.Git`; there is no automatic downloaded
-  installer fallback in this implementation.
+- Windows downloads the pinned Git for Windows installer (`GIT_WINDOWS_VERSION`),
+  verifies it against `GIT_WINDOWS_SHA256`, and runs it elevated with
+  `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-`, which keeps Git's
+  default of adding `Git\cmd` to PATH. The app itself finds it through
+  `proc.AugmentedPath`, which already lists `C:\Program Files\Git\cmd`.
 - Linux installs `git` with the selected package manager under elevation.
 
 Manual information URLs come from `dockerHelpURL()`: `https://rancherdesktop.io/`
@@ -1364,10 +1374,43 @@ verification, and:
 - Progress logs at crossed 10-percent steps when content length is known.
 - HTTP 200 as the required response; other status codes are errors.
 
-Successful downloads return a temporary path whose caller must remove after
-use. Copy/read and file-close failures remove the incomplete download before
-returning an error. There is no persistent installer cache or additional
-application-level checksum/signature verification in this downloader.
+Every download is hashed while it is written. A SHA-256 that differs from the
+pinned value deletes the file and fails the install before anything runs, with
+both hashes in the error. Successful downloads return a temporary path whose
+caller must remove after use. Copy/read and file-close failures remove the
+incomplete download before returning an error. There is no persistent installer
+cache.
+
+### Pinned prerequisite downloads
+
+Installers the app downloads from the internet are pinned in
+[`deployments/.env`](../deployments/.env), which is embedded in the app:
+
+| Key | Download |
+| --- | --- |
+| `RANCHER_VERSION` | Rancher Desktop release from `github.com/rancher-sandbox/rancher-desktop`. |
+| `RANCHER_MACOS_ARM64_SHA256` | `Rancher.Desktop-<version>.aarch64.dmg` |
+| `RANCHER_MACOS_X86_64_SHA256` | `Rancher.Desktop-<version>.x86_64.dmg` |
+| `RANCHER_WINDOWS_SHA256` | `Rancher.Desktop.Setup.<version>.msi` |
+| `GIT_WINDOWS_VERSION` | Git for Windows tag without the `v`, e.g. `2.55.0.windows.5`, from `github.com/git-for-windows/git`. |
+| `GIT_WINDOWS_SHA256` | `Git-<X.Y.Z>[.<N>]-64-bit.exe`; the `.<N>` is omitted for `.windows.1`. |
+| `DOCKER_LINUX_VERSION` | Docker Engine static release from `download.docker.com/linux/static/stable/`. |
+| `DOCKER_LINUX_X86_64_SHA256`, `DOCKER_LINUX_AARCH64_SHA256` | `<arch>/docker-<version>.tgz` |
+| `COMPOSE_LINUX_VERSION` | Docker Compose release from `github.com/docker/compose`, without the `v`. |
+| `COMPOSE_LINUX_X86_64_SHA256`, `COMPOSE_LINUX_AARCH64_SHA256` | `docker-compose-linux-<arch>` |
+
+URLs are derived from these values in
+[`downloads.go`](../app/internal/prereq/downloads.go). The installers are
+linked from upstream, never re-hosted, so CARE does not redistribute them.
+Everything else stays with the operating system: macOS Git comes from Apple's
+`xcode-select`, Linux Git from the distribution's package manager (Git
+publishes no Linux binaries), and WSL 2 from `wsl --install`.
+
+The release workflow's `prerequisites` job downloads every pinned installer and
+fails the release if any URL is gone or any SHA-256 differs. A test runs that
+job's script against a stubbed `fetch` and checks it verifies exactly the URLs
+the app would download. See the [release runbook](releases.md#bump-a-pinned-prerequisite)
+for bumping a version.
 
 Readiness checks do not download tools or request elevation. Installation
 normally needs internet access to vendor/package sources, and may need native

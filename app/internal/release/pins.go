@@ -12,7 +12,12 @@ import (
 
 const EnvFile = ".env"
 
-var versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-dev)?$`)
+var (
+	versionPattern    = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-dev)?$`)
+	numericPattern    = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+	gitWindowsPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+\.windows\.[1-9][0-9]*$`)
+	sha256Pattern     = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
 
 type Pins struct {
 	AppVersion string
@@ -32,6 +37,19 @@ type Pins struct {
 	FeRepo string
 	BeRef  string
 	FeRef  string
+
+	RancherVersion            string
+	RancherMacArm64SHA256     string
+	RancherMacX8664SHA256     string
+	RancherWindowsSHA256      string
+	GitWindowsVersion         string
+	GitWindowsSHA256          string
+	DockerLinuxVersion        string
+	DockerLinuxX8664SHA256    string
+	DockerLinuxAarch64SHA256  string
+	ComposeLinuxVersion       string
+	ComposeLinuxX8664SHA256   string
+	ComposeLinuxAarch64SHA256 string
 }
 
 func (p *Pins) envPinMap() []struct {
@@ -56,6 +74,18 @@ func (p *Pins) envPinMap() []struct {
 		{"CARE_FE_REPO", &p.FeRepo},
 		{"CARE_BE_REF", &p.BeRef},
 		{"CARE_FE_REF", &p.FeRef},
+		{"RANCHER_VERSION", &p.RancherVersion},
+		{"RANCHER_MACOS_ARM64_SHA256", &p.RancherMacArm64SHA256},
+		{"RANCHER_MACOS_X86_64_SHA256", &p.RancherMacX8664SHA256},
+		{"RANCHER_WINDOWS_SHA256", &p.RancherWindowsSHA256},
+		{"GIT_WINDOWS_VERSION", &p.GitWindowsVersion},
+		{"GIT_WINDOWS_SHA256", &p.GitWindowsSHA256},
+		{"DOCKER_LINUX_VERSION", &p.DockerLinuxVersion},
+		{"DOCKER_LINUX_X86_64_SHA256", &p.DockerLinuxX8664SHA256},
+		{"DOCKER_LINUX_AARCH64_SHA256", &p.DockerLinuxAarch64SHA256},
+		{"COMPOSE_LINUX_VERSION", &p.ComposeLinuxVersion},
+		{"COMPOSE_LINUX_X86_64_SHA256", &p.ComposeLinuxX8664SHA256},
+		{"COMPOSE_LINUX_AARCH64_SHA256", &p.ComposeLinuxAarch64SHA256},
 	}
 }
 
@@ -92,6 +122,32 @@ func Load(env []byte) (*Pins, error) {
 	}
 	if !versionPattern.MatchString(p.AppVersion) {
 		return nil, fmt.Errorf("CARE_DESKTOP_VERSION must be X.Y.Z or X.Y.Z-dev")
+	}
+	for key, version := range map[string]string{
+		"RANCHER_VERSION":       p.RancherVersion,
+		"DOCKER_LINUX_VERSION":  p.DockerLinuxVersion,
+		"COMPOSE_LINUX_VERSION": p.ComposeLinuxVersion,
+	} {
+		if !numericPattern.MatchString(version) {
+			return nil, fmt.Errorf("%s must be X.Y.Z", key)
+		}
+	}
+	if !gitWindowsPattern.MatchString(p.GitWindowsVersion) {
+		return nil, fmt.Errorf("GIT_WINDOWS_VERSION must be X.Y.Z.windows.N")
+	}
+	for key, sum := range map[string]string{
+		"RANCHER_MACOS_ARM64_SHA256":   p.RancherMacArm64SHA256,
+		"RANCHER_MACOS_X86_64_SHA256":  p.RancherMacX8664SHA256,
+		"RANCHER_WINDOWS_SHA256":       p.RancherWindowsSHA256,
+		"GIT_WINDOWS_SHA256":           p.GitWindowsSHA256,
+		"DOCKER_LINUX_X86_64_SHA256":   p.DockerLinuxX8664SHA256,
+		"DOCKER_LINUX_AARCH64_SHA256":  p.DockerLinuxAarch64SHA256,
+		"COMPOSE_LINUX_X86_64_SHA256":  p.ComposeLinuxX8664SHA256,
+		"COMPOSE_LINUX_AARCH64_SHA256": p.ComposeLinuxAarch64SHA256,
+	} {
+		if !sha256Pattern.MatchString(sum) {
+			return nil, fmt.Errorf("%s must be 64 lowercase hex characters", key)
+		}
 	}
 	return &p, nil
 }

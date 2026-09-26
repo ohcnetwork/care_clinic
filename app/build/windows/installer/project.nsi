@@ -48,6 +48,8 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 # Enable HiDPI support. https://nsis.sourceforge.io/Reference/ManifestDPIAware
 ManifestDPIAware true
 
+CRCCheck force
+
 !include "MUI.nsh"
 
 !define MUI_ICON "..\icon.ico"
