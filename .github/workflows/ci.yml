@@ -193,12 +193,25 @@ jobs:
             *) echo "::error::Unknown build target: $TARGET"; exit 1 ;;
           esac
           git diff --exit-code -- app/go.mod app/go.sum
+      - name: Write the uninstaller for signing
+        if: matrix.target == 'desktop-windows'
+        shell: pwsh
+        run: |
+          $app = Join-Path $env:GITHUB_WORKSPACE "app\build\bin\CARE Desktop.exe"
+          $uninstaller = Join-Path $env:GITHUB_WORKSPACE "ci-app\uninstall.exe"
+          Push-Location app/build/windows/installer
+          makensis "-DARG_WAILS_AMD64_BINARY=$app" "-DWRITE_UNINSTALLER=$uninstaller" project.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+          Pop-Location
+          Start-Process -FilePath app/build/bin/uninstall-writer.exe -Wait
+          Remove-Item app/build/bin/uninstall-writer.exe
+          if (-not (Test-Path $uninstaller) -or (Get-Item $uninstaller).Length -eq 0) { throw "Uninstaller was not written" }
       - name: Verify Windows version metadata
         if: matrix.target == 'desktop-windows'
         shell: pwsh
         run: |
           $version = (Select-String -Path deployments/.env -Pattern '^CARE_DESKTOP_VERSION=(.+)$').Matches.Groups[1].Value.Trim() -replace '-dev$', ''
-          foreach ($file in @("ci-app/CARE Desktop.exe") + (Get-ChildItem ci-artifacts/*.exe).FullName) {
+          foreach ($file in @("ci-app/CARE Desktop.exe", "ci-app/uninstall.exe") + (Get-ChildItem ci-artifacts/*.exe).FullName) {
             $info = (Get-Item $file).VersionInfo
             "${file}: product='$($info.ProductName)' company='$($info.CompanyName)' version='$($info.ProductVersion)'"
             if ($info.ProductName -ne 'CARE Desktop' -or $info.CompanyName -ne 'Open Healthcare Network Foundation' -or $info.ProductVersion -ne $version) {

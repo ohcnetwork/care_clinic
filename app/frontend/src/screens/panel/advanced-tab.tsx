@@ -95,7 +95,7 @@ function RebuildCard({ adminPassword }: { adminPassword: string }) {
   );
 }
 
-function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }) {
+export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }) {
   const [password, setPassword] = useState("");
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState("");
@@ -168,15 +168,18 @@ function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }) {
   );
 }
 
-function UninstallPanel({ adminPassword }: { adminPassword: string }) {
+export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
   const { busy, uninstall } = useCare();
   const [removeBackups, setRemoveBackups] = useState(false);
   const [removeImages, setRemoveImages] = useState(false);
   const [removeRancher, setRemoveRancher] = useState(false);
   const [showRancher, setShowRancher] = useState(false);
+  const [removeApp, setRemoveApp] = useState(false);
+  const [canRemoveApp, setCanRemoveApp] = useState(false);
 
   useEffect(() => {
     void bridge.RancherDesktopInstalled().then(setShowRancher, () => setShowRancher(false));
+    void bridge.CanRemoveApp().then(setCanRemoveApp, () => setCanRemoveApp(false));
   }, []);
   const [confirming, setConfirming] = useState(false);
 
@@ -213,6 +216,12 @@ function UninstallPanel({ adminPassword }: { adminPassword: string }) {
           </span>
         </label>
       ) : null}
+      {canRemoveApp ? (
+        <label className="flex cursor-pointer items-center gap-2.5 text-[13px] text-ink2">
+          <Checkbox checked={removeApp} onCheckedChange={(v) => setRemoveApp(v === true)} />
+          <span>Also remove the CARE Desktop app from this computer.</span>
+        </label>
+      ) : null}
 
       {confirming ? (
         <div className="flex items-center gap-3 rounded-lg border border-danger-bg bg-danger-tint px-4 py-[13px] text-[12.5px] text-danger-ink">
@@ -224,7 +233,7 @@ function UninstallPanel({ adminPassword }: { adminPassword: string }) {
             variant="destructive"
             onClick={() => {
               setConfirming(false);
-              void uninstall(removeImages, removeBackups, removeRancher, adminPassword);
+              void uninstall(removeImages, removeBackups, removeRancher, adminPassword, removeApp);
             }}
           >
             Yes, delete

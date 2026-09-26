@@ -15,8 +15,9 @@ state for retry. Pre-existing trusted certificates are preserved and may still
 permit browser access; cleanup is not a blanket access revocation.
 Successful client or server uninstall clears the saved role and returns to the
 Server/Client choice. Failed cleanup retains the role and retry state. Retained
-backups do not count as an active server installation. Uninstall the setup before
-using OS uninstall to remove the desktop executable. See
+backups do not count as an active server installation. The desktop app itself is
+removed only after its setup is gone; see
+[removing the desktop app](#removing-the-desktop-app) and
 [client removal](native-integrations.md#removing-client-access).
 
 For a former server now used as a browser client, see
@@ -72,6 +73,49 @@ settings may be forgotten.
 | Remove an installed clinic | `RunUninstall(...)` delegates to `Clinic.Uninstall(options)`. | Live project containers, volumes, and networks; native changes; installed files. Optional known images/cache and owned backup files. Optional Rancher Desktop removal (see below). App also handles autostart and saved state. | Backups when not selected for removal; images/cache when not selected; Rancher Desktop when not selected; normal diagnostic logs. |
 | Recover from failed first setup | `CleanupFailedInstall()` delegates to a specific `Clinic.Uninstall` option set. | Partial project resources, native changes, installed files, saved secret/config. A matching exported key is removed only if it is unused and the final file-deletion phase is reached. | Downloaded images/cache and backup data. Required recovery keys remain. |
 | Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue()`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their recovery key. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
+
+### Removing the desktop app
+
+"Set up" means the same thing everywhere below and in `ClearRole`: a role is saved
+and either the install directory has files or the settings hold more than the
+role and chosen name. A computer that only picked Server or Client is not set up.
+
+**In the app (macOS and Windows).** The uninstall panel and the client
+**Disconnect** dialog show **Also remove the CARE Desktop app from this computer**
+when `CanRemoveApp()` is true. After the cleanup succeeds, `RemoveApp()` waits for
+the job to finish, quits, and then:
+
+- **macOS** moves the `.app` bundle to the Trash with `NSFileManager`, so Finder's
+  Put Back works and no Automation permission is needed. It is refused when the
+  app runs from the disk image or an App Translocation copy.
+- **Windows** starts the installed `uninstall.exe` through `Start-Process`, so
+  Windows shows its usual administrator prompt; the app itself runs without
+  elevation and could not start it directly. The uninstaller then runs the check
+  below and finds nothing set up. Declining the prompt leaves the app installed
+  and says so.
+
+Dragging the app to the Trash on macOS skips all of this;
+[`uninstall-macos.sh`](../uninstall-macos.sh) remains the cleanup for an app that
+was already deleted.
+
+**Windows uninstaller.** Before removing files, `un.onInit` in
+[`project.nsi`](../app/build/windows/installer/project.nsi) runs the installed app
+and waits for its exit code:
+
+| Mode | Started as | What the app does |
+| --- | --- | --- |
+| Interactive | `CARE Desktop.exe --uninstall` | Exits 0 at once if nothing is set up. Otherwise opens the uninstall screen: admin password and the normal uninstall options on a server, **Disconnect** on a client, **Remove everything** for an unfinished setup. It exits 0 once the setup is gone, or 1 on **Keep CARE Desktop** or closing the window. |
+| Silent (`/S`) | `CARE Desktop.exe --uninstall-check` | Never shows a window. Exits 0 if nothing is set up, otherwise 1, so a silent uninstall cannot delete clinic data. |
+
+| Exit code | Uninstaller result |
+| --- | --- |
+| 0 | Removes the app. |
+| 1 | Stops and says the computer still has a clinic setup or connection. |
+| 3 | Stops: another CARE Desktop process was still running after 10 seconds. |
+| 4 | The uninstaller runs as a different Windows account from the signed-in one (an administrator approved it), so the app cannot see that account's setup. Asks before removing anyway; a silent uninstall removes it. |
+
+If the app executable is missing or cannot start, the uninstaller removes the
+files as before. Linux has no packaged build, so there is no equivalent hook.
 
 ### Optional Rancher Desktop removal
 

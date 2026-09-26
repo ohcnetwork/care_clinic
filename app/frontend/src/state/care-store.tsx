@@ -18,7 +18,7 @@ import { errorText, firstLine } from "@/lib/format";
 import { RUN_STEPS, type RunStep } from "@/lib/run-steps";
 import type { Backup, CareUpdate } from "@/types";
 
-export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel";
+export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
 export type PanelTab = "overview" | "backups" | "advanced";
 export type SystemState = "running" | "partial" | "stopped" | "unknown";
@@ -114,7 +114,13 @@ type CareStore = {
   setAutostart: (on: boolean) => Promise<void>;
   restore: (backup: Backup, passphrase: string, adminPassword: string) => Promise<void>;
   restoreFile: (path: string, passphrase: string, adminPassword: string) => Promise<void>;
-  uninstall: (removeImages: boolean, removeBackups: boolean, removeRancher: boolean, adminPassword: string) => Promise<void>;
+  uninstall: (
+    removeImages: boolean,
+    removeBackups: boolean,
+    removeRancher: boolean,
+    adminPassword: string,
+    removeApp?: boolean,
+  ) => Promise<void>;
   log: (line: string) => void;
 };
 
@@ -159,6 +165,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   // lines and only a step change needs to repaint.
   const logRef = useRef<string[]>([]);
   const lastErrorRef = useRef("");
+  const removeAppRef = useRef(false);
 
   // Three things stand between "health check failed" and alarming the operator.
   // Stopping the clinic is a legitimate thing to do, Docker takes about a minute
@@ -397,8 +404,15 @@ export function CareProvider({ children }: { children: ReactNode }) {
   );
 
   const uninstall = useCallback(
-    async (removeImages: boolean, removeBackups: boolean, removeRancher: boolean, adminPassword: string) => {
+    async (
+      removeImages: boolean,
+      removeBackups: boolean,
+      removeRancher: boolean,
+      adminPassword: string,
+      removeApp = false,
+    ) => {
       if (busyRef.current) return;
+      removeAppRef.current = removeApp;
       setBusy(true, "Uninstalling");
       log(
         `\n$ care uninstall${removeImages ? " --images" : ""}${removeBackups ? " --backups" : ""}${removeRancher ? " --rancher" : ""} --yes`,
@@ -522,6 +536,17 @@ export function CareProvider({ children }: { children: ReactNode }) {
       }),
       onCareEvent("care-done", (code: number) => {
         if (flowRef.current === "role" || flowRef.current === "client") return;
+        if (flowRef.current === "remove") {
+          setBusy(false);
+          if (code !== 0) {
+            toast(
+              lastErrorRef.current
+                ? firstLine(lastErrorRef.current)
+                : "Uninstall didn't complete.",
+            );
+          }
+          return;
+        }
         if (flowRef.current !== "panel") {
           if (code !== 0) {
             log(`\n× Setup failed (exit ${code}).`);
@@ -564,6 +589,19 @@ export function CareProvider({ children }: { children: ReactNode }) {
         setCareUpdate(update);
       }),
       onCareEvent("uninstalled", () => {
+        if (flowRef.current === "remove") {
+          void bridge.ExitUninstall();
+          return;
+        }
+        if (removeAppRef.current) {
+          removeAppRef.current = false;
+          void bridge.RemoveApp().catch((e) => {
+            log(`remove app: ${errorText(e)}`);
+            toast(firstLine(errorText(e)));
+            window.location.reload();
+          });
+          return;
+        }
         toast("Uninstalled");
         setBusy(false);
         setFlow("role");
@@ -581,6 +619,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
         setVersion(state.version);
         setMdnsName(state.mdns_name || "care.local");
         setClientURL(state.client_url || "");
+        if (await bridge.UninstallRequested()) {
+          setFlow("remove");
+          return;
+        }
         if (state.role === "client") {
           setFlow("client");
         } else if (state.role === "server" && state.setup_done) {

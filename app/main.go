@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/applog"
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/appremoval"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 
@@ -33,13 +35,34 @@ var assets embed.FS
 var installFS embed.FS
 
 func main() {
+	osUninstall := slices.Contains(os.Args, uninstallFlag)
+	uninstallCheck := slices.Contains(os.Args, uninstallCheckFlag)
 	appLog = applog.Open()
 	defer appLog.Close()
 	appLog.OnFatal = func(msg string) { fatal(errors.New(msg)) }
 
+	if osUninstall || uninstallCheck {
+		if code, done := removalPreflight(); done {
+			appLog.Writef("uninstall: stopped before checking the setup (exit %d)", code)
+			exit(code)
+		}
+	}
+
 	app, err := NewApp(installFS, appLog)
 	if err != nil {
+		if uninstallCheck {
+			appLog.Writef("uninstall: %s", err)
+			exit(exitSetUp)
+		}
 		fatal(err)
+	}
+	if osUninstall || uninstallCheck {
+		code := app.removalExitCode()
+		if code == exitRemovable || uninstallCheck {
+			appLog.Writef("uninstall: setup check finished (exit %d)", code)
+			exit(code)
+		}
+		app.osUninstall = true
 	}
 
 	appLog.Header(app.pins.AppVersion, app.installDir(), app.loadConfig().MDNSName)
@@ -73,11 +96,34 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	if app.osUninstall {
+		exit(app.removalExitCode())
+	}
+	if app.removeTarget != "" {
+		if err := appremoval.Remove(app.removeTarget); err != nil {
+			alert("CARE Desktop was not removed", fmt.Errorf("the clinic setup was removed, but the app could not be: %w", err))
+		}
+	}
+}
+
+func exit(code int) {
+	appLog.Close()
+	os.Exit(code)
 }
 
 func fatal(err error) {
 	const title = "CARE Desktop can't start"
 	appLog.Writef("FATAL %s: %s", title, err)
+	show(title, err)
+	os.Exit(1)
+}
+
+func alert(title string, err error) {
+	appLog.Writef("%s: %s", title, err)
+	show(title, err)
+}
+
+func show(title string, err error) {
 	appLog.Close()
 	fmt.Fprintln(os.Stderr, title+": "+err.Error())
 	switch runtime.GOOS {
@@ -89,5 +135,4 @@ func fatal(err error) {
 			"Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show("+
 				elevate.PSQuote(err.Error())+","+elevate.PSQuote(title)+")").Run()
 	}
-	os.Exit(1)
 }

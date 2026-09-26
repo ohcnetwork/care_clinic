@@ -62,7 +62,9 @@ ManifestDPIAware true
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
 
+!ifndef SIGNED_UNINSTALLER
 !insertmacro MUI_UNPAGE_INSTFILES # Uinstalling page
+!endif
 
 !insertmacro MUI_LANGUAGE "English" # Set the Language of the installer
 
@@ -71,12 +73,21 @@ ManifestDPIAware true
 #!finalize 'signtool --file "%1"'
 
 Name "${INFO_PRODUCTNAME}"
+!ifdef WRITE_UNINSTALLER
+OutFile "..\..\bin\uninstall-writer.exe"
+SetCompress off
+!else
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
+!endif
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
    !insertmacro wails.checkArchitecture
+!ifdef WRITE_UNINSTALLER
+   WriteUninstaller "${WRITE_UNINSTALLER}"
+   Quit
+!endif
 FunctionEnd
 
 Section
@@ -94,8 +105,47 @@ Section
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
 
+!ifdef SIGNED_UNINSTALLER
+    File "/oname=uninstall.exe" "${SIGNED_UNINSTALLER}"
+
+    SetRegView 64
+    WriteRegStr HKLM "${UNINST_KEY}" "Publisher" "${INFO_COMPANYNAME}"
+    WriteRegStr HKLM "${UNINST_KEY}" "DisplayName" "${INFO_PRODUCTNAME}"
+    WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${INFO_PRODUCTVERSION}"
+    WriteRegStr HKLM "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    WriteRegStr HKLM "${UNINST_KEY}" "UninstallString" "$\"$INSTDIR\uninstall.exe$\""
+    WriteRegStr HKLM "${UNINST_KEY}" "QuietUninstallString" "$\"$INSTDIR\uninstall.exe$\" /S"
+
+    ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+    IntFmt $0 "0x%08X" $0
+    WriteRegDWORD HKLM "${UNINST_KEY}" "EstimatedSize" "$0"
+!else
     !insertmacro wails.writeUninstaller
+!endif
 SectionEnd
+
+!ifndef SIGNED_UNINSTALLER
+Function un.onInit
+    ${IfNot} ${FileExists} "$INSTDIR\${PRODUCT_EXECUTABLE}"
+        Return
+    ${EndIf}
+    ${If} ${Silent}
+        ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --uninstall-check' $0
+    ${Else}
+        ExecWait '"$INSTDIR\${PRODUCT_EXECUTABLE}" --uninstall' $0
+    ${EndIf}
+    ${If} $0 == 0
+        Return
+    ${ElseIf} $0 == 3
+        MessageBox MB_OK|MB_ICONEXCLAMATION "CARE Desktop is still open. Quit it, then run the uninstaller again." /SD IDOK
+    ${ElseIf} $0 == 4
+        MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "The uninstaller is running as a different Windows account, so it cannot check the clinic setup of the account that uses CARE Desktop.$\r$\n$\r$\nIf that account runs a clinic server or is connected to a clinic, choose No, sign in to it, and uninstall from CARE Desktop first.$\r$\n$\r$\nRemove the app anyway?" /SD IDYES IDYES removeAnyway
+    ${Else}
+        MessageBox MB_OK|MB_ICONEXCLAMATION "CARE Desktop was not removed because this computer still has a clinic setup or a clinic connection. Run the uninstaller again when you are ready to remove it." /SD IDOK
+    ${EndIf}
+    Abort
+  removeAnyway:
+FunctionEnd
 
 Section "uninstall"
     !insertmacro wails.setShellContext
@@ -112,3 +162,4 @@ Section "uninstall"
 
     !insertmacro wails.deleteUninstaller
 SectionEnd
+!endif

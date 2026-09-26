@@ -4,6 +4,7 @@
   </parameters>
   <zip-file>
     <pe-file path="*.exe"
+             max-matches="2"
              product-name="CARE Desktop"
              company-name="Open Healthcare Network Foundation"
              product-version="${version}">

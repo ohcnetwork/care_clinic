@@ -71,7 +71,7 @@ succeeds. For `CARE_DESKTOP_VERSION=0.1.1`, the tag is `v0.1.1`.
 | --- | --- |
 | Validate | Reject malformed/duplicate version values, moving FE/BE refs, and a version that already has a draft or published release. |
 | Check and build | Call the same CI workflow used by PRs: lint, race tests, frontend checks, and real macOS/Windows native builds. No separate untested release rebuild. |
-| Windows signing | With the SignPath configuration, submit the CI-built `CARE Desktop.exe` for signing, rebuild the NSIS installer around the signed file with the installer inputs CI produced, and submit the installer for signing. Each request waits for an approver. Without the configuration, both jobs are skipped and the CI installer is used unsigned. |
+| Windows signing | With the SignPath configuration, submit the CI-built `CARE Desktop.exe` and `uninstall.exe` for signing in one request, rebuild the NSIS installer around the signed files with the installer inputs CI produced, and submit the installer for signing. Each request waits for an approver. Without the configuration, both jobs are skipped and the CI installer is used unsigned. |
 | macOS signing | With the existing credentials, sign the app with hardened runtime, notarize/staple it, then sign and notarize/staple the DMG. Otherwise explicitly report ad-hoc signing. |
 | Package | Wrap the CI macOS app in a DMG and copy the signed (or CI-built unsigned) Windows installer. Verify macOS metadata matches the release version. |
 | Record | Save the exact release configuration, source commit, workflow run URL, signing status, and SHA-256 file checksums. |
@@ -185,18 +185,20 @@ instead of silently producing unsigned installers.
   GitHub.
 - Artifact configuration:
   [`.github/signpath/artifact-configuration.xml`](../.github/signpath/artifact-configuration.xml).
-  It signs the one PE file inside a GitHub artifact and rejects it unless product
-  name, company name and product version match `app/wails.json` and the release
-  version, which is the same check CI runs. Both requests use it.
+  It signs the PE files inside a GitHub artifact (at most two) and rejects them
+  unless product name, company name and product version match `app/wails.json`
+  and the release version, which is the same check CI runs. Both requests use it.
 - Release signing policy: origin verification on, allowed branch `main`, manual
   approval required. The workflow passes `version` as a parameter.
 
 ### During a release
 
-1. **Sign Windows application** submits the CI-built `CARE Desktop.exe` and waits
-   up to an hour for an approver.
-2. **Build installer around the signed application** verifies the signature, then
-   runs makensis with the installer inputs CI produced and the signed file.
+1. **Sign Windows application** submits the CI-built `CARE Desktop.exe` and
+   `uninstall.exe` and waits up to an hour for an approver.
+2. **Build installer around the signed application** verifies both signatures,
+   then runs makensis with the installer inputs CI produced, the signed application
+   and `-DSIGNED_UNINSTALLER`, so the installer copies the signed uninstaller
+   instead of generating an unsigned one at install time.
 3. **Sign Windows installer** submits the installer; approve that request too.
 4. Packaging continues with the signed installer, and the manifest records
    `"windows": "signpath-foundation"`.
@@ -204,6 +206,22 @@ instead of silently producing unsigned installers.
 A rejected or timed-out request fails the release. Fix the cause and rerun the
 same run; SignPath evaluates up to three re-runs of a build. Never submit a file
 built anywhere other than this workflow.
+
+### Signed uninstaller
+
+NSIS normally writes `uninstall.exe` on the user's computer during installation,
+so it could never be signed. `project.nsi` has two build modes for this:
+
+| Define | Result |
+| --- | --- |
+| `-DWRITE_UNINSTALLER=<path>` | Builds `uninstall-writer.exe`, which only writes the uninstaller to `<path>` and exits. CI runs it and adds the uninstaller to the `desktop-windows-app` artifact. |
+| `-DSIGNED_UNINSTALLER=<path>` | Packs the uninstaller at `<path>` and writes the Uninstall registry entries itself; the script's own uninstall section is left out. |
+
+Without either define, as in `wails build -nsis`, the installer generates its
+uninstaller as before. In every mode the uninstaller first asks the app whether
+the clinic setup is gone; see
+[removing the desktop app](cleanup-and-uninstall.md#removing-the-desktop-app). Keep the registry entries in the `SIGNED_UNINSTALLER`
+branch in step with Wails' `wails.writeUninstaller` macro when upgrading Wails.
 
 ### Before the first signed release
 

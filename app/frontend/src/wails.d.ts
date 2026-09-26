@@ -77,6 +77,10 @@ declare global {
           LogPath(): Promise<string>;
           OpenLogFolder(): Promise<void>;
           WasAutostartLaunched(): Promise<boolean>;
+          UninstallRequested(): Promise<boolean>;
+          ExitUninstall(): Promise<void>;
+          CanRemoveApp(): Promise<boolean>;
+          RemoveApp(): Promise<void>;
           AutostartEnabled(): Promise<boolean>;
           SetAutostart(on: boolean): Promise<void>;
           CareUpdateStatus(): Promise<ChannelStatus>;

@@ -93,8 +93,8 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   # SignPath signs PE files but cannot open an NSIS installer, so the application
-  # is signed first and the installer is rebuilt around the signed file and signed
-  # in turn. Every signing request refers to an artifact uploaded by this run.
+  # and uninstaller are signed first and the installer is rebuilt around the signed
+  # files and signed in turn. Every signing request refers to an artifact uploaded by this run.
   sign-windows-app:
     name: Sign Windows application
     needs: [prepare, checks]
@@ -127,7 +127,7 @@ jobs:
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: "3600"
           output-artifact-directory: signed-app
-      - run: test -s "signed-app/CARE Desktop.exe"
+      - run: test -s "signed-app/CARE Desktop.exe" && test -s signed-app/uninstall.exe
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: desktop-windows-app-signed
@@ -161,14 +161,17 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           $app = Join-Path $env:GITHUB_WORKSPACE "signed-app\CARE Desktop.exe"
-          $signature = Get-AuthenticodeSignature $app
-          if ($signature.Status -ne 'Valid') { throw "Application signature is $($signature.Status): $($signature.StatusMessage)" }
-          "Application signed by $($signature.SignerCertificate.Subject)"
+          $uninstaller = Join-Path $env:GITHUB_WORKSPACE "signed-app\uninstall.exe"
+          foreach ($file in @($app, $uninstaller)) {
+            $signature = Get-AuthenticodeSignature $file
+            if ($signature.Status -ne 'Valid') { throw "$file signature is $($signature.Status): $($signature.StatusMessage)" }
+            "$file signed by $($signature.SignerCertificate.Subject)"
+          }
           git diff --exit-code -- app/build/windows/installer/project.nsi
           if ($LASTEXITCODE -ne 0) { throw "Installer inputs do not match the checked-out project.nsi" }
           New-Item -ItemType Directory -Force app/build/bin, installer | Out-Null
           Push-Location app/build/windows/installer
-          makensis "-DARG_WAILS_AMD64_BINARY=$app" project.nsi
+          makensis "-DARG_WAILS_AMD64_BINARY=$app" "-DSIGNED_UNINSTALLER=$uninstaller" project.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
           Pop-Location
           $built = Get-ChildItem app/build/bin/*installer.exe
