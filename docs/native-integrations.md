@@ -1434,7 +1434,7 @@ The volume id is how two folders are recognised as the same drive.
 
 | Drive | Path | Why |
 | --- | --- | --- |
-| Clinic data | `storage.DockerDataDir()`: `~/Library/Application Support/rancher-desktop/lima` on macOS, `%LOCALAPPDATA%\rancher-desktop` on Windows, `/var/lib/docker` on Linux. | Images and the Postgres/MinIO volumes live here, inside Rancher Desktop's VM disk. The install folder only holds a few MB of compose files. |
+| Clinic data | `storage.DockerDataDir()`: `~/Library/Application Support/rancher-desktop/lima` on macOS, `%LOCALAPPDATA%\rancher-desktop` on Windows, on Linux whatever `docker info --format '{{.DockerRootDir}}'` reports (so a moved `data-root` or rootless Docker is measured on the right disk), falling back to `/var/lib/docker` when Docker doesn't answer within 5 seconds. | Images and the Postgres/MinIO volumes live here, inside Rancher Desktop's VM disk. The install folder only holds a few MB of compose files. |
 | Rancher Desktop disk | `docker compose exec -T backup df -Pk /` (macOS/Windows, only while the clinic answers). | The VM disk has its own ceiling (Lima defaults to 100 GB), so the host can have room while the VM is full. |
 | Backups | The configured backup folder. | See [backup space](backups-and-restore.md#space-checks-and-the-status-file). |
 
@@ -1458,6 +1458,30 @@ backup time), caches it for `StorageStatus()`, and emits `care-storage`. The UI
 never polls; it reads the cached report on panel boot, listens for the event,
 and calls `RecheckStorage()` after every panel action and the "Check now"
 button.
+
+### Freeing space
+
+"Free up space" sits on the row whose `Drive.Cleanable` is set: the Rancher
+Desktop disk on macOS and Windows, and Clinic data on Linux, where Docker has no
+VM and the clinic's data is on the host's own drive. Both need the clinic to be
+answering. It runs the `free-space` action,
+`Clinic.FreeSpace()`. It only removes things Docker can rebuild or pull again:
+
+1. `docker image prune -f`, for untagged images left by rebuilds.
+2. `docker image rm` for every tag in a repository CARE pins (from `.env`) that
+   is not the current pin or its `-next` stage, such as a Postgres or MinIO tag
+   from an earlier release. `staleImages` does the matching, and repositories
+   CARE does not pin are never touched. Without `-f`, Docker refuses to remove
+   an image that any container still uses, so another project's container
+   keeps its image. The log reports it as kept.
+3. `docker builder prune -f`, which clears the whole build cache, including any
+   other project's. The next CARE rebuild is slower but gives the same result.
+
+Volumes, containers and backups are left alone. Step failures are logged rather
+than failing the action. When the backup container answers before and after,
+the log reports how much the VM disk gained. Log rotation is in the compose
+file (see [clinic lifecycle](clinic-lifecycle.md#7-deployment-inventory-and-dependency-graph)),
+so logs never need clearing here.
 
 A system notification is sent once per distinct critical headline, and re-armed
 when the level drops back below critical. Notifications are best-effort: when

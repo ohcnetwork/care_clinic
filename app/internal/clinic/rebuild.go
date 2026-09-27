@@ -18,6 +18,7 @@ func (e *Clinic) RebuildBackend() error {
 	if err := e.migrate(); err != nil {
 		return err
 	}
+	e.syncFrontendPluginsOrWarn()
 	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300", "celery-worker", "celery-beat"); err != nil {
 		return err
 	}

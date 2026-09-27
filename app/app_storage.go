@@ -28,7 +28,7 @@ type storageWatch struct {
 }
 
 func (a *App) DiskStatus() storage.InstallResult {
-	docker, err := diskspace.Of(storage.DockerDataDir())
+	docker, err := diskspace.Of(a.dockerDataDir())
 	if err != nil {
 		return storage.InstallResult{OK: true, Message: "Couldn't measure free space (" + err.Error() + ")"}
 	}
@@ -40,6 +40,15 @@ func (a *App) DiskStatus() storage.InstallResult {
 		install = docker
 	}
 	return storage.CheckInstall(install, docker)
+}
+
+func (a *App) dockerDataDir() string {
+	if runtime.GOOS == "linux" {
+		if dir, err := a.engine().DockerRootDir(); err == nil {
+			return dir
+		}
+	}
+	return storage.DockerDataDir()
 }
 
 func (a *App) StorageStatus() storage.Report {
@@ -83,7 +92,7 @@ func (a *App) backupSpace(target string) (storage.BackupSpace, error) {
 		found = false
 	}
 	shares := false
-	if docker, err := diskspace.Of(storage.DockerDataDir()); err == nil {
+	if docker, err := diskspace.Of(a.dockerDataDir()); err == nil {
 		shares = docker.Volume == u.Volume
 	}
 	return storage.AssessBackup(target, u, daily, found, e.BackupKeepsForever(), shares), nil
@@ -105,14 +114,18 @@ func (a *App) checkStorage() storage.Report {
 		return r
 	}
 	e := a.engine()
-	if docker, err := diskspace.Of(storage.DockerDataDir()); err == nil {
-		r.Drives = append(r.Drives, storage.AssessDrive("docker", "Clinic data", docker))
-	}
 	running := health.Ping().Active
+	if docker, err := diskspace.Of(a.dockerDataDir()); err == nil {
+		d := storage.AssessDrive("docker", "Clinic data", docker)
+		d.Cleanable = running && runtime.GOOS == "linux"
+		r.Drives = append(r.Drives, d)
+	}
 	if running && runtime.GOOS != "linux" {
 		if free, total, err := e.DockerDiskFree(); err == nil {
-			r.Drives = append(r.Drives, storage.AssessDrive("vm", "Rancher Desktop disk",
-				diskspace.Usage{Path: "Rancher Desktop", Free: free, Total: total}))
+			d := storage.AssessDrive("vm", "Rancher Desktop disk",
+				diskspace.Usage{Path: "Rancher Desktop", Free: free, Total: total})
+			d.Cleanable = true
+			r.Drives = append(r.Drives, d)
 		}
 	}
 	r.Backup, _ = a.backupSpace(e.BackupDirPath())

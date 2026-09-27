@@ -49,7 +49,7 @@ names. They are not instructions to rename a service or migrate a volume.
 
 | Term | Meaning in this implementation |
 | --- | --- |
-| Manual backup / "Backup now" | An encrypted PostgreSQL custom-format dump only. It does **not** include uploaded files. |
+| Manual backup / "Backup now" | An encrypted database dump plus an encrypted files archive, named `care-manual-<ts>` and `files-manual-<ts>`. Both must publish before it reports success. Unlike the scheduled cycle, it applies no retention. |
 | Scheduled backup | The sidecar attempts a database dump and a files archive with the same timestamp. Both must publish, and cleanup must succeed, before the cycle reports success. |
 | Backup set | A database dump plus an optional matching files archive. Matching names do not prove application-level consistency. |
 | Restore source | The folder containing the selected dump, optional files archive, and preferably their recovery key. It can differ from the current backup destination. |
@@ -103,7 +103,8 @@ The examples use the synthetic timestamp `20260102-030405`.
 | --- | --- |
 | `care-20260102-030405.dump.enc` | Scheduled PostgreSQL custom-format dump, encrypted as an OpenSSL CMS envelope. |
 | `files-20260102-030405.tar.gz.enc` | Matching encrypted gzip-compressed tar archive of the storage volume. |
-| `care-manual-20260102-030405.dump.enc` | Manual database-only dump. |
+| `care-manual-20260102-030405.dump.enc` | Manual database dump. |
+| `files-manual-20260102-030405.tar.gz.enc` | Matching manual files archive. Pairs only with the `care-manual-` dump of the same timestamp, never with a scheduled one. |
 | `care-20260102-030405.dump` | Recognized unencrypted database dump, supported as restore input. Current backup writers do not create this final form. |
 | `files-20260102-030405.tar.gz` | Recognized unencrypted files archive, also supported as restore input. |
 | `backup-key.pem.enc` | Password-protected private recovery key. This is not a database dump or a files archive. |
@@ -146,7 +147,8 @@ executable directory or current shell directory contains the backups.
 |-- backup-key.pem.enc       # independent recovery copy
 |-- care-20260102-030405.dump.enc
 |-- files-20260102-030405.tar.gz.enc
-`-- care-manual-20260103-101112.dump.enc
+|-- care-manual-20260103-101112.dump.enc
+`-- files-manual-20260103-101112.tar.gz.enc
 ```
 
 The backup service's mounts in
@@ -319,14 +321,19 @@ external command output is automatically secret-free.
 
 1. Refuses to run if the certificate-presence check says encryption is absent.
 2. Refuses to run if the backup folder's drive has less free space than a
-   database-only backup needs (see below), naming both sizes.
+   full set needs (see below), naming both sizes.
 3. Generates a timestamp in Go.
 4. Runs `sh /backup.sh once manual-<timestamp>` using `docker compose exec -T`
    in the already running `backup` service.
-5. Logs the resulting `care-manual-<timestamp>.dump.enc` path, explicitly
-   describing it as database-only.
+5. Logs the resulting `care-manual-<timestamp>.dump.enc` and
+   `files-manual-<timestamp>.tar.gz.enc` paths.
 
-It does not start a stopped clinic or create a files archive. An execution
+The script's `once` mode refuses to start if either final name already exists,
+then writes the dump and the files archive exactly as the scheduled cycle does.
+If the files step fails, the published dump stays and is listed as
+database-only, but the command exits non-zero so the app reports the failure.
+It does not apply retention or write the status file, and it does not start a
+stopped clinic. An execution
 failure re-checks free space first, so a full drive is reported as such; any
 other failure reports that CARE must be running to take the backup.
 
@@ -336,7 +343,7 @@ A backup run briefly holds more than its final size: each member is written as
 plaintext, sealed next to it, and only then is the plaintext removed. With `d`
 the dump size and `f` the files archive size of the newest daily set, the peak
 is `max(2d, d + 2f)`. The required space is that peak plus a quarter for growth
-plus 256 MB, and never less than 1 GB. A database-only (manual) run uses `2d`.
+plus 256 MB, and never less than 1 GB. Manual and scheduled runs use the same full-set estimate.
 With no earlier set, the script estimates from `pg_database_size` and
 `du -sk /minio-data`; the app uses the 1 GB floor.
 
@@ -401,10 +408,10 @@ flowchart TD
     Verify --> Encrypt["CMS encrypt into hidden encrypted file"]
     Encrypt --> Remove["Remove plaintext; fail if removal fails"]
     Remove --> Publish["Rename encrypted file to final dump name"]
-    Publish --> Mode{"Scheduled?"}
+    Publish --> Files["Archive and verify storage files; encrypt; remove plaintext; rename"]
+    Files --> Mode{"Scheduled?"}
     Mode -- No --> Unlock["Release lock and return"]
-    Mode -- Yes --> Files["Archive and verify storage files; encrypt; remove plaintext; rename"]
-    Files --> Prune["Remove abandoned intermediates and apply retention"]
+    Mode -- Yes --> Prune["Remove abandoned intermediates and apply retention"]
     Prune --> Result["Report success only if all required steps succeeded"]
     Result --> Sleep["Release lock, then sleep 86400 seconds"]
 ```
@@ -415,8 +422,7 @@ active scheduled backup's intermediate files. The scheduled loop releases the
 lock before sleeping. The lock is advisory: unrelated programs that ignore it
 can still modify the folder.
 
-Before a scheduled set starts, **both** final output paths must be unused.
-Manual mode checks its final dump path. Existing files, directories, and even
+Before a scheduled or manual set starts, **both** final output paths must be unused. Existing files, directories, and even
 dangling symbolic links at those final names cause refusal rather than
 intentional replacement.
 
@@ -465,8 +471,8 @@ Consequences:
   scheduled set.
 - Age is based on filesystem modification time and `find`'s whole-day
   calculation, not the filename's timestamp or a count of retained sets.
-- Manual dumps match the retention glob too, although manual mode itself never
-  calls `prune()`.
+- Manual dumps and manual files archives match the retention globs too,
+  although manual mode itself never calls `prune()`.
 - Directories, nested contents, and symbolic links are not recursively pruned.
 - The recovery key and `.backup.lock` are not retention targets.
 - The shell globs are broader than the Go restore filename expressions. Keep
@@ -508,10 +514,11 @@ It recognizes regular dump files with valid timestamps and constructs one
 | `Encrypted` / `encrypted` | Whether the dump **or its selected archive** has `.enc`. |
 | `SizeBytes` / `size_bytes` | Size of the dump alone, not the combined set size. |
 
-For scheduled-looking dumps, pairing uses the same timestamp. It prefers an
-archive with the same encrypted/plain form as the dump, then accepts the other
-form if that is the available match. Manual dumps are never paired with an
-archive, even when a scheduled archive has the same timestamp. Orphan files
+Pairing uses the set name: `care-<ts>` pairs with `files-<ts>` and
+`care-manual-<ts>` with `files-manual-<ts>`. A manual dump is never paired with a
+scheduled archive of the same timestamp. It prefers an archive with the same
+encrypted/plain form as the dump, then accepts the other form if that is the
+available match. Orphan files
 archives do not create list entries.
 
 The label `daily` comes from the filename convention; it is not proof that a
@@ -564,8 +571,8 @@ Restore refuses:
 
 - A dump name outside the `care-[manual-]YYYYMMDD-HHMMSS.dump[.enc]` convention.
 - A calendar-invalid timestamp.
-- A files archive with another timestamp.
-- Any files archive supplied with a manual dump.
+- A files archive from another set: a different timestamp, or a scheduled
+  archive with a manual dump and the other way round.
 - Path separators, traversal, or arbitrary shell text in the basenames.
 - A selected backup that `Lstat` identifies as a directory, symbolic link,
   non-regular file, or empty file.

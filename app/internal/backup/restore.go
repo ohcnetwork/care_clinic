@@ -23,9 +23,20 @@ type Backup struct {
 
 var dumpRe = regexp.MustCompile(`^care-(?:manual-)?(\d{8}-\d{6})\.dump(?:\.enc)?$`)
 
-var safeName = regexp.MustCompile(`^(?:care-(?:manual-)?\d{8}-\d{6}\.dump(?:\.enc)?|files-\d{8}-\d{6}\.tar\.gz(?:\.enc)?)$`)
+var safeName = regexp.MustCompile(`^(?:care-(?:manual-)?\d{8}-\d{6}\.dump(?:\.enc)?|files-(?:manual-)?\d{8}-\d{6}\.tar\.gz(?:\.enc)?)$`)
 
-var filesRe = regexp.MustCompile(`^files-(\d{8}-\d{6})\.tar\.gz(?:\.enc)?$`)
+var filesRe = regexp.MustCompile(`^files-((?:manual-)?\d{8}-\d{6})\.tar\.gz(?:\.enc)?$`)
+
+func SetName(dbDump string) string {
+	name := strings.TrimPrefix(dbDump, "care-")
+	name = strings.TrimSuffix(name, ".enc")
+	return strings.TrimSuffix(name, ".dump")
+}
+
+func FilesCandidates(dbDump string) []string {
+	set := SetName(dbDump)
+	return []string{"files-" + set + ".tar.gz.enc", "files-" + set + ".tar.gz"}
+}
 
 func (s *Store) ListBackups() ([]Backup, error) {
 	dir := s.BackupDir
@@ -73,17 +84,15 @@ func (s *Store) ListBackups() ([]Backup, error) {
 			Encrypted: strings.HasSuffix(en.Name(), ".enc"),
 			SizeBytes: info.Size(),
 		}
-		if !b.Manual {
-			candidates := []string{"files-" + ts + ".tar.gz", "files-" + ts + ".tar.gz.enc"}
-			if b.Encrypted {
-				candidates[0], candidates[1] = candidates[1], candidates[0]
-			}
-			for _, name := range candidates {
-				if files[name] {
-					b.FilesArchive = name
-					b.Encrypted = b.Encrypted || strings.HasSuffix(name, ".enc")
-					break
-				}
+		candidates := FilesCandidates(en.Name())
+		if !b.Encrypted {
+			candidates[0], candidates[1] = candidates[1], candidates[0]
+		}
+		for _, name := range candidates {
+			if files[name] {
+				b.FilesArchive = name
+				b.Encrypted = b.Encrypted || strings.HasSuffix(name, ".enc")
+				break
 			}
 		}
 		b.Label = backupLabel(ts, b.Manual, b.FilesArchive != "", b.Encrypted)
@@ -147,11 +156,8 @@ func (s *Store) RestoreFrom(srcDir, dbDump, filesArchive, passphrase string) err
 		if f == nil {
 			return fmt.Errorf("not a files archive: %q", filesArchive)
 		}
-		if strings.HasPrefix(dbDump, "care-manual-") {
-			return fmt.Errorf("manual backups restore the database only")
-		}
-		if f[1] != m[1] {
-			return fmt.Errorf("the database and files backups must have the same timestamp")
+		if f[1] != SetName(dbDump) {
+			return fmt.Errorf("the database and files backups must come from the same backup")
 		}
 		if err := s.mustExist(srcDir, filesArchive); err != nil {
 			return err

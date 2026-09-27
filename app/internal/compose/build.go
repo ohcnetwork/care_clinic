@@ -212,6 +212,22 @@ func (b *Builder) EnsureBackendImage() error {
 	return b.ensure(b.suffixed(b.set.BackendImage), key, Backend, b.BuildBackend)
 }
 
+func (b *Builder) BackendImageCurrent() (bool, error) {
+	plugs, err := plugins.New(b.dir).AdditionalPlugs()
+	if err != nil {
+		return false, err
+	}
+	want, err := b.backendBuiltFrom(plugs)
+	if err != nil {
+		return false, err
+	}
+	got, ok, err := b.builtFrom(b.suffixed(b.set.BackendImage))
+	if err != nil {
+		return false, err
+	}
+	return ok && got == want, nil
+}
+
 func (b *Builder) backendBuiltFrom(plugs string) (string, error) {
 	ref, err := b.resolved(Backend, b.set.BeRepo, b.set.BeRef)
 	if err != nil {

@@ -8,13 +8,14 @@ import (
 )
 
 type Drive struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Path    string `json:"path"`
-	Free    uint64 `json:"free"`
-	Total   uint64 `json:"total"`
-	Level   Level  `json:"level"`
-	Message string `json:"message"`
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Path      string `json:"path"`
+	Free      uint64 `json:"free"`
+	Total     uint64 `json:"total"`
+	Level     Level  `json:"level"`
+	Message   string `json:"message"`
+	Cleanable bool   `json:"cleanable"`
 }
 
 type BackupSpace struct {

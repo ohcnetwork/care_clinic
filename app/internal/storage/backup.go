@@ -53,10 +53,11 @@ func LatestSets(dir string) (daily, newest BackupSet, found bool, err error) {
 		}
 	}
 	for i := range sets {
+		prefix := "files-"
 		if sets[i].Manual {
-			continue
+			prefix = "files-manual-"
 		}
-		for _, name := range []string{"files-" + sets[i].Stamp + ".tar.gz.enc", "files-" + sets[i].Stamp + ".tar.gz"} {
+		for _, name := range []string{prefix + sets[i].Stamp + ".tar.gz.enc", prefix + sets[i].Stamp + ".tar.gz"} {
 			if n, ok := sizes[name]; ok {
 				sets[i].FilesBytes = n
 				break

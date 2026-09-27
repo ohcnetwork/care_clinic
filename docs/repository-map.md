@@ -15,6 +15,7 @@ care_desktop/
 |   |-- repository-map.md
 |   |-- wails-application.md
 |   |-- configuration-and-settings.md
+|   |-- plugins.md
 |   |-- clinic-lifecycle.md
 |   |-- backups-and-restore.md
 |   |-- cleanup-and-uninstall.md
@@ -104,6 +105,7 @@ app/internal/
 |   |-- status.go
 |   |-- rebuild.go
 |   |-- images.go
+|   |-- freespace.go
 |   |-- migrate.go
 |   |-- domain.go
 |   |-- secret.go
@@ -117,6 +119,7 @@ app/internal/
 |   |-- leftovers.go
 |   |-- backup_script_test.go
 |   |-- domain_test.go
+|   |-- freespace_test.go
 |   |-- migrate_test.go
 |   |-- teardown_test.go
 |   `-- thiscomputer_test.go
@@ -127,6 +130,7 @@ app/internal/
 |-- health/
 |   `-- health.go
 |-- plugins/
+|   |-- catalog.yml
 |   |-- plugins.go
 |   `-- plugins_test.go
 |-- prereq/
@@ -195,7 +199,7 @@ app/internal/
 | [`internal/backup`](../app/internal/backup) | Backup inventory, keys/keyring, decryption, staged replacement, journal recovery. | [Backups and restore](backups-and-restore.md). |
 | [`internal/compose`](../app/internal/compose) | Infrastructure and CARE image building, source checkout, freshness inputs. | [Clinic lifecycle](clinic-lifecycle.md). |
 | [`internal/health`](../app/internal/health) | HTTP readiness and port availability. | [Native integrations](native-integrations.md). |
-| [`internal/plugins`](../app/internal/plugins) | `ADDITIONAL_PLUGS` dotenv/JSON access and atomic update. | [Configuration](configuration-and-settings.md#backend-plugins). |
+| [`internal/plugins`](../app/internal/plugins) | Desktop plugin list (`plugins.json`), bundled catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
 | [`internal/prereq`](../app/internal/prereq) | Docker/Git detection, action plans, Rancher Desktop provisioning and preconfiguration, and readiness waits. | [Native integrations](native-integrations.md). |
 | [`internal/release`](../app/internal/release) | Validated release manifest and source/image identity. | [Development and release](development-and-release.md#release-identity-and-pins). |
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
@@ -217,8 +221,9 @@ The larger subsystem guides contain their own file tables. These smaller package
 
 | Source | Role |
 | --- | --- |
-| [`plugins/plugins.go`](../app/internal/plugins/plugins.go) | `Plugin`, `Manager`, dotenv/JSON read, safe variable replacement. |
-| [`plugins/plugins_test.go`](../app/internal/plugins/plugins_test.go) | Literal values, missing files, duplicate removal, empty-list behavior. |
+| [`plugins/plugins.go`](../app/internal/plugins/plugins.go) | `Plugin`, `Manager`, `Prepare`, `Catalog`, `FrontendRows`, dotenv/JSON read, safe variable replacement. |
+| [`plugins/catalog.yml`](../app/internal/plugins/catalog.yml) | Embedded list of plugins offered in the panel. |
+| [`plugins/plugins_test.go`](../app/internal/plugins/plugins_test.go) | Literal values, legacy migration, backend/frontend split, validation, catalog refresh, frontend rows. |
 | [`release/pins.go`](../app/internal/release/pins.go) | `Pins`, required manifest fields, version/source-ref validation, diagnostic summary. |
 | [`release/pins_test.go`](../app/internal/release/pins_test.go) | Version agreement, release-versus-development refs, commit-ID validation. |
 | [`release/workflow_test.go`](../app/internal/release/workflow_test.go) | Executes the workflow's Node identity validator with synthetic inputs; requires Node. |
@@ -269,7 +274,7 @@ app/frontend/
 | [`env-file.ts`](../app/frontend/src/lib/env-file.ts) | Line-based environment parsing, value quoting, change application. |
 | [`env-schema.ts`](../app/frontend/src/screens/panel/env-schema.ts) | Key/file ownership, friendly field constraints, managed-value notes. |
 | [`env-controls.tsx`](../app/frontend/src/screens/panel/env-controls.tsx) | Raw string/undefined values rendered as typed controls. |
-| [`plugin-table.tsx`](../app/frontend/src/screens/panel/plugin-table.tsx) | Plugin serialization and persistence followed by backend rebuild. |
+| [`plugin-table.tsx`](../app/frontend/src/screens/panel/plugin-table.tsx) | Catalog picker, custom plugin editor, and save followed by `apply-plugins`. |
 
 See [Wails API](wails-application.md) and [configuration](configuration-and-settings.md) for behavior rather than visual layout.
 

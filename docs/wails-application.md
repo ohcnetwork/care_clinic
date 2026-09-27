@@ -263,7 +263,9 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `restart` | `Restart()` | Stable clinic required. |
 | `rebuild-backend` | `RebuildBackend()` | Stable clinic and administrator password required. |
 | `rebuild-frontend` | `RebuildFrontend()` | Stable clinic and administrator password required. |
+| `apply-plugins` | `ApplyPlugins()` | Stable clinic and administrator password required. Rebuilds the backend only when its plugin inputs changed, otherwise syncs frontend plugin rows. |
 | `backup-now` | `BackupNow()` | Stable clinic required. |
+| `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from "Free up space" on the Overview storage card: the Rancher Desktop disk row on macOS and Windows, the Clinic data row on Linux. |
 | `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. |
 
 Every action except `stop` then passes `ensureDockerReady()`. A stopped container
@@ -289,8 +291,9 @@ The API does not require the desktop admin password for every operational contro
 | --- | --- | --- |
 | `ReadEnv(name, adminPassword)` | `string` | Read. Admin plus setup required; `name` is only `backend` or `frontend`. Returns installed file contents. |
 | `WriteEnv(name, content, adminPassword)` | `void` | Sync. Admin plus stable clinic required; parse dotenv syntax, then atomically replace the selected file. |
-| `ReadPlugins(adminPassword)` | `CarePlugin[]` | Read. Admin plus setup required; parse `ADDITIONAL_PLUGS` from installed `backend.env`. |
-| `SavePlugins(plugins, adminPassword)` | `void` | Sync. Admin plus stable clinic required; update the plugin variable without rebuilding by itself. |
+| `ReadPlugins(adminPassword)` | `CarePlugin[]` | Read. Admin plus setup required; read `plugins.json`, or derive the list from `ADDITIONAL_PLUGS` when that file is absent. |
+| `SavePlugins(plugins, adminPassword)` | `void` | Sync. Admin plus stable clinic required; validate, write `ADDITIONAL_PLUGS` and `plugins.json`, without rebuilding or syncing by itself. |
+| `PluginCatalog()` | `PluginCatalogEntry[]` | Query. The bundled plugin catalog. |
 | `ListBackups()` | `Backup[]` | Query. Returns an empty list if the installed compose file is absent; other file/read errors are not treated as an empty list. |
 | `GetBackupDir()` | `string` | Query. Effective backup directory, including the engine's default if unconfigured. |
 | `SetBackupDir(dir)` | `string` | Sync. Stable clinic required. Takes a parent folder, appends `care-db-backups`, preserves the key and conditionally restarts the sidecar. |
@@ -381,7 +384,8 @@ The core serialized shapes are:
 | `ResidueReport` | `clean`, `traces`; each trace has `id`, `label`, `detail`. |
 | `Backup` | `db_dump`, `files_archive`, `label`, `manual`, `encrypted`, `size_bytes`. |
 | `ImportedBackup` | `path`, `dir`, `db_dump`, `files_archive`, `label`, `encrypted`, `has_key`. |
-| `CarePlugin` | `name`, `package_name`, optional `version` and `configs`. |
+| `CarePlugin` | `id`, optional `label`, `catalog`, `backend` (`name`, `package_name`, optional `version`, `configs`) and `frontend` (`slug`, `url`, optional `meta`). |
+| `PluginCatalogEntry` | `plugin` (`CarePlugin`), optional `description`. |
 
 Go structs and their JSON tags are authoritative. [`types.ts`](../app/frontend/src/types.ts) mirrors them for the desktop.
 

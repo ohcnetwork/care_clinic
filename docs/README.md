@@ -16,6 +16,7 @@ This documentation explains the current implementation, from operating-system pr
 | [Repository and file map](repository-map.md) | Where every Go component lives, what each file does, and which guide explains it. |
 | [Wails application and API](wails-application.md) | Process startup, background jobs, concurrency, authorization, all bound methods, and events. |
 | [Configuration and settings](configuration-and-settings.md) | The installed directory, persisted configuration, environment files, plugins, and settings changes. |
+| [Plugins](plugins.md) | How CARE loads backend and frontend plugins, the `catalog.yml` format, and how Desktop installs and syncs them. |
 | [Clinic lifecycle and deployment](clinic-lifecycle.md) | Setup, image builds, starting, migrations, service relationships, and stopping. |
 | [Backups and restore](backups-and-restore.md) | Encryption, key preservation, scheduling, retention, staged restore, and interruption recovery. |
 | [Cleanup and uninstall](cleanup-and-uninstall.md) | What each removal operation deletes or preserves, ownership checks, and partial-cleanup recovery. |
@@ -37,6 +38,7 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | "Why did a setting require a rebuild?" | [Applying settings](configuration-and-settings.md#applying-settings) and [the different builds](development-and-release.md#the-different-builds). |
 | "How are patient data and uploaded files stored?" | [Clinic lifecycle](clinic-lifecycle.md) and [backups](backups-and-restore.md). |
 | "What happens if restore or uninstall is interrupted?" | [Backups and restore](backups-and-restore.md) and [cleanup and uninstall](cleanup-and-uninstall.md). |
+| "How do I add a plugin to the catalog?" | [Plugins](plugins.md#adding-a-catalog-entry). |
 | "The app works here but not on another device." | [Native integrations](native-integrations.md). |
 | "How do staff computers connect without Docker or Git?" | [Native client setup and initial trust](native-integrations.md#native-client-setup-and-trust-on-first-use). |
 | "This client previously hosted CARE and now cannot reach another server." | [Client recovery and earlier-install cleanup](client-recovery.md). |

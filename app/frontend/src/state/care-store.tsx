@@ -54,8 +54,10 @@ const ACTION_LABELS: Record<string, string> = {
   restart: "Restarting",
   "rebuild-frontend": "Rebuilding",
   "rebuild-backend": "Rebuilding",
+  "apply-plugins": "Applying plugins",
   "backup-now": "Backing up",
   update: "Updating CARE",
+  "free-space": "Freeing space",
 };
 
 export const RESTORE_PENDING_NOTICE =
