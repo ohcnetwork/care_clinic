@@ -25,8 +25,12 @@ func (a *App) run(fn func() error, markSetup bool, label string) error {
 	if err := a.lockJob(); err != nil {
 		return err
 	}
+	a.activeJob.Store(label)
 	go func() {
-		defer a.jobMu.Unlock()
+		defer func() {
+			a.activeJob.Store("")
+			a.jobMu.Unlock()
+		}()
 		code := 0
 		defer func() {
 			if r := recover(); r != nil {
@@ -174,7 +178,7 @@ func (a *App) notifyActionFailed(label, detail string) {
 		title = "Restore didn't finish"
 	case "backup-now":
 		title = "Backup didn't finish"
-	case "rebuild-backend", "rebuild-frontend":
+	case "rebuild-all", "rebuild-backend", "rebuild-frontend":
 		title = "Rebuild didn't finish"
 	case "apply-plugins":
 		title = "The plugins couldn't be applied"
@@ -209,7 +213,7 @@ func (a *App) notifyInstalled(mdnsName string) {
 
 func (a *App) ClinicAction(action, adminPassword string) error {
 	switch action {
-	case "start", "stop", "restart", "rebuild-backend", "rebuild-frontend", "apply-plugins", "backup-now", "update", "free-space":
+	case "start", "stop", "restart", "rebuild-all", "rebuild-backend", "rebuild-frontend", "apply-plugins", "backup-now", "update", "free-space":
 	default:
 		return errors.New("action not allowed: " + action)
 	}
@@ -229,6 +233,11 @@ func (a *App) ClinicAction(action, adminPassword string) error {
 		}
 		if action != "stop" {
 			if err := a.ensureDockerReady(); err != nil {
+				return err
+			}
+		}
+		if action == "rebuild-all" {
+			if err := a.syncInstallKit(); err != nil {
 				return err
 			}
 		}
@@ -266,6 +275,8 @@ func actionFunc(e *clinic.Clinic, action string) func() error {
 		return e.Stop
 	case "restart":
 		return e.Restart
+	case "rebuild-all":
+		return e.RebuildAll
 	case "rebuild-backend":
 		return e.RebuildBackend
 	case "rebuild-frontend":

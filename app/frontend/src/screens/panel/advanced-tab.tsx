@@ -85,10 +85,13 @@ function RebuildCard({ adminPassword }: { adminPassword: string }) {
   return (
     <Card className="flex items-center gap-3.5 px-[18px] py-4">
       <div className="min-w-0 flex-1">
-        <CardTitle>Rebuild the app</CardTitle>
-        <CardDescription>Bundled code and current settings. Patient data is kept.</CardDescription>
+        <CardTitle>Rebuild everything</CardTitle>
+        <CardDescription>
+          Rebuilds CARE and restarts every service with this app's bundled files and current
+          settings. Patient data is kept; CARE is unavailable for a few minutes.
+        </CardDescription>
       </div>
-      <Button disabled={busy} onClick={() => void runAction("rebuild-frontend", adminPassword)}>
+      <Button disabled={busy} onClick={() => void runAction("rebuild-all", adminPassword)}>
         Rebuild
       </Button>
     </Card>

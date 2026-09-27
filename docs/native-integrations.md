@@ -1434,7 +1434,7 @@ The volume id is how two folders are recognised as the same drive.
 
 | Drive | Path | Why |
 | --- | --- | --- |
-| Clinic data | `storage.DockerDataDir()`: `~/Library/Application Support/rancher-desktop/lima` on macOS, `%LOCALAPPDATA%\rancher-desktop` on Windows, on Linux whatever `docker info --format '{{.DockerRootDir}}'` reports (so a moved `data-root` or rootless Docker is measured on the right disk), falling back to `/var/lib/docker` when Docker doesn't answer within 5 seconds. | Images and the Postgres/MinIO volumes live here, inside Rancher Desktop's VM disk. The install folder only holds a few MB of compose files. |
+| Clinic data (labelled "This computer's drive" on macOS and Windows) | `storage.DockerDataDir()`: `~/Library/Application Support/rancher-desktop/lima` on macOS, `%LOCALAPPDATA%\rancher-desktop` on Windows, on Linux whatever `docker info --format '{{.DockerRootDir}}'` reports (so a moved `data-root` or rootless Docker is measured on the right disk), falling back to `/var/lib/docker` when Docker doesn't answer within 5 seconds. | Images and the Postgres/MinIO volumes live here. On macOS and Windows that is inside Rancher Desktop's VM disk file, so this row answers whether the host drive has room for that file to grow, and the Rancher Desktop disk row answers how full the VM disk is. The install folder only holds a few MB of compose files. |
 | Rancher Desktop disk | `docker compose exec -T backup df -Pk /` (macOS/Windows, only while the clinic answers). | The VM disk has its own ceiling (Lima defaults to 100 GB), so the host can have room while the VM is full. |
 | Backups | The configured backup folder. | See [backup space](backups-and-restore.md#space-checks-and-the-status-file). |
 

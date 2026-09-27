@@ -231,6 +231,7 @@ function StorageCard() {
   };
 
   const drives = storage?.drives ?? [];
+  const hasVM = drives.some((d) => d.id === "vm");
   const backup = storage?.backup;
   const checkedAt = storage?.checked_at
     ? new Date(storage.checked_at * 1000).toLocaleTimeString([], {
@@ -269,7 +270,9 @@ function StorageCard() {
           note={
             drive.id === "vm"
               ? "The virtual disk Rancher Desktop keeps the clinic's database and uploads in."
-              : undefined
+              : hasVM
+                ? "Rancher Desktop's virtual disk is a file on this drive and grows into it as the clinic fills it."
+                : undefined
           }
           action={
             drive.cleanable ? (

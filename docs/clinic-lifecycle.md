@@ -988,8 +988,9 @@ or prevent a later bind race. Further transport details are in
 | `Restart()` | Call `Stop`; if successful, call the full `Start`. | This is not Compose `restart`: it includes recovery, freshness checks, migrations, Caddy recreation, and health. Stop failure prevents Start. |
 | `RebuildBackend()` | Recover pending restore work; explicitly build backend; stop/verify workers; start/wait backend; migrate once; sync frontend plugin rows (warning only); start/wait worker and scheduler. | No administrator creation, whole-stack HTTP wait, Caddy refresh, native setup, or `FinishRestore` call in this method. |
 | `RebuildFrontend()` | Recover pending restore work; explicitly build frontend; start/wait frontend. | Does not run migrations, stop workers, perform the full health wait, or refresh Caddy. |
+| `RebuildAll()` | Recover pending restore work; explicitly build backend and frontend while CARE keeps running; then `Restart()` (`compose stop`, then the full `Start()` sequence: image freshness, migrations, plugin sync, whole stack, Caddy refresh, health wait, restore finish). | Restarting stopped containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`; containers whose env files or images changed are recreated by `up`. It does not rebuild the backup or Caddy images unless their inputs changed, and it does not refresh the installed kit itself; the `rebuild-all` action does that first. |
 
-Both rebuild methods use Compose waits of 300 seconds per selected startup
+The backend and frontend rebuild methods use Compose waits of 300 seconds per selected startup
 phase. Short-form and healthy dependencies can also cause required dependency
 services to start; neither method requests `--no-deps` for its application
 service.

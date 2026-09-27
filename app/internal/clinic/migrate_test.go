@@ -248,3 +248,38 @@ func TestStagedDatabaseURLHandlesEscapedCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestRebuildAllBuildsBothImagesBeforeRestartingEverything(t *testing.T) {
+	e, trace, _ := migrationFixture(t)
+	stamp, err := os.ReadFile(filepath.Join(e.InstallDir, "src", "backend", ".care-source"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(e.InstallDir, "src", "frontend"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.InstallDir, "src", "frontend", ".care-source"), stamp, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CARE_MIGRATION_FAILURE", "migration")
+	if err := e.RebuildAll(); err == nil {
+		t.Fatal("rebuild reported success after a migration failure")
+	}
+	calls := trace()
+	backend := strings.Index(calls, "build -f "+filepath.Join(e.InstallDir, "src", "backend", "docker", "prod.Dockerfile"))
+	frontend := strings.Index(calls, "build -t fixture-frontend")
+	stop := strings.Index(calls, "compose stop\n")
+	migrate := strings.Index(calls, "manage.py migrate")
+	if backend < 0 || frontend < 0 {
+		t.Fatalf("rebuild did not build both images:\n%s", calls)
+	}
+	if stop < 0 || stop < backend || stop < frontend {
+		t.Fatalf("rebuild stopped CARE before the images were built:\n%s", calls)
+	}
+	if migrate < stop {
+		t.Fatalf("rebuild migrated before restarting:\n%s", calls)
+	}
+	if strings.Contains(calls, "compose up -d --wait --wait-timeout 300\n") {
+		t.Fatal("rebuild resumed the stack after a migration failure")
+	}
+}
