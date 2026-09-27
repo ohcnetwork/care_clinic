@@ -345,23 +345,35 @@ func TestBackupScriptScheduledFailures(t *testing.T) {
 	}
 }
 
-func TestBackupScriptManualDatabaseOnly(t *testing.T) {
-	for _, failure := range []string{"", "db-mv", "db-rm", "lock"} {
-		t.Run("failure="+failure, func(t *testing.T) {
+func TestBackupScriptManualIncludesFiles(t *testing.T) {
+	for _, tc := range []struct {
+		failure         string
+		database, files bool
+	}{
+		{"", true, true},
+		{"db-mv", false, false},
+		{"db-rm", false, false},
+		{"tar", true, false},
+		{"files-mv", true, false},
+		{"files-rm", true, false},
+		{"lock", false, false},
+	} {
+		t.Run("failure="+tc.failure, func(t *testing.T) {
 			f := newBackupScriptFixture(t)
 			code := 0
-			if failure != "" {
+			if tc.failure != "" {
 				code = 1
 			}
-			output := f.start(t, "manual", []string{"once", "manual-20260102-030405"}, "BACKUP_TEST_FAIL="+failure).wait(t, code)
+			output := f.start(t, "manual", []string{"once", "manual-20260102-030405"}, "BACKUP_TEST_FAIL="+tc.failure).wait(t, code)
 			trace := f.trace(t)
-			if strings.Contains(trace, "manual tar\n") || strings.Contains(trace, "manual find\n") || strings.Contains(trace, "manual sleep\n") {
-				t.Fatalf("manual backup did more than the database backup:\n%s", trace)
+			if strings.Contains(trace, "manual find\n") || strings.Contains(trace, "manual sleep\n") {
+				t.Fatalf("manual backup pruned or looped:\n%s", trace)
 			}
-			if failure != "" && strings.Contains(output, "database: wrote") {
-				t.Fatalf("failed manual backup reported success:\n%s", output)
+			if (tc.failure == "") != strings.Contains(output, "manual backup manual-20260102-030405: SUCCESS") {
+				t.Fatalf("manual backup success report wrong for failure %q:\n%s", tc.failure, output)
 			}
-			f.checkFile(t, "care-manual-20260102-030405.dump.enc", failure == "")
+			f.checkFile(t, "care-manual-20260102-030405.dump.enc", tc.database)
+			f.checkFile(t, "files-manual-20260102-030405.tar.gz.enc", tc.files)
 		})
 	}
 }
@@ -461,6 +473,7 @@ func TestBackupScriptRejectsExistingBackupPaths(t *testing.T) {
 		{"manual replay", "care-manual-20260102-030405.dump.enc", "published", true},
 		{"scheduled replay", "care-20260102-030405.dump.enc", "published", false},
 		{"scheduled files collision", "files-20260102-030405.tar.gz.enc", "file", false},
+		{"manual files collision", "files-manual-20260102-030405.tar.gz.enc", "file", true},
 		{"directory collision", "care-manual-20260102-030405.dump.enc", "directory", true},
 		{"dangling symlink collision", "care-manual-20260102-030405.dump.enc", "symlink", true},
 	} {

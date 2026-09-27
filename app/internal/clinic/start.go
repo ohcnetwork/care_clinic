@@ -46,6 +46,7 @@ func (e *Clinic) Start() error {
 	if err := e.createAdmin(); err != nil {
 		return fmt.Errorf("startup failed; workers and the scheduler remain stopped: %w", err)
 	}
+	e.syncFrontendPluginsOrWarn()
 	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300"); err != nil {
 		return err
 	}

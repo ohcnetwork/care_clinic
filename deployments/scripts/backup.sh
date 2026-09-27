@@ -295,13 +295,30 @@ with_backup_lock() (
 	"$@"
 ) 9>"$BACKUP_DIR/.backup.lock"
 
-# One-shot mode, used by the app's "Backup now": database only, under the name
-# the caller picked, then exit. Same dump/verify/seal/rename as the daily run.
+manual_backup() {
+	name=$1
+	if ! require_new_paths "$BACKUP_DIR/care-$name.dump.enc" "$BACKUP_DIR/files-$name.tar.gz.enc"; then
+		return 1
+	fi
+	if ! db_backup "$name"; then
+		echo "[backup] manual backup $name: FAILED at the database step"
+		return 1
+	fi
+	if ! files_backup "$name"; then
+		echo "[backup] manual backup $name: FAILED at the files step"
+		return 1
+	fi
+	echo "[backup] manual backup $name: SUCCESS"
+}
+
+# One-shot mode, used by the app's "Backup now": database and files under the
+# name the caller picked, then exit. Same dump/archive/verify/seal/rename as the
+# daily run, without retention.
 if [ "${1:-}" = "once" ]; then
 	name=${2:?no backup name given}
 	SPACE_NEED=""
-	check_space database || exit 1
-	if ! with_backup_lock db_backup "$name"; then
+	check_space set || exit 1
+	if ! with_backup_lock manual_backup "$name"; then
 		if disk_full; then
 			echo "[backup] ERROR: the backup folder ran out of space ($(mb "$SPACE_FREE") free)"
 		fi

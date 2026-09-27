@@ -37,6 +37,25 @@ func TestLatestSetsPrefersNewestDailyForSizing(t *testing.T) {
 	}
 }
 
+func TestLatestSetsSizesManualSetsWithTheirFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeSized(t, dir, "care-20260101-020000.dump.enc", 100)
+	writeSized(t, dir, "files-20260101-020000.tar.gz.enc", 300)
+	writeSized(t, dir, "care-manual-20260102-090000.dump.enc", 150)
+	writeSized(t, dir, "files-manual-20260102-090000.tar.gz.enc", 400)
+
+	daily, newest, found, err := LatestSets(dir)
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if daily.FilesBytes != 300 {
+		t.Fatalf("daily set picked up a manual archive: %+v", daily)
+	}
+	if !newest.Manual || newest.DumpBytes != 150 || newest.FilesBytes != 400 {
+		t.Fatalf("newest = %+v", newest)
+	}
+}
+
 func TestLatestSetsMissingFolder(t *testing.T) {
 	_, _, found, err := LatestSets(filepath.Join(t.TempDir(), "nope"))
 	if err != nil || found {

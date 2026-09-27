@@ -26,6 +26,10 @@ func (a *App) SavePlugins(pluginList []plugins.Plugin, adminPassword string) err
 		if err := a.requireStableClinic(); err != nil {
 			return err
 		}
-		return plugins.New(a.installDir()).WritePlugins(pluginList)
+		return plugins.New(a.installDir()).SavePlugins(pluginList)
 	})
+}
+
+func (a *App) PluginCatalog() ([]plugins.CatalogEntry, error) {
+	return plugins.Catalog()
 }

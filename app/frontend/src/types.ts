@@ -65,11 +65,30 @@ export type ImportedBackup = {
   has_key: boolean;
 };
 
-export type CarePlugin = {
+export type PluginBackend = {
   name: string;
   package_name: string;
   version?: string;
   configs?: Record<string, unknown>;
+};
+
+export type PluginFrontend = {
+  slug: string;
+  url: string;
+  meta?: Record<string, unknown>;
+};
+
+export type CarePlugin = {
+  id: string;
+  label?: string;
+  catalog?: boolean;
+  backend?: PluginBackend;
+  frontend?: PluginFrontend;
+};
+
+export type PluginCatalogEntry = {
+  plugin: CarePlugin;
+  description?: string;
 };
 
 /** Which of the two .env files an editor is pointed at. */
@@ -106,6 +125,7 @@ export type StorageDrive = {
   total: number;
   level: StorageLevel;
   message: string;
+  cleanable: boolean;
 };
 
 export type BackupSpace = {

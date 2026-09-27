@@ -1,0 +1,26 @@
+- description: Appointment confirmations, reminders, cancellations and reschedule notices by SMS and web push.
+  plugin:
+    id: care_notifications
+    label: Booking notifications
+    backend:
+      name: care_notifications
+      package_name: git+https://github.com/ohcnetwork/care_booking_notifications_be.git
+      version: "@main"
+
+- description: Voice-driven form filling for clinical notes and questionnaires, powered by Medispeak.
+  plugin:
+    id: care_filly
+    label: Filly
+    backend:
+      name: care_filly
+      package_name: git+https://github.com/ohcnetwork/care_filly.git
+      version: "@main"
+      configs:
+        MEDISPEAK_BASE_URL: ""
+        MEDISPEAK_API_KEY: ""
+    frontend:
+      slug: care_filly_fe
+      url: https://ohcnetwork.github.io/care_filly_fe/assets/remoteEntry.js
+      meta:
+        config:
+          MEDISPEAK_API_URL: ""

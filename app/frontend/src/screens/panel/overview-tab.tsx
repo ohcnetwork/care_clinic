@@ -218,7 +218,7 @@ const SHARED_DRIVE_NOTE =
   "Same drive as the clinic's data. A USB drive keeps the backups safe if this computer's drive fails.";
 
 function StorageCard() {
-  const { storage, recheckStorage, setTab } = useCare();
+  const { storage, recheckStorage, setTab, runAction, busy, restorePending } = useCare();
   const [checking, setChecking] = useState(false);
 
   const recheck = async () => {
@@ -270,6 +270,18 @@ function StorageCard() {
             drive.id === "vm"
               ? "The virtual disk Rancher Desktop keeps the clinic's database and uploads in."
               : undefined
+          }
+          action={
+            drive.cleanable ? (
+              <Button
+                size="sm"
+                disabled={busy || restorePending}
+                title="Removes old CARE images and Docker's build cache. Clinic data is not touched."
+                onClick={() => void runAction("free-space")}
+              >
+                Free up space
+              </Button>
+            ) : undefined
           }
         />
       ))}

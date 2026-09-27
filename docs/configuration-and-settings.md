@@ -16,7 +16,7 @@ flowchart LR
     Pins --> Engine
     Engine --> Compose["Compose environment and orchestration"]
     Installed --> Compose
-    Editor["Settings and plugin editors"] --> RuntimeEnv["Installed backend.env and frontend.env"]
+    Editor["Settings and plugin editors"] --> RuntimeEnv["Installed backend.env, frontend.env and plugins.json"]
     RuntimeEnv --> Compose
 ```
 
@@ -280,17 +280,9 @@ The app checks hourly, but only while the clinic is actually serving. Until then
 
 "Check now" does not start a second check when one is already running; it joins the one in flight. The card follows the `care-check` event, so it reports the automatic hourly check as well as one somebody pressed. "Checking" lasts until any found commit has finished building, not only until the branch head is resolved, because until the build finishes there is nothing to install. Checks are skipped without a working network, during setup and removal, and while another job holds the clinic. A failed check is logged, not surfaced: a clinic with no internet is a supported state, not an error.
 
-## Backend plugins
+## Plugins
 
-[`internal/plugins`](../app/internal/plugins/plugins.go) owns `ADDITIONAL_PLUGS` in `backend.env`. Each plugin has `name`, `package_name`, optional `version`, and optional `configs`.
-
-The read path first parses dotenv, then parses the selected variable as JSON. An absent/empty variable or JSON `null` becomes an empty plugin list. A missing environment file or malformed JSON is an error, not "no plugins."
-
-The write path serializes the plugin list, removes duplicate assignments including recognized `export` forms, preserves unrelated lines, validates the resulting dotenv, and atomically replaces the file. An empty list removes the variable. Quoting protects literal configuration values from accidental expansion.
-
-The Go API supports JSON-compatible configuration values. The current desktop table presents configuration as flat key/value rows and infers primitive booleans and numbers from text; it is not a general nested-JSON editor.
-
-`SavePlugins` only persists. [`plugin-table.tsx`](../app/frontend/src/screens/panel/plugin-table.tsx) follows it with `ClinicAction("rebuild-backend", adminPassword)` because backend plugins are incorporated into the backend image. Frontend plugins are not managed through this table.
+The plugin list is stored in `plugins.json` beside `backend.env`. Its backend parts are written to `ADDITIONAL_PLUGS` in `backend.env`, and the settings editor refuses to edit that variable directly. The catalog format, storage, and apply flow are documented in [Plugins](plugins.md).
 
 ## Changing the backup destination
 

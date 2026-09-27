@@ -29,17 +29,18 @@ func (e *Clinic) BackupNow() error {
 		}
 		return fmt.Errorf("could not write the backup - CARE must be running to take one (%w)", err)
 	}
-	e.logln("Backup written (database only, not uploaded files): " +
-		filepath.Join(e.backupDir(), name))
+	e.logln("Backup written (database and uploaded files): " +
+		filepath.Join(e.backupDir(), name) + " and " +
+		filepath.Join(e.backupDir(), "files-manual-"+ts+".tar.gz.enc"))
 	return nil
 }
 
 func (e *Clinic) manualBackupNeed() uint64 {
-	_, newest, found, err := storage.LatestSets(e.backupDir())
+	daily, _, found, err := storage.LatestSets(e.backupDir())
 	if err != nil {
 		return storage.BackupFloor
 	}
-	return storage.BackupNeed(storage.BackupSet{DumpBytes: newest.DumpBytes}, found)
+	return storage.BackupNeed(daily, found)
 }
 
 func (e *Clinic) backupRoomFor(need uint64) error {
@@ -64,4 +65,15 @@ func (e *Clinic) DockerDiskFree() (free, total uint64, err error) {
 		return 0, 0, err
 	}
 	return storage.ParseDF(out)
+}
+
+func (e *Clinic) DockerRootDir() (string, error) {
+	out, err := e.Runner().CaptureIn(5*time.Second, nil, "docker", "info", "--format", "{{.DockerRootDir}}")
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(out) {
+		return "", fmt.Errorf("docker reported an unusable data directory %q", out)
+	}
+	return out, nil
 }

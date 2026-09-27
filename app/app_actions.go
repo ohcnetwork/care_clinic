@@ -176,8 +176,12 @@ func (a *App) notifyActionFailed(label, detail string) {
 		title = "Backup didn't finish"
 	case "rebuild-backend", "rebuild-frontend":
 		title = "Rebuild didn't finish"
+	case "apply-plugins":
+		title = "The plugins couldn't be applied"
 	case "update":
 		title = "The CARE update didn't finish"
+	case "free-space":
+		title = "Cleanup didn't finish"
 	case "app-update":
 		title = "The CARE Desktop update didn't finish"
 	}
@@ -205,7 +209,7 @@ func (a *App) notifyInstalled(mdnsName string) {
 
 func (a *App) ClinicAction(action, adminPassword string) error {
 	switch action {
-	case "start", "stop", "restart", "rebuild-backend", "rebuild-frontend", "backup-now", "update":
+	case "start", "stop", "restart", "rebuild-backend", "rebuild-frontend", "apply-plugins", "backup-now", "update", "free-space":
 	default:
 		return errors.New("action not allowed: " + action)
 	}
@@ -218,7 +222,7 @@ func (a *App) ClinicAction(action, adminPassword string) error {
 				return err
 			}
 		}
-		if strings.HasPrefix(action, "rebuild-") {
+		if strings.HasPrefix(action, "rebuild-") || action == "apply-plugins" {
 			if err := a.requireAdmin(adminPassword); err != nil {
 				return err
 			}
@@ -266,10 +270,14 @@ func actionFunc(e *clinic.Clinic, action string) func() error {
 		return e.RebuildBackend
 	case "rebuild-frontend":
 		return e.RebuildFrontend
+	case "apply-plugins":
+		return e.ApplyPlugins
 	case "backup-now":
 		return e.BackupNow
 	case "update":
 		return e.ApplyUpdate
+	case "free-space":
+		return e.FreeSpace
 	}
 	return nil
 }

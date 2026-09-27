@@ -134,14 +134,12 @@ func (a *App) InspectBackupFile(path string) (ImportedBackup, error) {
 		DBDump:    name,
 		Encrypted: strings.HasSuffix(name, ".enc"),
 	}
-	if !strings.HasPrefix(name, "care-manual-") {
-		for _, candidate := range []string{"files-" + m[1] + ".tar.gz.enc", "files-" + m[1] + ".tar.gz"} {
-			if info, err := os.Stat(filepath.Join(dir, candidate)); err == nil && info.Mode().IsRegular() {
-				out.FilesArchive = candidate
-				break
-			} else if err != nil && !os.IsNotExist(err) {
-				return out, err
-			}
+	for _, candidate := range backup.FilesCandidates(name) {
+		if info, err := os.Stat(filepath.Join(dir, candidate)); err == nil && info.Mode().IsRegular() {
+			out.FilesArchive = candidate
+			break
+		} else if err != nil && !os.IsNotExist(err) {
+			return out, err
 		}
 	}
 	out.Encrypted = out.Encrypted || strings.HasSuffix(out.FilesArchive, ".enc")

@@ -7,6 +7,7 @@ import type {
   Backup,
   BackupSpace,
   CarePlugin,
+  PluginCatalogEntry,
   ChannelStatus,
   DiskStatus,
   DockerStatus,
@@ -70,6 +71,7 @@ declare global {
           WriteEnv(name: string, content: string, adminPassword: string): Promise<void>;
           ReadPlugins(adminPassword: string): Promise<CarePlugin[]>;
           SavePlugins(plugins: CarePlugin[], adminPassword: string): Promise<void>;
+          PluginCatalog(): Promise<PluginCatalogEntry[]>;
           ListBackups(): Promise<Backup[]>;
           GetBackupDir(): Promise<string>;
           SetBackupDir(dir: string): Promise<string>;

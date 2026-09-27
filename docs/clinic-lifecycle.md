@@ -684,7 +684,11 @@ connections.
 [`docker-compose.yml`](../deployments/docker-compose.yml) declares the
 `care-desktop` project and a default network explicitly named `care-desktop`.
 All services join that network. Only Caddy publishes host ports. All nine
-services use `restart: unless-stopped`.
+services use `restart: unless-stopped`, and all share the `x-logging` anchor:
+the `json-file` driver capped at three 10 MB files per container. Without the
+cap Docker keeps every log line forever on the VM disk. A changed logging block
+changes the service's config hash, so existing installs pick it up the next
+time `docker compose up` recreates the containers (start, restart or update).
 
 In this table, `healthy` means a Compose `service_healthy` dependency;
 `started` means the short-form dependency, not verified application readiness.
@@ -772,7 +776,8 @@ flowchart TD
     Pause --> Core["Start db, redis, backend; wait up to 300 seconds"]
     Core --> Migrate["Run live migrations once"]
     Migrate --> Admin["Create admin if a password was supplied"]
-    Admin --> All["Start whole stack; wait up to 300 seconds"]
+    Admin --> Plugins["Sync frontend plugin rows"]
+    Plugins --> All["Start whole stack; wait up to 300 seconds"]
     All --> Proxy["Force-recreate only Caddy; wait up to 300 seconds"]
     Proxy --> Health["Wait for backend HTTP health, up to 3 minutes"]
     Health --> Finish["Backups.FinishRestore"]
@@ -805,6 +810,7 @@ it.
 | Core startup | Compose `up -d --wait --wait-timeout 300 db redis backend`. | Return an explicit backend-startup error; verified-stopped workers remain stopped. |
 | Live migration | Execute `python manage.py migrate --noinput` in the running backend. | Return an actionable migration error; do not resume workers. |
 | Administrator | Create the initial administrator when requested. | Unexpected creation failure also prevents worker resumption. |
+| Frontend plugins | Upsert and prune desktop-managed `PlugConfig` rows; see [Plugins](plugins.md). | Logged as a warning; startup continues. |
 | Full stack | Compose `up -d --wait --wait-timeout 300` with no service selector. | Some services, including workers, may already have started before an error. There is no automatic rollback. |
 | Proxy refresh | Compose `up` for Caddy only, with `--no-deps --force-recreate` and the same wait settings. | Return `the proxy could not be refreshed with the current configuration`. |
 | HTTP readiness | `health.Wait(Log, 3*time.Minute)`. | An apparently running Compose stack is not enough; failure leaves the started resources for diagnosis. |
@@ -980,7 +986,7 @@ or prevent a later bind race. Further transport details are in
 | --- | --- | --- |
 | `Stop()` | Log `Stopping CARE (data kept)...`, then Compose `stop`. | Does not remove containers, volumes, images, keys, settings, or native trust. A stop error propagates. |
 | `Restart()` | Call `Stop`; if successful, call the full `Start`. | This is not Compose `restart`: it includes recovery, freshness checks, migrations, Caddy recreation, and health. Stop failure prevents Start. |
-| `RebuildBackend()` | Recover pending restore work; explicitly build backend; stop/verify workers; start/wait backend; migrate once; start/wait worker and scheduler. | No administrator creation, whole-stack HTTP wait, Caddy refresh, native setup, or `FinishRestore` call in this method. |
+| `RebuildBackend()` | Recover pending restore work; explicitly build backend; stop/verify workers; start/wait backend; migrate once; sync frontend plugin rows (warning only); start/wait worker and scheduler. | No administrator creation, whole-stack HTTP wait, Caddy refresh, native setup, or `FinishRestore` call in this method. |
 | `RebuildFrontend()` | Recover pending restore work; explicitly build frontend; start/wait frontend. | Does not run migrations, stop workers, perform the full health wait, or refresh Caddy. |
 
 Both rebuild methods use Compose waits of 300 seconds per selected startup

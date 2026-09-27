@@ -280,7 +280,7 @@ func TestRestoreRejectsUnsafeInputs(t *testing.T) {
 		{"path", "../care-20260101-010101.dump", ""},
 		{"timestamp", "care-20269901-010101.dump", ""},
 		{"mismatched-set", "care-20260101-010101.dump", "files-20260101-010102.tar.gz"},
-		{"manual-with-files", "care-manual-20260101-010101.dump", "files-20260101-010101.tar.gz"},
+		{"manual-with-scheduled-files", "care-manual-20260101-010101.dump", "files-20260101-010101.tar.gz"},
 		{"directory", "care-20260101-010102.dump", ""},
 		{"symlink", "care-20260101-010103.dump", ""},
 		{"empty", "care-20260101-010104.dump", ""},
@@ -561,6 +561,58 @@ func TestRestoreSecretsAndManualScope(t *testing.T) {
 	if !foundSecret || load().Files != "original-files" {
 		t.Fatal("database-only restore lost its credential or changed files")
 	}
+}
+
+func TestManualBackupRestoresItsFiles(t *testing.T) {
+	s, load, save := newRestoreFixture(t)
+	for _, name := range []string{"care-manual-20260101-010101.dump", "files-manual-20260101-010101.tar.gz"} {
+		if err := os.WriteFile(filepath.Join(s.Dir, name), []byte("synthetic"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := load()
+	state.Fail = "activation"
+	save(state)
+	err := s.Restore("care-manual-20260101-010101.dump", "files-manual-20260101-010101.tar.gz", "")
+	if err == nil {
+		t.Fatal("expected activation failure")
+	}
+	if strings.Contains(err.Error(), "same backup") || strings.Contains(err.Error(), "not a files archive") {
+		t.Fatalf("a manual backup's own files archive was rejected: %v", err)
+	}
+	touchedFiles := false
+	for _, call := range load().Calls {
+		for _, arg := range call.Args {
+			if strings.Contains(arg, "_minio-data") {
+				touchedFiles = true
+			}
+		}
+	}
+	if !touchedFiles {
+		t.Fatal("the manual files archive was not staged")
+	}
+}
+
+func TestListBackupsPairsManualDumpsWithManualFiles(t *testing.T) {
+	s, _, _ := newRestoreFixture(t)
+	for _, name := range []string{"care-manual-20260102-010101.dump.enc", "files-manual-20260102-010101.tar.gz.enc"} {
+		if err := os.WriteFile(filepath.Join(s.Dir, name), []byte("synthetic"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backups, err := s.ListBackups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range backups {
+		if b.DBDump == "care-manual-20260102-010101.dump.enc" {
+			if b.FilesArchive != "files-manual-20260102-010101.tar.gz.enc" || !strings.Contains(b.Label, "manual - DB + files") {
+				t.Fatalf("manual backup not paired with its files: %+v", b)
+			}
+			return
+		}
+	}
+	t.Fatal("manual backup was not listed")
 }
 
 func TestListBackupsDoesNotPairManualDumps(t *testing.T) {
