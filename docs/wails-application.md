@@ -73,7 +73,14 @@ The backend starts name advertising, but the desktop state store makes the norma
 
 ### Closing the application
 
-`beforeClose()` first attempts the exclusive operation lock. If work is active, closing is prevented. Otherwise it asks about a running clinic.
+`beforeClose()` first attempts the exclusive operation lock. `run` records the label of the job it starts (`activeJob`) and clears it when the job ends, so a refused lock tells `beforeClose` what is running:
+
+| Running job | Result |
+| --- | --- |
+| `setup` | Ask "Quit while setup is running?" (default No). Yes allows closing; setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. Docker commands already started are not killed and may finish in the background. No answer within the quit-prompt timeout keeps the window open. |
+| Anything else (`restore`, `uninstall`, `app-update`, `update`, rebuilds, backups, synchronous jobs) | Closing is prevented and an information dialog says what is running and to wait. These are the operations where stopping part-way can leave data or the installation half-changed. |
+
+Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are refused silently. With no work active, `beforeClose` asks about a running clinic.
 
 There are three outcomes but only two buttons, because a platform message box cannot be relied on to offer more: Windows renders a question as a fixed two-button box regardless of what is requested (see [native dialog answers](#native-dialog-answers-are-not-the-button-labels)). `askBeforeQuit` therefore asks up to two plain yes/no questions instead of labelling one dialog with three choices:
 
@@ -261,6 +268,7 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `start` | `Start()` | Setup required; pending restore allowed for recovery. |
 | `stop` | `Stop()` | Setup required; pending restore allowed. |
 | `restart` | `Restart()` | Stable clinic required. |
+| `rebuild-all` | `RebuildAll()` | Stable clinic and administrator password required. Before the engine call, the app recopies its bundled kit into the install directory and reapplies the domain, the same refresh it does at launch. This is the Advanced tab's **Rebuild everything** button. |
 | `rebuild-backend` | `RebuildBackend()` | Stable clinic and administrator password required. |
 | `rebuild-frontend` | `RebuildFrontend()` | Stable clinic and administrator password required. |
 | `apply-plugins` | `ApplyPlugins()` | Stable clinic and administrator password required. Rebuilds the backend only when its plugin inputs changed, otherwise syncs frontend plugin rows. |

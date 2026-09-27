@@ -91,10 +91,7 @@ func (a *App) refreshInstallDir() {
 			a.logln("An unfinished restore was found; its installed configuration was left unchanged for recovery.")
 			return nil
 		}
-		if _, err := a.ensureInstallDir(); err != nil {
-			return err
-		}
-		if err := a.engine().ApplyDomain(); err != nil {
+		if err := a.syncInstallKit(); err != nil {
 			return err
 		}
 		updated = true
@@ -106,6 +103,13 @@ func (a *App) refreshInstallDir() {
 	if updated {
 		a.logln("Install files are up to date with this version.")
 	}
+}
+
+func (a *App) syncInstallKit() error {
+	if _, err := a.ensureInstallDir(); err != nil {
+		return err
+	}
+	return a.engine().ApplyDomain()
 }
 
 func (a *App) shutdown(context.Context) {
@@ -144,8 +148,7 @@ func (a *App) onSecondInstance(options.SecondInstanceData) {
 
 func (a *App) beforeClose(context.Context) (prevent bool) {
 	if !a.jobMu.TryLock() {
-		a.logln("An operation is still running. Wait for it to finish before closing CARE Desktop.")
-		return true
+		return !a.quitDuringJob(a.runningJob())
 	}
 	defer a.jobMu.Unlock()
 	if a.closing {
@@ -176,6 +179,68 @@ func (a *App) beforeClose(context.Context) (prevent bool) {
 		a.closing = true
 		return false
 	}
+}
+
+func (a *App) runningJob() string {
+	label, _ := a.activeJob.Load().(string)
+	return label
+}
+
+func (a *App) quitDuringJob(label string) bool {
+	if label != "setup" {
+		a.logln("An operation is still running. Wait for it to finish before closing CARE Desktop.")
+		if a.ctx != nil && a.busyShown.CompareAndSwap(false, true) {
+			go func() {
+				defer a.busyShown.Store(false)
+				_, _ = wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
+					Type:    wruntime.InfoDialog,
+					Title:   "CARE Desktop is still working",
+					Message: busyQuitMessage(label),
+					Buttons: []string{"OK"},
+				})
+			}()
+		}
+		return false
+	}
+	if a.ctx == nil || !a.busyShown.CompareAndSwap(false, true) {
+		return false
+	}
+	answer := make(chan bool, 1)
+	go func() {
+		defer a.busyShown.Store(false)
+		quit, err := a.askToProceed("Quit while setup is running?",
+			"Setup stops where it is. The next time you open CARE Desktop you'll be back "+
+				"on the setup screen, which will ask you to remove the unfinished install before "+
+				"setting up again.\n\n"+
+				"Docker steps that already started may keep running in the background for a few minutes.\n\n"+
+				"Quit anyway?", "Quit")
+		answer <- err == nil && quit
+	}()
+	select {
+	case quit := <-answer:
+		if quit {
+			a.logln("Quitting during setup; setup will start over next time.")
+		}
+		return quit
+	case <-time.After(quitPromptTimeout):
+		return false
+	}
+}
+
+func busyQuitMessage(label string) string {
+	switch label {
+	case "restore":
+		return "A restore is in progress. Quitting now could leave the clinic's data half-replaced.\n\n" +
+			"Wait for it to finish, then quit."
+	case "uninstall":
+		return "CARE is being removed from this computer. Quitting now could leave it partly removed.\n\n" +
+			"Wait for it to finish, then quit."
+	case "app-update":
+		return "A CARE Desktop update is being prepared. Wait for it to finish, then quit."
+	case "update":
+		return "CARE is being updated. Wait for the update to finish, then quit."
+	}
+	return "CARE Desktop is in the middle of an operation (see the log). Wait for it to finish, then quit."
 }
 
 func (a *App) askBeforeQuit() quitChoice {

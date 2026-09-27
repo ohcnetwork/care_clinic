@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
@@ -25,8 +26,10 @@ type App struct {
 	cfg        Config
 	configFile string
 
-	jobMu   sync.RWMutex
-	closing bool
+	jobMu     sync.RWMutex
+	closing   bool
+	activeJob atomic.Value
+	busyShown atomic.Bool
 
 	advMu   sync.Mutex
 	adv     *mdns.Advertiser

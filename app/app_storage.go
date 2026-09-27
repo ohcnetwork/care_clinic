@@ -118,6 +118,12 @@ func (a *App) checkStorage() storage.Report {
 	if docker, err := diskspace.Of(a.dockerDataDir()); err == nil {
 		d := storage.AssessDrive("docker", "Clinic data", docker)
 		d.Cleanable = running && runtime.GOOS == "linux"
+		if runtime.GOOS != "linux" {
+			d.Label = "This computer's drive"
+			if d.Level == storage.LevelOK {
+				d.Message = "Plenty of room for Rancher Desktop's disk to grow."
+			}
+		}
 		r.Drives = append(r.Drives, d)
 	}
 	if running && runtime.GOOS != "linux" {

@@ -52,6 +52,7 @@ const ACTION_LABELS: Record<string, string> = {
   start: "Starting",
   stop: "Stopping",
   restart: "Restarting",
+  "rebuild-all": "Rebuilding",
   "rebuild-frontend": "Rebuilding",
   "rebuild-backend": "Rebuilding",
   "apply-plugins": "Applying plugins",

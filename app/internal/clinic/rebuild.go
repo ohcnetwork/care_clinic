@@ -39,3 +39,21 @@ func (e *Clinic) RebuildFrontend() error {
 	e.logln("Frontend rebuilt and restarted.")
 	return nil
 }
+
+func (e *Clinic) RebuildAll() error {
+	if err := e.Backups().RecoverRestore(); err != nil {
+		return err
+	}
+	e.logln("Rebuilding CARE and restarting every service (patient data is kept)...")
+	if err := e.Builder().BuildBackend(); err != nil {
+		return err
+	}
+	if err := e.Builder().BuildFrontend(); err != nil {
+		return err
+	}
+	if err := e.Restart(); err != nil {
+		return err
+	}
+	e.logln("Everything rebuilt and restarted.")
+	return nil
+}
