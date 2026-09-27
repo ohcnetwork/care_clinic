@@ -447,6 +447,7 @@ jobs:
   publish:
     name: Create draft release
     needs: [prepare, package]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.package.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

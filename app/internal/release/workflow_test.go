@@ -2,6 +2,7 @@ package release
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -192,6 +193,22 @@ func TestMacSigningRetainsExistingConfiguration(t *testing.T) {
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("macOS signing contract is missing %q", required)
+		}
+	}
+}
+
+func TestUnsignedReleaseStillCreatesDraft(t *testing.T) {
+	data, err := os.ReadFile("../../../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := regexp.MustCompile(`(?ms)^  publish:\n.*?(?:^  \S|\z)`).FindString(string(data))
+	if job == "" {
+		t.Fatal("the draft release job is missing")
+	}
+	for _, required := range []string{"!cancelled()", "needs.package.result == 'success'"} {
+		if !strings.Contains(job, required) {
+			t.Errorf("the draft job must still run when the Windows signing jobs are skipped; its condition is missing %q", required)
 		}
 	}
 }

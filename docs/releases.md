@@ -102,14 +102,14 @@ succeeds. For `CARE_DESKTOP_VERSION=0.1.1`, the tag is `v0.1.1`.
 
 | Stage | Behavior |
 | --- | --- |
-| Validate | Reject malformed/duplicate version values, moving FE/BE refs, and a version that already has a draft or published release. |
+| Validate | Reject malformed/duplicate version values, FE/BE refs that are not a branch name or commit SHA, and a version that already has a draft or published release. |
 | Verify prerequisites | In parallel with validation, download every pinned Rancher Desktop, Git for Windows, Docker Engine, and Compose file from upstream and compare its SHA-256 with `deployments/.env`. A missing file or a different hash fails the release before anything is built. |
 | Check and build | Call the same CI workflow used by PRs: lint, race tests, frontend checks, and real macOS/Windows native builds. No separate untested release rebuild. |
 | Windows signing | With the SignPath configuration, submit the CI-built `CARE Desktop.exe` and `uninstall.exe` for signing in one request, rebuild the NSIS installer around the signed files with the installer inputs CI produced, and submit the installer for signing. Each request waits for an approver. Without the configuration, both jobs are skipped and the CI installer is used unsigned. |
 | macOS signing | With the existing credentials, sign the app with hardened runtime, notarize/staple it, then sign and notarize/staple the DMG. Otherwise explicitly report ad-hoc signing. |
 | Package | Wrap the CI macOS app in a DMG and copy the signed (or CI-built unsigned) Windows installer. Verify macOS metadata matches the release version. |
 | Record | Save the exact release configuration, source commit, workflow run URL, signing status, and SHA-256 file checksums. |
-| Draft | Verify the complete asset set, create/reuse the tag at the exact source commit, and create a draft marked as a prerelease. Never replace an existing release. |
+| Draft | Verify the complete asset set, create/reuse the tag at the exact source commit, and create a draft marked as a prerelease. Never replace an existing release. Runs after an unsigned package too: its condition allows the Windows signing jobs to be skipped, which GitHub's default job condition would not. |
 
 Release runs are serialized and do not cancel an active release. CI invoked by
 a release has a separate concurrency group from ordinary PR/main CI.
@@ -276,8 +276,8 @@ branch in step with Wails' `wails.writeUninstaller` macro when upgrading Wails.
 
 1. Once SignPath approves the project, create the artifact configuration and the
    signing policy there, then store the four settings above in the repository.
-2. Bump `CARE_DESKTOP_VERSION`: `0.1.0` already has a tag, and versions are never
-   reused.
+2. Bump `CARE_DESKTOP_VERSION` past the last released version (for example `0.1.1`
+   after the unsigned `0.1.0`); versions are never reused.
 3. Run the release workflow and approve both signing requests.
 4. Check `release-manifest.json`, then publish the draft.
 
