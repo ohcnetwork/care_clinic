@@ -176,7 +176,7 @@ The version format is `X.Y.Z` or `X.Y.Z-dev`. `RANCHER_VERSION`,
 hex characters; see [pinned prerequisite downloads](native-integrations.md#pinned-prerequisite-downloads).
 
 `CARE_BE_REF` and `CARE_FE_REF` name the **branch** a release follows, not a
-commit. Releases currently track `develop`: a branch of verified commits, so
+commit. Releases normally track `develop`: a branch of verified commits, so
 bug fixes reach installed clinics without a desktop release. An installed
 clinic resolves that branch to a commit once, records it, and only moves
 forward when a background check has already built the newer commit. A full
@@ -189,7 +189,8 @@ resolved commit is chosen, staged, and applied.
 At runtime, `GetState().version` comes from these embedded pins, not a separate
 linker-injected version variable.
 
-Manual releases derive their identity from the selected commit:
+Releases derive their identity from the commit that started them (the merge
+into `main`, or the commit selected for a manual run):
 
 | Source | Expected value |
 | --- | --- |

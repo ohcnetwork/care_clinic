@@ -22,7 +22,7 @@ This documentation explains the current implementation, from operating-system pr
 | [Cleanup and uninstall](cleanup-and-uninstall.md) | What each removal operation deletes or preserves, ownership checks, and partial-cleanup recovery. |
 | [Native integrations](native-integrations.md) | Process execution, file persistence, logs, prerequisites, elevation, TLS trust, mDNS, and OS differences. |
 | [Development and release](development-and-release.md) | Local builds, embedded assets, release pins, CI, packaging, and changing the backend safely. |
-| [Releasing CARE Desktop](releases.md) | Preparing a version, manually running a release, reviewing the draft, signing limitations, and retrying safely. |
+| [Releasing CARE Desktop](releases.md) | Preparing a version, how merging a version bump starts the release, reviewing and publishing the draft, signing limitations, and retrying safely. |
 | [Facility setup page](seed-data.md) | The browser wizard at `/seed-data` that loads a new clinic's first data through CARE's API, and the master-sheet converter behind it. |
 
 For a first reading, follow the table from top to bottom. If you are fixing one behavior, use the task map below instead.

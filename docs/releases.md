@@ -173,7 +173,12 @@ Before publishing:
    applied. Preserve
    its CA identity and persistent data; an application upgrade should not
    require all client devices to reinstall certificate trust.
-4. If distributing the current preview to testers, publish it **as a
+4. Decide how to publish. The draft is created as a prerelease. The in-app
+   updater only offers GitHub's **latest** release, which never includes
+   prereleases, so installed clinics are offered this version only if you
+   untick **Set as a pre-release** and publish it as the latest release. Leave
+   it ticked to share a build with testers without offering it to clinics.
+5. If distributing the current preview to testers, publish it **as a
    prerelease**, retaining the unsigned-download warnings.
 
 A draft is not public, and a prerelease is not the normal GitHub "latest stable"

@@ -62,14 +62,14 @@ built on the clinic's machine from the upstream commits pinned in `deployments/.
 |---|---|
 | `app/` | The desktop app: Go engine in `internal/`, Wails bindings in `*.go`, React UI in `frontend/` |
 | `deployments/` | The server kit: compose file, Caddyfile, env files, backup script, and public certificate bootstrap route |
-| `.github/workflows/` | CI and manually triggered releases using the version and pins in `deployments/.env` |
+| `.github/workflows/` | CI, and releases started when `CARE_DESKTOP_VERSION` in `deployments/.env` changes on `main` |
 
 **Backend documentation:** [Start with `docs/README.md`](docs/README.md) for the
 architecture, file map, Wails API, configuration, lifecycle, backups, native
 integrations and release workflow.
 
 **Releases:** [Preparing and publishing a version](docs/releases.md), including
-manual Actions runs, automatic tags, and macOS and Windows signing configuration.
+releases started on merge, automatic tags, and macOS and Windows signing configuration.
 
 ## Code signing policy
 
