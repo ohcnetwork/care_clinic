@@ -149,8 +149,12 @@ func (a *App) onSecondInstance(options.SecondInstanceData) {
 }
 
 func (a *App) beforeClose(context.Context) (prevent bool) {
+	if a.quitConfirmed.Load() {
+		return false
+	}
 	if !a.jobMu.TryLock() {
-		return !a.quitDuringJob(a.runningJob())
+		a.askToQuitDuringJob(a.runningJob())
+		return true
 	}
 	defer a.jobMu.Unlock()
 	if a.closing {
@@ -188,71 +192,77 @@ func (a *App) runningJob() string {
 	return label
 }
 
-func (a *App) quitDuringJob(label string) bool {
-	if label != "setup" && label != jobPrereq {
-		a.logln("An operation is still running. Wait for it to finish before closing CARE Desktop.")
-		if a.ctx != nil && a.busyShown.CompareAndSwap(false, true) {
-			go func() {
-				defer a.busyShown.Store(false)
-				_, _ = wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
-					Type:    wruntime.InfoDialog,
-					Title:   "CARE Desktop is still working",
-					Message: busyQuitMessage(label),
-					Buttons: []string{"OK"},
-				})
-			}()
-		}
-		return false
-	}
+func (a *App) askToQuitDuringJob(label string) {
 	if a.ctx == nil || !a.busyShown.CompareAndSwap(false, true) {
-		return false
+		return
 	}
-	answer := make(chan bool, 1)
 	go func() {
 		defer a.busyShown.Store(false)
-		quit, err := a.askToProceed("Quit while setup is running?", setupQuitMessage(label), "Quit")
-		answer <- err == nil && quit
-	}()
-	select {
-	case quit := <-answer:
-		if quit {
-			a.logln("Quitting during setup; setup will start over next time.")
+		prompt := jobQuitPrompt(label)
+		quit, err := a.askToProceed(prompt.title, prompt.message+"\n\nQuit anyway?", "Quit")
+		if err != nil || !quit {
+			return
 		}
-		return quit
-	case <-time.After(quitPromptTimeout):
-		return false
-	}
+		a.logln("Quitting while " + prompt.doing + " was still running.")
+		a.quitConfirmed.Store(true)
+		wruntime.Quit(a.ctx)
+	}()
 }
 
-func setupQuitMessage(label string) string {
-	if label == jobPrereq {
-		return "CARE Desktop is still installing or starting something this computer needs, " +
-			"such as Rancher Desktop. That step stops where it is. The next time you open " +
-			"CARE Desktop the computer check runs again and shows what is left to do.\n\n" +
-			"An installer that already started may keep running in the background for a few minutes.\n\n" +
-			"Quit anyway?"
-	}
-	return "Setup stops where it is. The next time you open CARE Desktop you'll be back " +
-		"on the setup screen, which will ask you to remove the unfinished install before " +
-		"setting up again.\n\n" +
-		"Docker steps that already started may keep running in the background for a few minutes.\n\n" +
-		"Quit anyway?"
+type quitPrompt struct {
+	doing   string
+	title   string
+	message string
 }
 
-func busyQuitMessage(label string) string {
+const leftRunning = "Commands that already started may keep running in the background for a few minutes."
+
+func jobQuitPrompt(label string) quitPrompt {
 	switch label {
+	case "setup":
+		return quitPrompt{"setup", "Quit while setup is running?",
+			"Setup stops where it is. The next time you open CARE Desktop you'll be back " +
+				"on the setup screen, which will ask you to remove the unfinished install before " +
+				"setting up again.\n\n" + leftRunning}
+	case jobPrereq:
+		return quitPrompt{"a requirement install", "Quit while this computer is being prepared?",
+			"CARE Desktop is still installing or starting something this computer needs, " +
+				"such as Rancher Desktop. That step stops where it is. The next time you open " +
+				"CARE Desktop the computer check runs again and shows what is left to do.\n\n" +
+				"An installer that already started may keep running in the background for a few minutes."}
+	case "start", "restart":
+		return quitPrompt{"starting CARE", "Quit while CARE is starting?",
+			"CARE is still starting. This can take several minutes while Docker (Rancher Desktop) " +
+				"comes up. Starting stops where it is; open CARE Desktop again to try once more.\n\n" + leftRunning}
+	case "stop":
+		return quitPrompt{"stopping CARE", "Quit while CARE is stopping?",
+			"CARE is still stopping. Open CARE Desktop again to check that it stopped.\n\n" + leftRunning}
 	case "restore":
-		return "A restore is in progress. Quitting now could leave the clinic's data half-replaced.\n\n" +
-			"Wait for it to finish, then quit."
+		return quitPrompt{"a restore", "Quit during a restore?",
+			"A restore is in progress. Quitting now can leave the clinic's data half-replaced. " +
+				"If you quit, open CARE Desktop again and restore the same backup before anyone uses the clinic."}
 	case "uninstall":
-		return "CARE is being removed from this computer. Quitting now could leave it partly removed.\n\n" +
-			"Wait for it to finish, then quit."
+		return quitPrompt{"removal", "Quit while CARE is being removed?",
+			"CARE is being removed from this computer. Quitting now can leave it partly removed; " +
+				"open CARE Desktop again and remove it once more to finish."}
 	case "app-update":
-		return "A CARE Desktop update is being prepared. Wait for it to finish, then quit."
+		return quitPrompt{"the CARE Desktop update", "Quit during the CARE Desktop update?",
+			"The update stops and the version you have keeps working; you can update again later. " +
+				"If macOS is already replacing the app, that finishes on its own."}
 	case "update":
-		return "CARE is being updated. Wait for the update to finish, then quit."
+		return quitPrompt{"the CARE update", "Quit during the CARE update?",
+			"CARE is being updated. Quitting can leave it partly updated; open CARE Desktop again " +
+				"and run the update once more.\n\n" + leftRunning}
+	case "backup-now":
+		return quitPrompt{"a backup", "Quit during a backup?",
+			"The backup in progress won't be finished or usable. Earlier backups are not affected.\n\n" + leftRunning}
+	case "rebuild-all", "rebuild-backend", "rebuild-frontend", "apply-plugins":
+		return quitPrompt{"a rebuild", "Quit during a rebuild?",
+			"CARE is being rebuilt. Quitting can leave the clinic stopped; open CARE Desktop again " +
+				"and run the rebuild once more.\n\n" + leftRunning}
 	}
-	return "CARE Desktop is in the middle of an operation (see the log). Wait for it to finish, then quit."
+	return quitPrompt{"an operation", "Quit while CARE Desktop is working?",
+		"CARE Desktop is in the middle of an operation (see the log). It stops where it is.\n\n" + leftRunning}
 }
 
 func (a *App) askBeforeQuit() quitChoice {

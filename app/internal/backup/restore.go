@@ -43,7 +43,7 @@ func (s *Store) ListBackups() ([]Backup, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return []Backup{}, nil
 		}
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func (s *Store) ListBackups() ([]Backup, error) {
 			files[en.Name()] = true
 		}
 	}
-	var out []Backup
+	out := []Backup{}
 	for _, en := range entries {
 		m := dumpRe.FindStringSubmatch(en.Name())
 		if m == nil {

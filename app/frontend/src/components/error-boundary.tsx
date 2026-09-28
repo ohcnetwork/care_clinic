@@ -28,7 +28,9 @@ export class ErrorBoundary extends Component<Props, State> {
             CARE Desktop could not continue. Read the message below before retrying.
           </p>
           <pre className="mt-4 max-h-[220px] overflow-auto rounded-lg bg-[#0b1f17] px-4 py-3.5 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-[#d7f7e6]">
-            {error.stack || error.message}
+            {error.stack?.includes(error.message)
+              ? error.stack
+              : [`${error.name}: ${error.message}`, error.stack].filter(Boolean).join("\n")}
           </pre>
           <button
             type="button"

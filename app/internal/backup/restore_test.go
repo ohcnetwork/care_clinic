@@ -636,3 +636,15 @@ func TestListBackupsDoesNotPairManualDumps(t *testing.T) {
 		}
 	}
 }
+
+func TestListBackupsIsNeverNil(t *testing.T) {
+	for name, dir := range map[string]string{"missing": filepath.Join(t.TempDir(), "absent"), "empty": t.TempDir()} {
+		backups, err := (&Store{BackupDir: dir}).ListBackups()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if backups == nil {
+			t.Fatalf("%s backup folder listed as nil, which the UI receives as null", name)
+		}
+	}
+}
