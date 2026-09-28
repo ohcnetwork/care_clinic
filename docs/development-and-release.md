@@ -327,8 +327,9 @@ For another change, select the package/test covering that behavior first. The fu
 
 ## Packaging and publication
 
-The release workflow is **manual-only** and reuses the native artifacts built by
-CI in the same workflow run:
+The release workflow runs when a push to `main` changes `CARE_DESKTOP_VERSION`
+in `deployments/.env`, or when started by hand, and reuses the native artifacts
+built by CI in the same workflow run:
 
 | Platform | Wails target | Artifact |
 | --- | --- | --- |

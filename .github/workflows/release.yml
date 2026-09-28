@@ -2,6 +2,9 @@ name: Release CARE Desktop
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [deployments/.env]
 
 permissions:
   contents: read
@@ -15,8 +18,46 @@ defaults:
     shell: bash
 
 jobs:
+  gate:
+    name: Decide whether to release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+    steps:
+      - name: Compare CARE_DESKTOP_VERSION with the previous commit
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" != "push" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version_at() {
+            gh api "repos/$GITHUB_REPOSITORY/contents/deployments/.env?ref=$1" \
+              -H "Accept: application/vnd.github.raw" 2>/dev/null \
+              | sed -n 's/^CARE_DESKTOP_VERSION=//p' | tr -d '\r' | xargs
+          }
+          now=$(version_at "$GITHUB_SHA")
+          before=""
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            before=$(version_at "$BEFORE")
+          fi
+          if [ -n "$now" ] && [ "$now" != "$before" ]; then
+            echo "CARE_DESKTOP_VERSION changed from ${before:-(none)} to $now; releasing."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "CARE_DESKTOP_VERSION is unchanged ($now); nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
   prepare:
     name: Validate release configuration
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -89,6 +130,8 @@ jobs:
 
   prerequisites:
     name: Verify pinned prerequisites
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
