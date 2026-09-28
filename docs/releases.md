@@ -2,8 +2,9 @@
 
 [Documentation index](README.md)
 
-Releases are started manually from GitHub Actions. Do not create or push a tag
-to start a build. The workflow reads the selected commit's
+A release starts on its own when a change to `CARE_DESKTOP_VERSION` is merged
+into `main`, and can also be started by hand from GitHub Actions. Do not create
+or push a tag to start a build. The workflow reads the selected commit's
 [`deployments/.env`](../deployments/.env), runs CI, packages the CI-built
 applications, creates a tag automatically, and creates a **draft prerelease**.
 Nothing is published to clinic users automatically.
@@ -23,7 +24,8 @@ protection.
    Use a new version even if only the backend, frontend, images, or deployment
    settings changed.
 3. Update the dependency pins needed by that release.
-4. Review the PR, let CI pass, and merge it into `main`.
+4. Review the PR, let CI pass, and merge it into `main`. The merge starts the
+   release; see [Build the release](#build-the-release).
 
 | Configuration | What to maintain |
 | --- | --- |
@@ -81,14 +83,23 @@ release input.
 
 ## Build the release
 
-1. Open **Actions -> Release CARE Desktop**.
-2. Select **Run workflow**, choose the approved branch (normally `main`), and
-   start the run. There is no version form: the version comes from `.env`.
-3. Wait for every job to finish.
-4. Open the resulting draft in the repository's **Releases** page.
+Merging the version PR into `main` runs **Release CARE Desktop**. Its first
+job, **Decide whether to release**, compares `CARE_DESKTOP_VERSION` with the
+commit before the push: when it changed, the release continues; when only other
+`.env` values changed (an image or prerequisite pin, a CARE branch), every
+other job is skipped and the run ends without a release. Pushes that do not
+touch `deployments/.env` do not start the workflow at all.
 
-The workflow must be present on the default branch for the manual button to
-appear. Maintainers need permission to run workflows. GitHub CLI equivalent:
+1. Open **Actions -> Release CARE Desktop** and find the run for the merge.
+2. Wait for every job to finish.
+3. Open the resulting draft in the repository's **Releases** page.
+
+To start a release by hand, for example to retry after a failure that needed a
+new commit, select **Run workflow**, choose the approved branch (normally
+`main`), and start the run. A manual run always releases; there is no version
+form, the version comes from `.env`. The workflow must be present on the default
+branch for the manual button to appear. Maintainers need permission to run
+workflows. GitHub CLI equivalent:
 
 ```sh
 gh workflow run release.yml --ref main
@@ -102,6 +113,7 @@ succeeds. For `CARE_DESKTOP_VERSION=0.1.1`, the tag is `v0.1.1`.
 
 | Stage | Behavior |
 | --- | --- |
+| Gate | On a push to `main`, continue only when `CARE_DESKTOP_VERSION` differs from the previous commit; otherwise skip every job. A manual run always continues. |
 | Validate | Reject malformed/duplicate version values, FE/BE refs that are not a branch name or commit SHA, and a version that already has a draft or published release. |
 | Verify prerequisites | In parallel with validation, download every pinned Rancher Desktop, Git for Windows, Docker Engine, and Compose file from upstream and compare its SHA-256 with `deployments/.env`. A missing file or a different hash fails the release before anything is built. |
 | Check and build | Call the same CI workflow used by PRs: lint, race tests, frontend checks, and real macOS/Windows native builds. No separate untested release rebuild. |
@@ -161,7 +173,12 @@ Before publishing:
    applied. Preserve
    its CA identity and persistent data; an application upgrade should not
    require all client devices to reinstall certificate trust.
-4. If distributing the current preview to testers, publish it **as a
+4. Decide how to publish. The draft is created as a prerelease. The in-app
+   updater only offers GitHub's **latest** release, which never includes
+   prereleases, so installed clinics are offered this version only if you
+   untick **Set as a pre-release** and publish it as the latest release. Leave
+   it ticked to share a build with testers without offering it to clinics.
+5. If distributing the current preview to testers, publish it **as a
    prerelease**, retaining the unsigned-download warnings.
 
 A draft is not public, and a prerelease is not the normal GitHub "latest stable"
