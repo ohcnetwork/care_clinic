@@ -1027,7 +1027,7 @@ Each explicit probe uses `cmdTimeout = 5 * time.Second` and
 
 | Probe | Evidence checked | Limits |
 | --- | --- | --- |
-| `DockerCheck` | `docker version --format "{{.Server.Os}}/{{.Server.Version}}"` succeeds; server OS is Linux or empty; `docker compose version` succeeds. | No minimum Docker version, capacity, virtualization, or registry-access test. Empty OS output is accepted by the helper. |
+| `DockerCheck` | `docker version --format "{{.Server.Os}}/{{.Server.Version}}"` succeeds; server OS is Linux or empty; `docker compose version` succeeds. On failure, "not installed" is decided by `rancherDesktopInstalled` alone, not by the `docker` binary being missing: on macOS `~/.rd/bin/docker` only appears once Rancher Desktop's first start finishes, so an installed but still-starting Rancher Desktop reports "running, but Docker is not answering yet" instead. | No minimum Docker version, capacity, virtualization, or registry-access test. Empty OS output is accepted by the helper. |
 | `hasCompose` | Compose v2-style subcommand can run. | Does not validate the clinic's Compose files or pull images. |
 | `GitCheck` | `git --version` succeeds. | Any failure yields the generic "Git is not installed" status, even if another execution error caused it. |
 | `dockerDaemonUp` | A bounded `docker version` request for the server version succeeds. | Used to choose an action; not the complete OS/Compose readiness check. |

@@ -33,7 +33,7 @@ func DockerCheck(run proc.Runner) Status {
 			return Status{OK: false, Message: composeAdvice()}
 		}
 		return Status{OK: true, Message: "Docker " + version}
-	case isNotFound(err) || !rancherDesktopInstalled():
+	case !rancherDesktopInstalled():
 		if runtime.GOOS == "windows" && !wslReady() {
 			return Status{OK: false, Message: "Rancher Desktop is not installed, and WSL 2 has to be on before it can be."}
 		}
@@ -82,11 +82,6 @@ func hasCompose(run proc.Runner) bool {
 	cmd := proc.CommandContext(ctx, "docker", "compose", "version")
 	cmd.Env = run.Env
 	return cmd.Run() == nil
-}
-
-func isNotFound(err error) bool {
-	return strings.Contains(err.Error(), "executable file not found") ||
-		strings.Contains(err.Error(), "cannot find the file")
 }
 
 func GitCheck(run proc.Runner) Status {

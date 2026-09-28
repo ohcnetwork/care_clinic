@@ -46,3 +46,30 @@ func TestOtherJobsNeverQuitAndExplainWhy(t *testing.T) {
 		}
 	}
 }
+
+func TestPrereqInstallCanBeQuitDuringSetup(t *testing.T) {
+	a := &App{
+		configFile: filepath.Join(t.TempDir(), "config.json"),
+		cfg:        Config{Role: roleServer},
+		pins:       &release.Pins{},
+	}
+	started, unblock := make(chan struct{}), make(chan struct{})
+	go func() {
+		_ = a.withLabeledJob(jobPrereq, func() error { close(started); <-unblock; return nil })
+	}()
+	<-started
+	if got := a.runningJob(); got != jobPrereq {
+		t.Fatalf("running job = %q, want %q", got, jobPrereq)
+	}
+	if setupQuitMessage(jobPrereq) == setupQuitMessage("setup") {
+		t.Fatal("installing a requirement reuses the setup quit wording")
+	}
+	close(unblock)
+	deadline := time.Now().Add(5 * time.Second)
+	for a.runningJob() != "" {
+		if time.Now().After(deadline) {
+			t.Fatal("the finished job was never cleared")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { bridge, onCareEvent } from "@/lib/bridge";
-import { errorText, firstLine } from "@/lib/format";
+import { errorText, firstLine, megabytes } from "@/lib/format";
 import { useCare } from "@/state/care-store";
-import type { AppUpdate, CareCheck, ChannelStatus } from "@/types";
+import type { AppUpdate, AppUpdateProgress, CareCheck, ChannelStatus } from "@/types";
 
 const short = (sha: string) => (sha ? sha.slice(0, 8) : "");
 
@@ -113,11 +114,22 @@ function CareChannelCard() {
   );
 }
 
+const phaseText = (phase: AppUpdateProgress["phase"], version: string) =>
+  ({
+    downloading: `Downloading CARE Desktop ${version}…`,
+    verifying: `Checking CARE Desktop ${version}…`,
+    installing: `Installing CARE Desktop ${version}…`,
+    restarting: "Installed. Restarting CARE Desktop…",
+    installer: "The installer is open. Follow it to finish updating.",
+  })[phase];
+
 function AppUpdateCard() {
-  const { busy } = useCare();
+  const { busy, busyLabel, installAppUpdate } = useCare();
   const [update, setUpdate] = useState<AppUpdate | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
+  const [starting, setStarting] = useState(false);
 
   const check = useCallback(async (announce: boolean) => {
     setChecking(true);
@@ -134,6 +146,32 @@ function AppUpdateCard() {
   useEffect(() => {
     void check(false);
   }, [check]);
+
+  useEffect(
+    () =>
+      onCareEvent("app-update-progress", (next: AppUpdateProgress) => {
+        setStarting(false);
+        setProgress(next);
+      }),
+    [],
+  );
+
+  const updating = busy && busyLabel === "Updating CARE Desktop";
+
+  useEffect(() => {
+    if (!updating && progress?.phase !== "restarting" && progress?.phase !== "installer") {
+      setProgress(null);
+      setStarting(false);
+    }
+  }, [updating, progress?.phase]);
+
+  const install = async () => {
+    setError("");
+    setStarting(true);
+    await installAppUpdate();
+  };
+
+  const active = starting || progress !== null;
 
   return (
     <div className="rounded-xl border border-line bg-card px-[18px] py-4 shadow-card">
@@ -155,31 +193,71 @@ function AppUpdateCard() {
             ) : null}
           </div>
         </div>
-        <Button disabled={checking || busy} onClick={() => void check(true)}>
+        <Button disabled={checking || busy || active} onClick={() => void check(true)}>
           {checking ? "Checking…" : "Check now"}
         </Button>
       </div>
 
-      {update?.available ? (
+      {update?.available && active ? (
+        <UpdateProgress progress={progress} version={update.version} />
+      ) : null}
+
+      {update?.available && !active ? (
         <div className="mt-3.5 flex items-center gap-3 rounded-lg border border-line bg-brand-bg px-4 py-[13px] text-[12.5px] text-brand-ink">
           <span className="flex-1">
-            Downloads {update.asset} and checks it against the published checksum.
-            Patient data and clinic settings are untouched.
+            Downloads {update.asset}, checks it against the published checksum, then
+            installs it and restarts CARE Desktop. Patient data and clinic settings are
+            untouched, and the clinic keeps running.
           </span>
           {update.notes_url ? (
             <Button onClick={() => void bridge.OpenURL(update.notes_url)}>Release notes</Button>
           ) : null}
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() => void bridge.InstallAppUpdate()}
-          >
-            Download and install
+          <Button variant="primary" disabled={busy} onClick={() => void install()}>
+            Update and restart
           </Button>
         </div>
       ) : null}
 
       {error ? <div className="mt-2.5 text-[12.5px] text-danger-ink">{error}</div> : null}
+    </div>
+  );
+}
+
+function UpdateProgress({
+  progress,
+  version,
+}: {
+  progress: AppUpdateProgress | null;
+  version: string;
+}) {
+  const phase = progress?.phase ?? "downloading";
+  const downloading = phase === "downloading";
+  const pct =
+    downloading && progress && progress.total > 0
+      ? Math.min(100, Math.round((progress.done / progress.total) * 100))
+      : null;
+  const detail =
+    downloading && progress && progress.total > 0
+      ? `${megabytes(progress.done)} of ${megabytes(progress.total)}`
+      : "";
+
+  return (
+    <div className="mt-3.5 rounded-lg border border-line bg-brand-bg px-4 py-[13px] text-[12.5px] text-brand-ink">
+      <div className="flex items-baseline gap-3">
+        <span className="flex-1 font-semibold">
+          {phaseText(phase, version)}
+        </span>
+        {detail ? <span className="font-mono text-ink2">{detail}</span> : null}
+      </div>
+      <Progress
+        className={pct === null ? "mt-2.5 animate-pulse" : "mt-2.5"}
+        value={pct ?? 100}
+      />
+      {phase === "installing" ? (
+        <div className="mt-2 text-muted-foreground">
+          macOS may ask for an administrator password to replace the app.
+        </div>
+      ) : null}
     </div>
   );
 }

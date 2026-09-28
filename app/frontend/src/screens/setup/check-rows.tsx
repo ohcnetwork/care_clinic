@@ -61,7 +61,7 @@ export function CheckRows({
   useEffect(() => {
     if (!failure) return;
     const row = checks.find((c) => c.id === failure.id);
-    if (!row || row.state !== "bad") setFailure(null);
+    if (!row || row.state === "ok") setFailure(null);
   }, [checks, failure]);
 
   const perform = (check: Check) => {

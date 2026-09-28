@@ -73,11 +73,12 @@ The backend starts name advertising, but the desktop state store makes the norma
 
 ### Closing the application
 
-`beforeClose()` first attempts the exclusive operation lock. `run` records the label of the job it starts (`activeJob`) and clears it when the job ends, so a refused lock tells `beforeClose` what is running:
+`beforeClose()` first attempts the exclusive operation lock. `run` and `withLabeledJob` record the label of the job they start (`activeJob`) and clear it when the job ends, so a refused lock tells `beforeClose` what is running:
 
 | Running job | Result |
 | --- | --- |
 | `setup` | Ask "Quit while setup is running?" (default No). Yes allows closing; setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. Docker commands already started are not killed and may finish in the background. No answer within the quit-prompt timeout keeps the window open. |
+| `prereq` | The computer check's fix buttons: installing or starting Docker (Rancher Desktop), git, or WSL 2, and fixing the Windows network profile. Ask "Quit while setup is running?" (default No) with wording about the requirement rather than the install. Yes allows closing; the step stops where it is and the next launch runs the computer check again. An elevated installer or Rancher Desktop's first start that already began is not killed and may finish in the background. |
 | Anything else (`restore`, `uninstall`, `app-update`, `update`, rebuilds, backups, synchronous jobs) | Closing is prevented and an information dialog says what is running and to wait. These are the operations where stopping part-way can leave data or the installation half-changed. |
 
 Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are refused silently. With no work active, `beforeClose` asks about a running clinic.
@@ -251,11 +252,20 @@ Desktop app** was ticked; see [removing the desktop app](cleanup-and-uninstall.m
 | `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves the branch heads and builds a newer commit into the `-next` images. A network failure is logged, not surfaced. A check already in flight is joined rather than refused, so pressing "Check now" during the automatic check is not an error. |
 | `DismissCareUpdate()` | `void` | Sync. Records the staged commits as declined so the banner stops. The staged build still applies at the next start. |
 | `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
-| `InstallAppUpdate()` | `void` | Job. Downloads this platform's installer, verifies it against the release `SHA256SUMS` (retrying once), launches it, and quits. |
+| `InstallAppUpdate()` | `void` | Job. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. |
 
 `InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job is refused as "an operation is still running". `quitAfterJob` waits for the job lock to be released and quits then.
 
-The download is capped and checksum-verified before it is launched: an installer arrives from the network and replaces the application, so an unbounded or unverified body is not something a clinic should be asked to run. A download that fails or whose SHA-256 differs from `SHA256SUMS` is deleted and fetched once more, since a dropped connection is the usual cause; if the second attempt is also bad, the temporary folder is removed and the operator is told the update didn't download properly and to choose Update again. Nothing unverified is ever opened. Windows runs the downloaded installer, which needs this app closed. macOS opens the disk image and leaves the copy to the operator; in-place bundle replacement is not implemented.
+The download is capped and checksum-verified before it is launched: an installer arrives from the network and replaces the application, so an unbounded or unverified body is not something a clinic should be asked to run. A download that fails or whose SHA-256 differs from `SHA256SUMS` is deleted and fetched once more, since a dropped connection is the usual cause; if the second attempt is also bad, the temporary folder is removed and the operator is told the update didn't download properly and to choose Update again. Nothing unverified is ever opened. Windows runs the downloaded installer, which needs this app closed.
+
+macOS replaces the bundle in place (`app_selfupdate.go`), so the operator never drags anything:
+
+1. The disk image is attached read-only and hidden (`-nobrowse`) inside the update's temporary folder, the single `.app` in it is copied out with `ditto`, and the image is detached.
+2. The copy must pass `codesign --verify --deep --strict`, report the release's version as `CFBundleShortVersionString`, and carry the running app's `CFBundleIdentifier`. Anything else is refused and the running app is left untouched.
+3. A shell step moves the installed bundle aside to a hidden `.<name>.previous` next to it, copies the new bundle into its place, restores the old one if the copy fails, keeps the old owner, clears `com.apple.quarantine`, and deletes the old copy. If the app's parent folder isn't writable by this user, the step runs through `elevate.Run` and macOS asks for an administrator password.
+4. A detached `sh` waits for this process to exit, runs `open` on the bundle, and removes the temporary folder. The app then quits through `quitAfterJob` with `closing` set, so no quit prompt appears. The clinic's containers keep running throughout.
+
+Replacing the bundle while the old binary is still running is safe on macOS: the process keeps its mapped executable, and the frontend is embedded in the binary. When the app runs from a location it can't replace (the mounted disk image or an App Translocation copy), `appremoval.Target` refuses and the update falls back to opening the disk image for a manual drag.
 | `ScanResidue()` | `ResidueReport` | Query. Inspects owned files, Docker resources, saved password presence, and native traces. Inspection errors propagate. |
 | `PurgeResidue()` | `void` | Sync. Refuses a normal installed clinic; requires a native destructive confirmation when residue exists. Preserves backups. |
 
@@ -373,6 +383,7 @@ action only fires on a non-default answer must be a `QuestionDialog`: an
 | `setup-done` | `true` | Setup callback and persistence of `SetupDone` succeeded. |
 | `uninstalled` | `true` | Normal uninstall completed its cleanup and local state removal. |
 | `care-update` | `{backend, frontend}` | A newer CARE commit has finished building and is staged. Raises the panel banner. |
+| `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the progress bar in the CARE Desktop update card; the panel's `busy` state disables the button so a second click can't start another download. |
 | `care-check` | `{running, found}` | An update check started or finished. `running` covers the whole check, including the build a found commit starts, which is why the panel says a check can take minutes. A finished check with `found` false is what lets the Updates panel say "up to date" rather than stay blank. |
 
 There is no job identifier or structured progress event. The single-job model keeps completion unambiguous, and the desktop derives setup progress from log messages using [`run-steps.ts`](../app/frontend/src/lib/run-steps.ts). Changes to important setup messages can therefore affect displayed progress.

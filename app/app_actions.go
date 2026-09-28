@@ -93,6 +93,14 @@ func (a *App) withServerJob(fn func() error) error {
 	})
 }
 
+func (a *App) withLabeledJob(label string, fn func() error) error {
+	return a.withServerJob(func() error {
+		a.activeJob.Store(label)
+		defer a.activeJob.Store("")
+		return fn()
+	})
+}
+
 func (a *App) withReadJob(fn func() error) error {
 	if !a.jobMu.TryRLock() {
 		return errors.New("something else is still running - wait for it to finish")

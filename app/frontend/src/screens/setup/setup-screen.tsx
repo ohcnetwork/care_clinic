@@ -282,7 +282,7 @@ export function SetupScreen({
                     : `${issues} issue${issues > 1 ? "s" : ""}`}
               </Badge>
             </AccordionTrigger>
-            <AccordionContent>
+            <AccordionContent forceMount>
               <Field
                 label="Clinic address"
                 htmlFor="mdnsname"
