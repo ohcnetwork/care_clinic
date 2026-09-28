@@ -144,6 +144,24 @@ type AppUpdate struct {
 	Size      int64  `json:"size"`
 }
 
+type AppUpdateProgress struct {
+	Phase string `json:"phase"`
+	Done  int64  `json:"done"`
+	Total int64  `json:"total"`
+}
+
+const (
+	phaseDownloading = "downloading"
+	phaseVerifying   = "verifying"
+	phaseInstalling  = "installing"
+	phaseRestarting  = "restarting"
+	phaseInstaller   = "installer"
+)
+
+func (a *App) updateProgress(phase string, done, total int64) {
+	a.emit("app-update-progress", AppUpdateProgress{Phase: phase, Done: done, Total: total})
+}
+
 type ghAsset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
@@ -195,16 +213,29 @@ func (a *App) InstallAppUpdate() error {
 		if err != nil {
 			return err
 		}
-		path, err := downloadVerified(asset, want, version, a.logln)
+		a.updateProgress(phaseDownloading, 0, asset.Size)
+		progress := func(done int64) { a.updateProgress(phaseDownloading, done, asset.Size) }
+		path, err := downloadVerified(asset, want, version, a.logln, progress)
 		if err != nil {
 			return err
 		}
-		a.logln("Download verified. Opening the installer...")
-		return a.launchInstaller(path)
+		a.logln("Download verified.")
+		return a.launchInstaller(path, version)
 	}, false, "app-update")
 }
 
-func (a *App) launchInstaller(path string) error {
+func (a *App) launchInstaller(path, version string) error {
+	if runtime.GOOS == "darwin" {
+		err := a.replaceMacApp(path, version)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, errNoInPlaceUpdate) {
+			return err
+		}
+		a.logln(err.Error())
+	}
+	a.updateProgress(phaseInstaller, 0, 0)
 	if runtime.GOOS == "windows" {
 		cmd := proc.Command(path)
 		if err := cmd.Start(); err != nil {
@@ -294,7 +325,22 @@ func findAsset(rel ghRelease, match func(string) bool) (ghAsset, bool) {
 	return ghAsset{}, false
 }
 
-func download(url, path string) (string, error) {
+type progressWriter struct {
+	done     int64
+	last     time.Time
+	progress func(int64)
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	w.done += int64(len(p))
+	if w.progress != nil && time.Since(w.last) >= 200*time.Millisecond {
+		w.last = time.Now()
+		w.progress(w.done)
+	}
+	return len(p), nil
+}
+
+func download(url, path string, progress func(int64)) (string, error) {
 	var digest string
 	err := fetch(url, downloadTimeout, func(body io.Reader) error {
 		file, err := os.Create(path)
@@ -302,7 +348,11 @@ func download(url, path string) (string, error) {
 			return err
 		}
 		sum := sha256.New()
-		written, err := io.Copy(io.MultiWriter(file, sum), io.LimitReader(body, maxDownloadBytes+1))
+		counter := &progressWriter{progress: progress}
+		written, err := io.Copy(io.MultiWriter(file, sum, counter), io.LimitReader(body, maxDownloadBytes+1))
+		if progress != nil {
+			progress(written)
+		}
 		if closeErr := file.Close(); err == nil {
 			err = closeErr
 		}
@@ -318,7 +368,7 @@ func download(url, path string) (string, error) {
 	return digest, err
 }
 
-func downloadVerified(asset ghAsset, want, version string, log func(string)) (string, error) {
+func downloadVerified(asset ghAsset, want, version string, log func(string), progress func(int64)) (string, error) {
 	dir, err := os.MkdirTemp("", "care-desktop-update-")
 	if err != nil {
 		return "", err
@@ -327,7 +377,7 @@ func downloadVerified(asset ghAsset, want, version string, log func(string)) (st
 	var problem string
 	for attempt := 1; attempt <= updateDownloadAttempts; attempt++ {
 		log("Downloading CARE Desktop " + version + " (" + asset.Name + ")...")
-		sum, err := download(asset.URL, path)
+		sum, err := download(asset.URL, path, progress)
 		switch {
 		case err != nil:
 			problem = err.Error()

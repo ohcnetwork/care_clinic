@@ -128,6 +128,8 @@ const (
 	quitPromptTimeout = 30 * time.Second
 
 	stopDeadline = 90 * time.Second
+
+	jobPrereq = "prereq"
 )
 
 type quitChoice int
@@ -187,7 +189,7 @@ func (a *App) runningJob() string {
 }
 
 func (a *App) quitDuringJob(label string) bool {
-	if label != "setup" {
+	if label != "setup" && label != jobPrereq {
 		a.logln("An operation is still running. Wait for it to finish before closing CARE Desktop.")
 		if a.ctx != nil && a.busyShown.CompareAndSwap(false, true) {
 			go func() {
@@ -208,12 +210,7 @@ func (a *App) quitDuringJob(label string) bool {
 	answer := make(chan bool, 1)
 	go func() {
 		defer a.busyShown.Store(false)
-		quit, err := a.askToProceed("Quit while setup is running?",
-			"Setup stops where it is. The next time you open CARE Desktop you'll be back "+
-				"on the setup screen, which will ask you to remove the unfinished install before "+
-				"setting up again.\n\n"+
-				"Docker steps that already started may keep running in the background for a few minutes.\n\n"+
-				"Quit anyway?", "Quit")
+		quit, err := a.askToProceed("Quit while setup is running?", setupQuitMessage(label), "Quit")
 		answer <- err == nil && quit
 	}()
 	select {
@@ -225,6 +222,21 @@ func (a *App) quitDuringJob(label string) bool {
 	case <-time.After(quitPromptTimeout):
 		return false
 	}
+}
+
+func setupQuitMessage(label string) string {
+	if label == jobPrereq {
+		return "CARE Desktop is still installing or starting something this computer needs, " +
+			"such as Rancher Desktop. That step stops where it is. The next time you open " +
+			"CARE Desktop the computer check runs again and shows what is left to do.\n\n" +
+			"An installer that already started may keep running in the background for a few minutes.\n\n" +
+			"Quit anyway?"
+	}
+	return "Setup stops where it is. The next time you open CARE Desktop you'll be back " +
+		"on the setup screen, which will ask you to remove the unfinished install before " +
+		"setting up again.\n\n" +
+		"Docker steps that already started may keep running in the background for a few minutes.\n\n" +
+		"Quit anyway?"
 }
 
 func busyQuitMessage(label string) string {

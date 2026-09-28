@@ -6,9 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 )
 
 func TestNewerVersion(t *testing.T) {
@@ -84,7 +88,7 @@ func TestDownloadVerifiedRetriesThenRejectsDamagedInstallers(t *testing.T) {
 			defer server.Close()
 			var logs []string
 			asset := ghAsset{Name: "CARE-Desktop-1.2.3-setup.exe", URL: server.URL}
-			path, err := downloadVerified(asset, want, "1.2.3", func(line string) { logs = append(logs, line) })
+			path, err := downloadVerified(asset, want, "1.2.3", func(line string) { logs = append(logs, line) }, nil)
 			if got := requests.Load(); got != tc.requests {
 				t.Fatalf("made %d download attempts, want %d", got, tc.requests)
 			}
@@ -106,5 +110,46 @@ func TestDownloadVerifiedRetriesThenRejectsDamagedInstallers(t *testing.T) {
 				t.Fatalf("damaged download was left behind: %v", left)
 			}
 		})
+	}
+}
+
+func TestSwapScriptReplacesBundleOrKeepsTheOldOne(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the in-place app swap is macOS only")
+	}
+	bundle := func(dir, marker string) string {
+		app := filepath.Join(dir, "CARE Desktop.app")
+		if err := os.MkdirAll(filepath.Join(app, "Contents"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(app, "Contents", "marker"), []byte(marker), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return app
+	}
+	marker := func(app string) string {
+		data, _ := os.ReadFile(filepath.Join(app, "Contents", "marker"))
+		return string(data)
+	}
+	tmp := t.TempDir()
+	apps := filepath.Join(tmp, "Applications")
+	target := bundle(apps, "old")
+	staged := bundle(filepath.Join(tmp, "stage"), "new")
+
+	if err := elevate.Run(swapScript(target, filepath.Join(tmp, "missing.app")), false); err == nil {
+		t.Fatal("a swap from a missing bundle reported success")
+	}
+	if got := marker(target); got != "old" {
+		t.Fatalf("a failed swap left %q installed, want the old bundle back", got)
+	}
+
+	if err := elevate.Run(swapScript(target, staged), false); err != nil {
+		t.Fatal(err)
+	}
+	if got := marker(target); got != "new" {
+		t.Fatalf("installed bundle is %q, want new", got)
+	}
+	if left, _ := os.ReadDir(apps); len(left) != 1 {
+		t.Fatalf("the swap left extra entries behind: %v", left)
 	}
 }

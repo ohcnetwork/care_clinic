@@ -56,14 +56,14 @@ func (a *App) ClinicHealth() health.Health   { return health.Ping() }
 func (a *App) NetworkStatus() netfix.Status { return netfix.Check(a.engine().Runner()) }
 
 func (a *App) FixNetwork() error {
-	return a.withServerJob(func() error { return netfix.Fix(a.engine().Log) })
+	return a.withLabeledJob(jobPrereq, func() error { return netfix.Fix(a.engine().Log) })
 }
 
 func (a *App) WSLStatus() prereq.WSLStatus { return prereq.WSLCheck() }
 
 func (a *App) InstallWSL() (string, error) {
 	var result string
-	err := a.withServerJob(func() error {
+	err := a.withLabeledJob(jobPrereq, func() error {
 		var err error
 		result, err = a.provisioner().InstallWSL()
 		return err
@@ -76,7 +76,7 @@ func (a *App) GitPlan() prereq.ToolPlan    { return a.provisioner().GitPlan() }
 
 func (a *App) InstallDocker() (string, error) {
 	var result string
-	err := a.withServerJob(func() error {
+	err := a.withLabeledJob(jobPrereq, func() error {
 		var err error
 		result, err = a.provisioner().InstallDocker()
 		return err
@@ -86,7 +86,7 @@ func (a *App) InstallDocker() (string, error) {
 
 func (a *App) InstallGit() (string, error) {
 	var result string
-	err := a.withServerJob(func() error {
+	err := a.withLabeledJob(jobPrereq, func() error {
 		var err error
 		result, err = a.provisioner().InstallGit()
 		return err
@@ -95,7 +95,7 @@ func (a *App) InstallGit() (string, error) {
 }
 
 func (a *App) OpenDocker() error {
-	return a.withServerJob(func() error { return a.provisioner().OpenDocker() })
+	return a.withLabeledJob(jobPrereq, func() error { return a.provisioner().OpenDocker() })
 }
 
 func (a *App) provisioner() *prereq.Provisioner {

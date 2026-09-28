@@ -106,6 +106,7 @@ type CareStore = {
   careUpdate: CareUpdate | null;
   applyCareUpdate: () => Promise<void>;
   dismissCareUpdate: () => Promise<void>;
+  installAppUpdate: () => Promise<void>;
   restorePending: boolean;
   version: string;
   backups: Backup[];
@@ -345,6 +346,19 @@ export function CareProvider({ children }: { children: ReactNode }) {
     setCareUpdate(null);
     await runAction("update");
   }, [runAction]);
+
+  const installAppUpdate = useCallback(async () => {
+    if (busyRef.current) return;
+    setBusy(true, "Updating CARE Desktop");
+    log("\n$ care-desktop update");
+    try {
+      await bridge.InstallAppUpdate();
+    } catch (e) {
+      log(`error: ${errorText(e)}`);
+      toast(firstLine(errorText(e)));
+      setBusy(false);
+    }
+  }, [log, setBusy]);
 
   const dismissCareUpdate = useCallback(async () => {
     setCareUpdate(null);
@@ -702,6 +716,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       careUpdate,
       applyCareUpdate,
       dismissCareUpdate,
+      installAppUpdate,
       restorePending,
       version,
       backups,
@@ -722,7 +737,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
       run, startInstall, retryInstall, restartSetup, openPanel,
       tab, busy, busyLabel, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
-      restorePending, version, backups, backupsError, autostart, storage, recheckStorage,
+      installAppUpdate, restorePending, version, backups, backupsError, autostart, storage, recheckStorage,
       refresh, reloadBackups,
       runAction, setAutostart, restore, restoreFile, uninstall, log,
     ],

@@ -160,6 +160,10 @@ export type StorageReport = {
   stale: boolean;
 };
 
+export type AppUpdatePhase = "downloading" | "verifying" | "installing" | "restarting" | "installer";
+
+export type AppUpdateProgress = { phase: AppUpdatePhase; done: number; total: number };
+
 export type AppUpdate = {
   current: string;
   version: string;
