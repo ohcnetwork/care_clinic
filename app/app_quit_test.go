@@ -35,15 +35,37 @@ func TestRunningJobIsTrackedForTheQuitPrompt(t *testing.T) {
 	}
 }
 
-func TestOtherJobsNeverQuitAndExplainWhy(t *testing.T) {
-	a := &App{}
-	for _, label := range []string{"restore", "uninstall", "app-update", "update", "rebuild-all", ""} {
-		if a.quitDuringJob(label) {
-			t.Fatalf("quitting was allowed during %q", label)
+func TestEveryJobOffersQuitWithItsOwnWording(t *testing.T) {
+	seen := map[string]string{}
+	for _, label := range []string{"setup", jobPrereq, "start", "stop", "restore", "uninstall", "app-update", "update", "backup-now", "rebuild-all", ""} {
+		p := jobQuitPrompt(label)
+		if p.doing == "" || p.title == "" || p.message == "" {
+			t.Fatalf("no quit prompt for %q: %+v", label, p)
 		}
-		if busyQuitMessage(label) == "" {
-			t.Fatalf("no explanation for %q", label)
+		if other, ok := seen[p.message]; ok {
+			t.Fatalf("%q reuses the quit wording of %q", label, other)
 		}
+		seen[p.message] = label
+	}
+}
+
+func TestConfirmedQuitClosesDuringAJob(t *testing.T) {
+	a := &App{
+		configFile: filepath.Join(t.TempDir(), "config.json"),
+		cfg:        Config{Role: roleServer},
+		pins:       &release.Pins{},
+	}
+	done := make(chan struct{})
+	defer close(done)
+	if err := a.run(func() error { <-done; return nil }, false, "start"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.beforeClose(context.Background()) {
+		t.Fatal("closed during a job without asking")
+	}
+	a.quitConfirmed.Store(true)
+	if a.beforeClose(context.Background()) {
+		t.Fatal("a confirmed quit was still prevented by the running job")
 	}
 }
 
@@ -61,7 +83,7 @@ func TestPrereqInstallCanBeQuitDuringSetup(t *testing.T) {
 	if got := a.runningJob(); got != jobPrereq {
 		t.Fatalf("running job = %q, want %q", got, jobPrereq)
 	}
-	if setupQuitMessage(jobPrereq) == setupQuitMessage("setup") {
+	if jobQuitPrompt(jobPrereq).message == jobQuitPrompt("setup").message {
 		t.Fatal("installing a requirement reuses the setup quit wording")
 	}
 	close(unblock)

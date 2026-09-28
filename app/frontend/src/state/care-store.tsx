@@ -296,7 +296,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
 
   const reloadBackups = useCallback(async () => {
     try {
-      setBackups(await bridge.ListBackups());
+      setBackups((await bridge.ListBackups()) ?? []);
       setBackupsError("");
     } catch (e) {
       setBackupsError(firstLine(errorText(e)));

@@ -137,7 +137,7 @@ executable directory or current shell directory contains the backups.
 <installation>/
 |-- backend.env
 |-- backup-state/
-|   `-- backup-status        # last scheduled run: running, ok, or failed and why
+|   `-- backup-status        # last scheduled run (or successful manual one): running, ok, or failed and why
 |-- keys/
 |   |-- backup-cert.pem
 |   `-- backup-key.pem.enc
@@ -357,7 +357,10 @@ The same formula lives in two places that must agree:
 | Any step failing mid-run | `disk_full` re-reads `df`: under 256 MB free, or under the need, is classified as a full drive. | Reason `disk_full` instead of `error`. |
 
 Scheduled runs write `backup-state/backup-status` under the install folder
-(mounted at `/state`), never in the backup folder, which may be the full drive:
+(mounted at `/state`), never in the backup folder, which may be the full drive.
+A successful **Back up now** also writes `state=ok`, so it clears a failed daily
+run as the failure message suggests; a failed or refused manual backup leaves the
+file alone, so it never hides or overwrites the daily run's state:
 
 ```text
 state=failed        # running | ok | failed

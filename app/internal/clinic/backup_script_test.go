@@ -374,6 +374,10 @@ func TestBackupScriptManualIncludesFiles(t *testing.T) {
 			}
 			f.checkFile(t, "care-manual-20260102-030405.dump.enc", tc.database)
 			f.checkFile(t, "files-manual-20260102-030405.tar.gz.enc", tc.files)
+			_, err := os.Stat(filepath.Join(f.root, "state", "backup-status"))
+			if tc.failure != "" && !os.IsNotExist(err) {
+				t.Fatalf("a failed manual backup touched the daily status: %v", err)
+			}
 		})
 	}
 }
@@ -667,5 +671,17 @@ func TestBackupScriptManualRefusesWhenFull(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(f.root, "state", "backup-status")); !os.IsNotExist(err) {
 		t.Fatalf("manual backup touched the daily status: %v", err)
+	}
+}
+
+func TestBackupScriptManualSuccessClearsFailedStatus(t *testing.T) {
+	f := newBackupScriptFixture(t)
+	failed := "state=failed\nreason=error\nat=1\nneed_kb=0\nfree_kb=0\nmessage=the database step failed\n"
+	if err := os.WriteFile(filepath.Join(f.root, "state", "backup-status"), []byte(failed), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.start(t, "manual", []string{"once", "manual-20260102-030405"}, "BACKUP_TEST_FREE_KB=99999999").wait(t, 0)
+	if status := f.status(t); !strings.Contains(status, "state=ok\n") {
+		t.Fatalf("a successful manual backup left the failed status:\n%s", status)
 	}
 }

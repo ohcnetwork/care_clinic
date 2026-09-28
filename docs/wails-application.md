@@ -73,15 +73,21 @@ The backend starts name advertising, but the desktop state store makes the norma
 
 ### Closing the application
 
-`beforeClose()` first attempts the exclusive operation lock. `run` and `withLabeledJob` record the label of the job they start (`activeJob`) and clear it when the job ends, so a refused lock tells `beforeClose` what is running:
+`beforeClose()` first attempts the exclusive operation lock. `run` and `withLabeledJob` record the label of the job they start (`activeJob`) and clear it when the job ends, so a refused lock tells `beforeClose` what is running. Any running job gets a Quit/No question (default No) worded for that job by `jobQuitPrompt`, so an operation that hangs (for example Rancher Desktop never answering during `start`) can always be quit:
 
-| Running job | Result |
+| Running job | What the question says |
 | --- | --- |
-| `setup` | Ask "Quit while setup is running?" (default No). Yes allows closing; setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. Docker commands already started are not killed and may finish in the background. No answer within the quit-prompt timeout keeps the window open. |
-| `prereq` | The computer check's fix buttons: installing or starting Docker (Rancher Desktop), git, or WSL 2, and fixing the Windows network profile. Ask "Quit while setup is running?" (default No) with wording about the requirement rather than the install. Yes allows closing; the step stops where it is and the next launch runs the computer check again. An elevated installer or Rancher Desktop's first start that already began is not killed and may finish in the background. |
-| Anything else (`restore`, `uninstall`, `app-update`, `update`, rebuilds, backups, synchronous jobs) | Closing is prevented and an information dialog says what is running and to wait. These are the operations where stopping part-way can leave data or the installation half-changed. |
+| `setup` | Setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. |
+| `prereq` | The computer check's fix buttons (installing or starting Rancher Desktop, git, WSL 2, the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
+| `start`, `restart` | Starting can take minutes while Docker comes up; open the app again to try once more. |
+| `restore`, `uninstall`, `update`, rebuilds, `apply-plugins` | Quitting can leave data or the installation half-changed; the message says which action to run again after reopening. |
+| `app-update` | The current version keeps working. A bundle swap already handed to macOS finishes on its own. |
+| `backup-now` | The unfinished backup is unusable; earlier backups are unaffected. |
+| Anything else, including unlabeled synchronous jobs | Generic wording pointing at the log. |
 
-Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are refused silently. With no work active, `beforeClose` asks about a running clinic.
+The question runs on its own goroutine, and `beforeClose` returns "prevent" at once, so the main thread never waits on a dialog. Yes sets `quitConfirmed` and calls `wruntime.Quit`; the second `beforeClose` sees the flag and allows closing even though the job still holds the lock. Nothing is cancelled: Docker commands, installers, and elevated scripts that already started are not killed and may finish in the background.
+
+Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are ignored. With no work active, `beforeClose` asks about a running clinic.
 
 There are three outcomes but only two buttons, because a platform message box cannot be relied on to offer more: Windows renders a question as a fixed two-button box regardless of what is requested (see [native dialog answers](#native-dialog-answers-are-not-the-button-labels)). `askBeforeQuit` therefore asks up to two plain yes/no questions instead of labelling one dialog with three choices:
 
@@ -254,7 +260,7 @@ Desktop app** was ticked; see [removing the desktop app](cleanup-and-uninstall.m
 | `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
 | `InstallAppUpdate()` | `void` | Job. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. |
 
-`InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job is refused as "an operation is still running". `quitAfterJob` waits for the job lock to be released and quits then.
+`InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job would ask the user whether to quit during the update. `quitAfterJob` waits for the job lock to be released and quits then.
 
 The download is capped and checksum-verified before it is launched: an installer arrives from the network and replaces the application, so an unbounded or unverified body is not something a clinic should be asked to run. A download that fails or whose SHA-256 differs from `SHA256SUMS` is deleted and fetched once more, since a dropped connection is the usual cause; if the second attempt is also bad, the temporary folder is removed and the operator is told the update didn't download properly and to choose Update again. Nothing unverified is ever opened. Windows runs the downloaded installer, which needs this app closed.
 

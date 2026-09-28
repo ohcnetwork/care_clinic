@@ -31,6 +31,8 @@ type App struct {
 	activeJob atomic.Value
 	busyShown atomic.Bool
 
+	quitConfirmed atomic.Bool
+
 	advMu   sync.Mutex
 	adv     *mdns.Advertiser
 	advStop chan struct{}

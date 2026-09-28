@@ -309,6 +309,7 @@ manual_backup() {
 		return 1
 	fi
 	echo "[backup] manual backup $name: SUCCESS"
+	write_status ok "" 0 "$(free_kb)" ""
 }
 
 # One-shot mode, used by the app's "Backup now": database and files under the
