@@ -78,7 +78,7 @@ func TestHostnameReplyRoutingAndFraming(t *testing.T) {
 				t.Fatal("mDNS reply must have zero ID and no question")
 			}
 			address, negative := false, false
-			for _, rr := range reply.msg.Answer {
+			for _, rr := range append(append([]dns.RR{}, reply.msg.Answer...), reply.msg.Extra...) {
 				if (rr.Header().Class&(1<<15) != 0) != (tc.port == 5353) {
 					t.Fatal("incorrect cache-flush bit")
 				}
@@ -90,6 +90,11 @@ func TestHostnameReplyRoutingAndFraming(t *testing.T) {
 					address = rr.A.Equal(s.link.ips[0])
 				case *dns.NSEC:
 					negative = len(rr.TypeBitMap) == 2 && rr.TypeBitMap[0] == dns.TypeA
+				}
+			}
+			for _, rr := range reply.msg.Answer {
+				if _, ok := rr.(*dns.NSEC); ok {
+					t.Fatal("NSEC must travel in the additional section (RFC 6762 6.1)")
 				}
 			}
 			if tc.qtype == dns.TypeAAAA {

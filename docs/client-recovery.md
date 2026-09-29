@@ -52,6 +52,28 @@ first"**; click **Connect** again and approve it. If connecting still fails afte
 that, the hosts file is not the problem. Check Wi-Fi, mDNS, and the server
 instead (see the end of this guide).
 
+## A different cause of the same message
+
+"We couldn't find the clinic" can also appear on a healthy network with no hosts
+entry at all. Before CARE Desktop 0.1.5, client connections resolved the clinic
+address over both IPv4 and IPv6. A `.local` name has no IPv6 record, and macOS
+waits five seconds before abandoning that half of the lookup — slightly longer
+than the connection's own five-second limit. The attempt was therefore abandoned
+moments before the usable IPv4 address arrived, and the log recorded:
+
+```text
+could not reach the clinic; check its address, network and main computer:
+Get "http://care.local/root.crt?ok=1": dial tcp: lookup care.local: i/o timeout
+```
+
+Current versions look up IPv4 only and connect in well under a second. The
+distinguishing symptom is that the clinic is reachable by other means from the
+same computer while CARE Desktop reports it as missing: opening
+`http://<clinic>.local/root.crt` in a browser works, and the failure takes
+almost exactly five seconds every time. If you see this, update CARE Desktop on
+the **client** computer; the server needs no change. See [the IPv4 rule for
+clients](native-integrations.md#clients-resolve-the-clinic-over-ipv4-only).
+
 ## Safety net: standalone cleanup of an unwanted earlier installation
 
 If the earlier installation is no longer needed and the app cannot open, is

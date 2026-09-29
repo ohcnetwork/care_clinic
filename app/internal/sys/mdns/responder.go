@@ -232,7 +232,7 @@ func (s *responder) replies(query *dns.Msg, from *net.UDPAddr) []reply {
 	if from.IP.To4() == nil {
 		groupAddr = multicastAddr6
 	}
-	var multicast, unicast []dns.RR
+	var multicast, unicast, multicastExtra, unicastExtra []dns.RR
 	for _, q := range query.Question {
 		if class := q.Qclass & 0x7fff; class != dns.ClassINET && class != dns.ClassANY {
 			continue
@@ -242,39 +242,53 @@ func (s *responder) replies(query *dns.Msg, from *net.UDPAddr) []reply {
 		if q.Name == s.zone.HostName && q.Qtype == dns.TypeANY {
 			q.Qtype = dns.TypeA
 		}
-		records := s.zone.Records(q)
-		if q.Name == s.zone.HostName && (q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA) {
-			records = append(records, &dns.NSEC{
-				Hdr:        dns.RR_Header{Name: s.zone.HostName, Rrtype: dns.TypeNSEC, Class: dns.ClassINET, Ttl: 120},
-				NextDomain: s.zone.HostName,
-				TypeBitMap: []uint16{dns.TypeA, dns.TypeNSEC},
-			})
-		}
-		for _, rr := range records {
-			if !wantUnicast && knownAnswer(query.Answer, rr) {
-				continue
-			}
+		stamp := func(rr dns.RR) dns.RR {
 			if legacy {
 				rr.Header().Ttl = 10
 			} else if rr.Header().Rrtype != dns.TypePTR {
 				rr.Header().Class |= 1 << 15
 			}
-			if wantUnicast {
-				unicast = append(unicast, rr)
-			} else {
-				multicast = append(multicast, rr)
+			return rr
+		}
+		records := s.zone.Records(q)
+		var answers []dns.RR
+		for _, rr := range records {
+			if !wantUnicast && knownAnswer(query.Answer, rr) {
+				continue
 			}
+			answers = append(answers, stamp(rr))
+		}
+		if len(records) > 0 && len(answers) == 0 {
+			continue
+		}
+		var extra []dns.RR
+		if q.Name == s.zone.HostName && (q.Qtype == dns.TypeA || q.Qtype == dns.TypeAAAA) {
+			extra = append(extra, stamp(&dns.NSEC{
+				Hdr:        dns.RR_Header{Name: s.zone.HostName, Rrtype: dns.TypeNSEC, Class: dns.ClassINET, Ttl: 120},
+				NextDomain: s.zone.HostName,
+				TypeBitMap: []uint16{dns.TypeA, dns.TypeNSEC},
+			}))
+		}
+		if wantUnicast {
+			unicast, unicastExtra = append(unicast, answers...), append(unicastExtra, extra...)
+		} else {
+			multicast, multicastExtra = append(multicast, answers...), append(multicastExtra, extra...)
 		}
 	}
 	var out []reply
 	for _, group := range []struct {
 		records []dns.RR
+		extra   []dns.RR
 		to      *net.UDPAddr
-	}{{multicast, groupAddr}, {unicast, from}} {
-		if len(group.records) == 0 {
+	}{{multicast, multicastExtra, groupAddr}, {unicast, unicastExtra, from}} {
+		if len(group.records) == 0 && len(group.extra) == 0 {
 			continue
 		}
-		msg := &dns.Msg{MsgHdr: dns.MsgHdr{Response: true, Authoritative: true}, Answer: group.records}
+		msg := &dns.Msg{
+			MsgHdr: dns.MsgHdr{Response: true, Authoritative: true},
+			Answer: group.records,
+			Extra:  group.extra,
+		}
 		if legacy {
 			msg.Id = query.Id
 			msg.Question = query.Question

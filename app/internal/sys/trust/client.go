@@ -59,7 +59,9 @@ func FetchClientCertificate(ctx context.Context, clinicURL string) (string, erro
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			DisableKeepAlives: true,
-			DialContext:       (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+			DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+				return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp4", addr)
+			},
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -127,7 +129,7 @@ func CheckClientConnection(ctx context.Context, clinicURL, rootPEM string) error
 		return err
 	}
 	dialer := &tls.Dialer{NetDialer: &net.Dialer{Timeout: 8 * time.Second}, Config: config}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, "443"))
+	conn, err := dialer.DialContext(ctx, "tcp4", net.JoinHostPort(host, "443"))
 	if err != nil {
 		return fmt.Errorf("could not verify the secure connection to %s; check the clinic network and certificate: %w", host, err)
 	}
