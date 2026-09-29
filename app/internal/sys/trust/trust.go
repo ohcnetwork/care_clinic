@@ -52,43 +52,58 @@ func installUnprivileged(path string) error {
 	return nil
 }
 
-func Step(log func(string), host, rootPEM string) (elevate.Step, func(), bool) {
+type Install struct {
+	Step elevate.Step
+	log  func(string)
+	host string
+	path string
+}
+
+func (i Install) TryWithoutAdmin() bool {
+	_ = installUnprivileged(i.path)
+	if !HostTrusts(i.host) {
+		return false
+	}
+	logln(i.log, "This machine now trusts https://"+i.host+"/.")
+	return true
+}
+
+func Step(log func(string), host, rootPEM string) (Install, func(), bool) {
 	noop := func() {}
 	if HostTrusts(host) {
-		return elevate.Step{}, noop, false
+		return Install{}, noop, false
 	}
 	if rootPEM == "" {
 		logln(log, "Could not prepare local certificate trust: CARE's root certificate is not available yet.")
-		return elevate.Step{}, noop, false
+		return Install{}, noop, false
 	}
 	f, err := os.CreateTemp("", "care-root-*.crt")
 	if err != nil {
 		logln(log, "Could not prepare local certificate trust: "+err.Error())
-		return elevate.Step{}, noop, false
+		return Install{}, noop, false
 	}
 	path := f.Name()
 	if _, err := f.WriteString(rootPEM); err != nil {
 		_ = f.Close()
 		_ = os.Remove(path)
 		logln(log, "Could not prepare local certificate trust: "+err.Error())
-		return elevate.Step{}, noop, false
+		return Install{}, noop, false
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(path)
 		logln(log, "Could not prepare local certificate trust: "+err.Error())
-		return elevate.Step{}, noop, false
+		return Install{}, noop, false
 	}
 	cleanup := func() { _ = os.Remove(path) }
-
-	_ = installUnprivileged(path)
-	if HostTrusts(host) {
-		logln(log, "This machine now trusts https://"+host+"/.")
-		return elevate.Step{}, cleanup, false
-	}
-	return elevate.Step{
-		What: "trust CARE's security certificate, so the browser shows no warning",
-		Sh:   installSh(path),
-		PS:   installPS(path),
+	return Install{
+		Step: elevate.Step{
+			What: "trust CARE's security certificate, so the browser shows no warning",
+			Sh:   installSh(path),
+			PS:   installPS(path),
+		},
+		log:  log,
+		host: host,
+		path: path,
 	}, cleanup, true
 }
 
@@ -103,6 +118,17 @@ func HostTrusts(host string) bool {
 	}
 	_ = conn.Close()
 	return true
+}
+
+func HostServed(host string) bool {
+	tlsConfig := &tls.Config{ServerName: host, InsecureSkipVerify: true}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 4 * time.Second}, "tcp", "127.0.0.1:443", tlsConfig)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = conn.Close() }()
+	certs := conn.ConnectionState().PeerCertificates
+	return len(certs) > 0 && certs[0].VerifyHostname(host) == nil
 }
 
 func rootsFromFiles(paths []string) *x509.CertPool {

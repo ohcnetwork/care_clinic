@@ -12,6 +12,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	"github.com/ohcnetwork/care_desktop/app/internal/health"
 	"github.com/ohcnetwork/care_desktop/app/internal/prereq"
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/autostart"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/mdns"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -50,6 +51,10 @@ func (a *App) run(fn func() error, markSetup bool, label string) error {
 			cfg.SetupDone = true
 			err = a.saveConfig(cfg)
 			if err == nil {
+				if aerr := autostart.Set(true); aerr != nil {
+					a.logln("note: couldn't set CARE Desktop to open at login (" + aerr.Error() +
+						") - turn on \"Start at login\" yourself")
+				}
 				a.emit("setup-done", true)
 				a.notifyInstalled(cfg.MDNSName)
 			}

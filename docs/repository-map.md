@@ -126,7 +126,9 @@ app/internal/
 |-- compose/
 |   |-- build.go
 |   |-- build_test.go
-|   `-- deployment_test.go
+|   |-- deployment_test.go
+|   |-- parallel.go
+|   `-- parallel_test.go
 |-- health/
 |   `-- health.go
 |-- plugins/

@@ -1,6 +1,10 @@
 package clinic
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/compose"
+)
 
 func (e *Clinic) RebuildBackend() error {
 	if err := e.Backups().RecoverRestore(); err != nil {
@@ -45,10 +49,7 @@ func (e *Clinic) RebuildAll() error {
 		return err
 	}
 	e.logln("Rebuilding CARE and restarting every service (patient data is kept)...")
-	if err := e.Builder().BuildBackend(); err != nil {
-		return err
-	}
-	if err := e.Builder().BuildFrontend(); err != nil {
+	if err := e.Builder().Parallel(compose.BuildBackend, compose.BuildFrontend); err != nil {
 		return err
 	}
 	if err := e.Restart(); err != nil {

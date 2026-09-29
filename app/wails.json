@@ -15,7 +15,7 @@
   "info": {
     "companyName": "Open Healthcare Network Foundation",
     "productName": "CARE Desktop",
-    "productVersion": "0.1.0",
+    "productVersion": "0.1.5",
     "copyright": "Copyright (c) 2026 Open Healthcare Network Foundation",
     "comments": "Self-contained, offline CARE for a small clinic."
   }

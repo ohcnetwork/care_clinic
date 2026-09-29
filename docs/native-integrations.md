@@ -99,7 +99,7 @@ environment, browser, or architecture is supported or has been integration-teste
 | GUI PATH repair | Login-shell PATH, then Homebrew and standard executable directories. | Docker and Git installation directories, then inherited PATH; no login-shell probe. | Login-shell PATH, then the same Unix directory list, including Homebrew paths even if absent. |
 | Batched administrator approval | AppleScript `do shell script ... with administrator privileges`. | One elevated PowerShell child through `Start-Process -Verb RunAs`. | `pkexec sh -c`; requires the relevant policy/desktop support. |
 | Server hosts file | `/etc/hosts`. | `%WINDIR%\System32\drivers\etc\hosts`; path helper falls back to `C:\Windows`. | `/etc/hosts`. |
-| Local certificate installation | Try login keychain first, then offer System keychain installation. | Try machine `Root` through `certutil`, then offer elevation. | Try system anchors/bundle update first, then offer elevation. |
+| Local certificate installation | After the confirmation: when the hosts entry also needs elevation, put the System keychain install in that same elevated batch and fall back to the login keychain only if trust is still unverified; otherwise try the login keychain first. | After the confirmation, try machine `Root` through `certutil`, then elevation. | After the confirmation, try system anchors/bundle update, then elevation. |
 | mDNS | Shared IPv4 address-selection and response-probing implementation. | Same implementation; firewall/profile repair is separate. | Same implementation; no Linux firewall manager is configured here. |
 | Network repair | `netfix` reports not applicable; no repair. | Public profiles can become Private; three owned inbound rules cover HTTP, HTTPS, and mDNS on Private and Domain profiles. | `netfix` reports not applicable; no repair. |
 | Atomic replacement | Rename within the destination directory, then sync that directory. | `MoveFileEx` with replacement and write-through flags. | Same Unix replacement implementation as macOS. |
@@ -388,21 +388,51 @@ outside application control.
 ### Finishing setup on the server computer
 
 `setUpThisComputer` is an optional, local-browser finish operation. It obtains the
-clinic host, tries hosts setup, reads the Caddy root, and prepares trust setup.
-Both helpers can attempt an unprivileged change **before** the combined
-confirmation. The one-prompt design applies to the remaining privileged hosts
-and trust steps, not every prerequisite installation or Windows network repair.
+clinic host, tries a silent unprivileged hosts append, reads the Caddy root, and
+prepares the trust step without installing anything. If work remains, it logs
+`Setting up this computer...` and shows one confirmation listing every change
+and how the operating system will ask (password or Touch ID on macOS, UAC on
+Windows, the administrator password on Linux). Only after approval does it try
+the unprivileged certificate install and then run whatever is still needed as
+one elevated batch. Before this ordering, the macOS Touch ID prompt appeared
+before the explanation.
+
+macOS is the exception to "unprivileged first". The login-keychain install
+(`security add-trusted-cert` into `login.keychain-db`) was observed to ask twice,
+once for the keychain and once for trust settings, and the hosts entry then
+asked for the administrator password a third time. So when the hosts entry
+also needs elevation, the System keychain install goes into the same
+`osascript` batch instead: the administrator password, then macOS's own
+trust-settings confirmation, which it requires even for root. If trust is still
+unverified after that batch, it falls back to the login keychain. When only the
+certificate is missing, the login keychain is still tried first, since that
+avoids the administrator password altogether.
+
+During first-time setup, `Setup()` calls it through `setUpThisComputerEarly`
+right after the Caddy image is built, while the backend and frontend images are
+still building. That starts Caddy alone and waits up to 60 seconds for its root
+and a served site certificate (`trust.HostServed`, a handshake that checks the
+name but not trust). If Caddy can't start or the certificates don't appear, it
+logs why and leaves the work to the end of `Start()`. Once it has run on an
+engine, `Start()` does not offer it a second time.
+
+The one-prompt design applies to the remaining privileged hosts and trust steps,
+not every prerequisite installation or Windows network repair. On macOS the
+certificate still needs its own approval, because the system asks the user in
+person before changing certificate trust, even for root.
 
 ```mermaid
 flowchart TD
-    Begin["setUpThisComputer: use clinic host"] --> Hosts["Check hosts; try unprivileged append if needed"]
-    Hosts --> Trust["Read root and prepare trust; try without elevation"]
-    Trust --> Needed{"Any privileged steps remain?"}
+    Begin["setUpThisComputer: use clinic host"] --> Hosts["Check hosts; try silent unprivileged append if needed"]
+    Hosts --> Trust["Read root and prepare trust step; install nothing yet"]
+    Trust --> Needed{"Any work remains?"}
     Needed -- No --> Verify["Re-read hosts and perform verified local TLS handshake"]
     Needed -- Yes --> Confirm{"Confirm callback exists and approves?"}
     Confirm -- No --> Skipped["Log optional setup skipped; do not stop clinic"]
-    Confirm -- Yes --> Elevate["Run one elevated batch; retain error"]
-    Elevate --> Verify
+    Confirm -- Yes --> TryTrust["Try certificate install without elevation (skipped on macOS when hosts needs elevation)"]
+    TryTrust --> Elevate["Run one elevated batch for what remains; retain error"]
+    Elevate --> Fallback["macOS: if trust still unverified, try the login keychain"]
+    Fallback --> Verify
     Verify --> Ready{"Hosts and TLS trust both verified?"}
     Ready -- Yes --> Success["Report that this computer can open the clinic"]
     Ready -- No --> Pending["Log incomplete hosts and/or trust; offer retry or administrator help"]
@@ -1556,6 +1586,11 @@ Source: [autostart.go](../app/internal/sys/autostart/autostart.go).
 Autostart registers the current executable with `--autostart`. It starts the
 native desktop application, not a new clinical web frontend, a Docker daemon
 configuration, or a system-wide CARE service.
+
+Login startup is on by default: when server setup finishes successfully, the
+application enables it before emitting `setup-done`. A failure there is logged
+and does not fail setup. The user can turn it off from the Overview tab, and
+that choice is not overridden later because setup only completes once.
 
 | Platform | Owned registration | Enabled/disabled behavior |
 | --- | --- | --- |
