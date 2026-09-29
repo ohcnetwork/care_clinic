@@ -584,7 +584,9 @@ prompt when no entry exists. This runs on every connect, including **Open CARE**
 
 The client downloads `http://<host>/root.crt?ok=1`. The query flag keeps this
 native flow compatible with older servers; new servers do not require it.
-The HTTP request is bounded by timeouts and follows neither redirects nor a
+The HTTP request is bounded by timeouts, dials IPv4 only (see [Clients resolve
+the clinic over IPv4 only](#clients-resolve-the-clinic-over-ipv4-only)), and
+follows neither redirects nor a
 configured proxy. CARE requires a single self-signed CARE CA certificate within
 its validity dates, then verifies the actual clinic's TLS chain and hostname
 against that root **before installing it**. Remote verification targets that
@@ -837,8 +839,25 @@ the requester, and legacy queries from non-5353 source ports back to that port
 with the original ID and question. Legacy replies have a ten-second TTL and no
 cache-flush bit; unique mDNS records carry cache-flush. Expiring known answers
 are refreshed; sufficiently fresh known answers suppress redundant multicast
-responses. IPv4-only hostname records include NSEC to explicitly indicate that
-no AAAA record is available.
+responses. When known-answer suppression removes every answer for a question,
+the responder stays silent for that question rather than sending a reply that
+carries only negative records.
+
+IPv4-only hostname records include NSEC to explicitly indicate that no AAAA
+record is available. That NSEC travels in the **additional record section**, not
+the answer section, as RFC 6762 section 6.1 requires. An `A` query is therefore
+answered with one answer record and one additional record; an `AAAA` query for
+the same name is answered with no answer records and the NSEC alone in the
+additional section.
+
+Treat this as protocol correctness rather than a latency optimization. macOS
+`mDNSResponder` does not shorten its `AAAA` wait when it receives this negative
+record, however it is framed: a measured `AF_INET6` lookup of an advertised
+`.local` name still blocks for the resolver's full five-second timer with the
+NSEC correctly placed. Clients must not depend on a fast negative answer for
+`AAAA`; see [Client independence and network
+limits](#client-independence-and-network-limits) for how the client side avoids
+that wait.
 
 Startup sends two announcements, one second apart, and shutdown withdraws the
 records with TTL zero. Multicast packets use TTL/hop-limit 255. Socket and send
@@ -919,6 +938,32 @@ still needs the certificate setup described above. Truly zero-touch HTTPS would
 require a real domain with a publicly trusted certificate and working DNS, not
 just a different mDNS responder. A router DNS entry for `.local` is not a
 portable substitute: clients may resolve that suffix exclusively through mDNS.
+
+### Clients resolve the clinic over IPv4 only
+
+Client connections dial the `tcp4` network rather than `tcp`: both the
+certificate download in `trust.FetchClientCertificate` and the pinned handshake
+in `trust.CheckClientConnection`. This matches the server, which selects only
+multicast-capable IPv4 interfaces, refuses to advertise without one, and
+publishes `A` records exclusively. A clinic is IPv4-only by construction, so
+there is never an `AAAA` record to find.
+
+The distinction matters because Go resolves the `tcp` network with an
+`AF_UNSPEC` lookup, asking for `A` and `AAAA` together and waiting for both. For
+a `.local` name the `AAAA` half is never answered, and macOS holds that question
+open for a full five seconds before giving up. `Dialer.Timeout` covers name
+resolution as well as the TCP connect, so a dial timeout at or below that
+resolver timer expires while the usable `A` record is already in hand. The
+failure surfaces as `dial tcp: lookup <clinic>.local: i/o timeout`, which
+`client-errors.ts` maps to "We couldn't find the clinic" — a message that points
+at the network or the address when both are fine.
+
+Requesting `tcp4` skips the `AAAA` question entirely. Measured against a clinic
+on the same LAN, certificate fetch drops from a five-second timeout failure to
+roughly twenty milliseconds. Do not relax the dial timeouts as an alternative:
+a longer timeout only converts a failure into a five-second delay on every
+connect, and leaves the deadline racing a resolver timer. Restore `tcp` only if
+the advertiser is ever changed to publish `AAAA` records.
 
 ### Reproducing discovery checks
 
