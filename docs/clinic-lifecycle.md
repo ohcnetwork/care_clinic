@@ -110,6 +110,7 @@ remaining teardown files and the residue package.
 | [`stop.go`](../app/internal/clinic/stop.go) | Data-preserving stop and restart implemented as Stop followed by Start. |
 | [`rebuild.go`](../app/internal/clinic/rebuild.go) | Explicit backend and frontend rebuild-and-restart paths. |
 | [`compose/build.go`](../app/internal/compose/build.go) | Source checkout cache, image fingerprints, four image builds, local freshness checks, and post-rebuild dangling-image cleanup. |
+| [`compose/parallel.go`](../app/internal/compose/parallel.go) | Parallel build groups: shared cancellation, per-job log prefixes, first-error reporting, and deferred prune. |
 | [`compose/channel.go`](../app/internal/compose/channel.go) | Branch resolution through `git ls-remote` without credential prompts, and the `channel.lock` record. |
 | [`compose/update.go`](../app/internal/compose/update.go) | Staging a newer commit into the `-next` images, declining, and applying a staged build by retag. |
 | [`clinic/update.go`](../app/internal/clinic/update.go) | Channel status, the safety backup taken before anything is retagged, live update application, and applying a staged update during startup. |
@@ -279,16 +280,19 @@ error. There is no implicit rollback of earlier successful steps.
 | 3 | `ApplyDomain()` | Apply the clinic host to managed settings and deployment assets. |
 | 4 | Create the backup directory with `MkdirAll(..., 0755)` | The destination may now exist even if later setup fails; its location is logged. |
 | 5 | `Backups().EnsureKeysDir()` | Prepare the keys directory before a Docker bind mount can create a root-owned source directory. |
-| 6 | `Builder().EnsureBackupImage()` | Make the cryptographic tooling image available. |
-| 7 | `Backups().GenBackupKeypair(BackupPassword)` | Generate or validate protected backup-key material and export the recovery copy according to the backup package's rules. |
-| 8 | `Builder().EnsureCaddyImage()` | Build Caddy with the configured Coraza module if needed. |
-| 9 | `Builder().EnsureBackendImage()` | Ensure the backend image matches source/plugin inputs. |
-| 10 | `Builder().EnsureFrontendImage()` | Ensure the clinical frontend matches source/environment inputs. |
+| 6 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The two slow image builds run while steps 7–9 continue. |
+| 7 | `Parallel(EnsureCaddy, EnsureBackup)` | Build the Caddy/WAF and cryptographic tooling images side by side. On error, the background group is cancelled and waited for before `Setup()` returns. |
+| 8 | `setUpThisComputerEarly()` | Start Caddy alone (`up -d --wait --no-deps caddy`), wait up to 60 seconds for its root certificate and site certificate, then run the this-computer setup so its approvals happen now instead of after the long builds. Any failure here is logged and left to the end of `Start()`. |
+| 9 | `Backups().GenBackupKeypair(BackupPassword)` | Generate or validate protected backup-key material and export the recovery copy according to the backup package's rules. |
+| 10 | Wait for the background group | Backend and frontend image errors surface here. |
 | 11 | Log `Setup done.` | Preparation is complete, not proof that the clinic has started or that `SetupDone` was saved. |
 
 The backup image precedes key generation because cryptographic tooling runs
 inside that image; the desktop does not assume a suitable host OpenSSL.
-Database, Redis, and Silo containers do not start in this method. Docker builds
+Caddy is the only container this method starts, and only so its local CA exists
+early; `Start()` later force-recreates it with the rest of the stack, and the CA
+persists in the `caddy-data` volume. Database, Redis, and Silo containers do not
+start in this method. Docker builds
 may still download base images, modules, and packages.
 
 If a later step fails, an earlier secret, key, source checkout, image, or
@@ -340,6 +344,26 @@ flowchart TD
     Success -->|no| Error
     Success -->|yes| Prune["Best-effort dangling-image prune"]
 ```
+
+### Parallel builds
+
+`Builder.Parallel(jobs...)` runs several `Ensure...Image` or `Build...` jobs at
+once and returns the first failure, named after its job (`backend image: ...`).
+`Builder.Start(jobs...)` does the same in the background and returns a group to
+`Wait()` on or `Cancel()`. Each job gets its own worker builder whose runner
+carries a shared cancellable context, so the first failure kills the other jobs'
+`docker build` and `git` processes. Every log line from a job, including Docker's
+streamed build output, is prefixed with its label, such as `[backend]`. A panic
+inside a job becomes that job's error.
+
+A stale-image rebuild inside a group does not prune immediately, because
+`docker image prune` could race another build still in progress. It marks the
+owning builder instead, and the prune runs once the last open group on that
+builder finishes.
+
+`Setup()`, `Start()`, and `RebuildAll()` use these groups. Builds compete for
+the Docker VM's CPU and memory, so the saving comes mostly from overlapping
+downloads and from starting the slow builds before the interactive steps.
 
 An image-listing or image-inspection error is not treated as "image absent."
 It returns an error such as `inspect local images` or `inspect image ...`.
@@ -502,8 +526,10 @@ environment files, is not uploaded as their build context. Backend and
 frontend builds instead use their respective source directories.
 
 After a successful stale-image replacement through `ensure`, the builder
-attempts Docker's dangling-image prune. It does not run that prune for a
-matching image, the initial missing-image path, or a direct explicit build.
+attempts Docker's dangling-image prune. Inside a parallel build group that
+prune is deferred until the last open group on the builder finishes. It does not
+run that prune for a matching image, the initial missing-image path, or a direct
+explicit build.
 Prune failure is nonfatal. The prune is **not filtered to this clinic**;
 eligible dangling images from other work on the selected Docker engine can
 also be removed.
@@ -770,7 +796,7 @@ unfinished restore to recover safely.
 flowchart TD
     Begin["Start"] --> Recover["Backups.RecoverRestore"]
     Recover --> Ports["EnsurePortFree for HTTP and HTTPS"]
-    Ports --> Images["Ensure backend, frontend, backup, Caddy images"]
+    Ports --> Images["Ensure backend, frontend, backup, Caddy images in parallel"]
     Images --> Keys["Ensure keys directory"]
     Keys --> Pause["Stop worker and scheduler; inspect every state"]
     Pause --> Core["Start db, redis, backend; wait up to 300 seconds"]
@@ -781,7 +807,7 @@ flowchart TD
     All --> Proxy["Force-recreate only Caddy; wait up to 300 seconds"]
     Proxy --> Health["Wait for backend HTTP health, up to 3 minutes"]
     Health --> Finish["Backups.FinishRestore"]
-    Finish --> Local["Log clinic URL; set up this computer"]
+    Finish --> Local["Log clinic URL; set up this computer unless setup already offered it"]
     Local --> Done["Return success"]
 ```
 
@@ -791,8 +817,9 @@ turning an otherwise healthy stack into a failed Start.
 
 Device-script refresh needs an extractable Caddy public root and an existing
 setup directory. If those are unavailable it can skip writing; older scripts
-are not automatically removed. This-computer setup can try unprivileged hosts
-and trust changes before asking once for any remaining privileged steps.
+are not automatically removed. This-computer setup explains its changes in one
+confirmation before any system prompt appears. During first-time setup it has
+usually already run from `Setup()`, and `Start()` skips it for the same engine.
 Positive local-browser readiness requires both a rechecked hosts mapping and
 a verified TLS handshake. Declining that optional work leaves the clinic
 running but does not prove that this computer or every other device can open
@@ -804,7 +831,7 @@ it.
 | --- | --- | --- |
 | Restore recovery | `Backups().RecoverRestore()` runs first. | An uncertain restore must not be bypassed by an ordinary start. No later startup work runs on error. |
 | Ports | `health.EnsurePortFree(Runner(), host)` checks for conflicts on 80/443 while recognizing an already-running clinic proxy. | A conflicting listener blocks startup instead of failing later with only a port-bind error. |
-| Images | Ensure backend, frontend, backup, then Caddy. | Input/inspection/build errors propagate. Existing workers have not yet been deliberately stopped by this Start path. |
+| Images | Ensure backend, frontend, backup, and Caddy in one parallel group. | Input/inspection/build errors propagate. Existing workers have not yet been deliberately stopped by this Start path. |
 | Keys | Ensure the bind-mount source exists. | Do not allow Compose to create the missing key directory with unintended ownership. |
 | Worker guard | Stop and verify worker/scheduler state. | No migration is attempted without verified quiescence of these processes. |
 | Core startup | Compose `up -d --wait --wait-timeout 300 db redis backend`. | Return an explicit backend-startup error; verified-stopped workers remain stopped. |
@@ -815,7 +842,7 @@ it.
 | Proxy refresh | Compose `up` for Caddy only, with `--no-deps --force-recreate` and the same wait settings. | Return `the proxy could not be refreshed with the current configuration`. |
 | HTTP readiness | `health.Wait(Log, 3*time.Minute)`. | An apparently running Compose stack is not enough; failure leaves the started resources for diagnosis. |
 | Restore completion | `Backups().FinishRestore()`. | A cleanup/finalization error is still a Start error, even if the HTTP probe succeeded. |
-| Local usability | Log the clinic URL, then set up this computer. | Missing trust or declined elevation is reported through native diagnostics with advice to retry starting CARE or ask an administrator; see the native guide. |
+| Local usability | Log the clinic URL, then set up this computer unless `Setup()` already offered it on this engine. | Missing trust or declined elevation is reported through native diagnostics with advice to retry starting CARE or ask an administrator; see the native guide. |
 
 There is no total five-minute startup deadline. Each Compose wait has its own
 300-second allowance, image builds precede them, and the HTTP wait has a
@@ -988,7 +1015,7 @@ or prevent a later bind race. Further transport details are in
 | `Restart()` | Call `Stop`; if successful, call the full `Start`. | This is not Compose `restart`: it includes recovery, freshness checks, migrations, Caddy recreation, and health. Stop failure prevents Start. |
 | `RebuildBackend()` | Recover pending restore work; explicitly build backend; stop/verify workers; start/wait backend; migrate once; sync frontend plugin rows (warning only); start/wait worker and scheduler. | No administrator creation, whole-stack HTTP wait, Caddy refresh, native setup, or `FinishRestore` call in this method. |
 | `RebuildFrontend()` | Recover pending restore work; explicitly build frontend; start/wait frontend. | Does not run migrations, stop workers, perform the full health wait, or refresh Caddy. |
-| `RebuildAll()` | Recover pending restore work; explicitly build backend and frontend while CARE keeps running; then `Restart()` (`compose stop`, then the full `Start()` sequence: image freshness, migrations, plugin sync, whole stack, Caddy refresh, health wait, restore finish). | Restarting stopped containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`; containers whose env files or images changed are recreated by `up`. It does not rebuild the backup or Caddy images unless their inputs changed, and it does not refresh the installed kit itself; the `rebuild-all` action does that first. |
+| `RebuildAll()` | Recover pending restore work; explicitly build backend and frontend in parallel while CARE keeps running; then `Restart()` (`compose stop`, then the full `Start()` sequence: image freshness, migrations, plugin sync, whole stack, Caddy refresh, health wait, restore finish). | Restarting stopped containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`; containers whose env files or images changed are recreated by `up`. It does not rebuild the backup or Caddy images unless their inputs changed, and it does not refresh the installed kit itself; the `rebuild-all` action does that first. |
 
 The backend and frontend rebuild methods use Compose waits of 300 seconds per selected startup
 phase. Short-form and healthy dependencies can also cause required dependency

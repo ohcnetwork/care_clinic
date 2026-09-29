@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 )
 
 func TestLocalSetupRequiresVerifiedHostsAndTrust(t *testing.T) {
@@ -37,5 +39,50 @@ func TestLocalSetupRequiresVerifiedHostsAndTrust(t *testing.T) {
 				t.Fatalf("setup failure must explain how to retry: %q", message)
 			}
 		})
+	}
+}
+
+func TestConfirmPromptSaysHowEachSystemAsks(t *testing.T) {
+	one := []elevate.Step{{What: "trust CARE's security certificate"}}
+	two := append(one, elevate.Step{What: "add care.local to this computer's hosts file"})
+	for _, tc := range []struct {
+		goos  string
+		steps []elevate.Step
+		want  string
+	}{
+		{"darwin", one, "approve this with your password or Touch ID"},
+		{"darwin", two, "administrator password, then ask you to confirm trusting the certificate"},
+		{"windows", two, "Windows will ask for permission."},
+		{"linux", two, "administrator password"},
+	} {
+		title, message := confirmPrompt(tc.goos, "care.local", tc.steps)
+		if title != "Set up care.local on this computer?" {
+			t.Fatalf("unexpected title %q", title)
+		}
+		if !strings.Contains(message, tc.want) || strings.Contains(message, "password once") {
+			t.Fatalf("%s with %d steps: unexpected message %q", tc.goos, len(tc.steps), message)
+		}
+		for _, s := range tc.steps {
+			if !strings.Contains(message, s.What) {
+				t.Fatalf("message does not list %q: %q", s.What, message)
+			}
+		}
+	}
+}
+
+func TestMacPutsTheCertificateInTheAdminBatchWhenOneIsNeededAnyway(t *testing.T) {
+	for _, tc := range []struct {
+		goos      string
+		elevating bool
+		want      bool
+	}{
+		{"darwin", true, false},
+		{"darwin", false, true},
+		{"windows", true, true},
+		{"linux", true, true},
+	} {
+		if got := trustWithoutAdminFirst(tc.goos, tc.elevating); got != tc.want {
+			t.Fatalf("%s, elevating=%v: got %v, want %v", tc.goos, tc.elevating, got, tc.want)
+		}
 	}
 }

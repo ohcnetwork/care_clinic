@@ -25,6 +25,8 @@ type Clinic struct {
 	Log     func(string)
 	Confirm func(title, message string) bool
 	Abandon func() bool
+
+	localSetupOffered bool
 }
 
 func (e *Clinic) logln(s string) {

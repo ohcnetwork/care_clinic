@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/plugins"
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
@@ -23,6 +24,10 @@ type Builder struct {
 
 	pending bool
 	refs    map[string]string
+
+	owner   *Builder
+	groups  atomic.Int32
+	rebuilt atomic.Bool
 }
 
 func NewBuilder(run proc.Runner, dir string, set *release.Pins, log func(string)) *Builder {
@@ -389,8 +394,16 @@ func (b *Builder) ensure(tag, want, label string, build func() error) error {
 	if err := build(); err != nil {
 		return err
 	}
-	b.pruneDangling()
+	b.afterRebuild()
 	return nil
+}
+
+func (b *Builder) afterRebuild() {
+	if b.owner != nil {
+		b.owner.rebuilt.Store(true)
+		return
+	}
+	b.pruneDangling()
 }
 
 func (b *Builder) pruneDangling() {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ohcnetwork/care_desktop/app/internal/compose"
 	"github.com/ohcnetwork/care_desktop/app/internal/health"
 )
 
@@ -17,16 +18,8 @@ func (e *Clinic) Start() error {
 	if err := e.applyStagedUpdate(); err != nil {
 		return err
 	}
-	if err := e.Builder().EnsureBackendImage(); err != nil {
-		return err
-	}
-	if err := e.Builder().EnsureFrontendImage(); err != nil {
-		return err
-	}
-	if err := e.Builder().EnsureBackupImage(); err != nil {
-		return err
-	}
-	if err := e.Builder().EnsureCaddyImage(); err != nil {
+	if err := e.Builder().Parallel(compose.EnsureBackend, compose.EnsureFrontend,
+		compose.EnsureBackup, compose.EnsureCaddy); err != nil {
 		return err
 	}
 	if err := e.Backups().EnsureKeysDir(); err != nil {
@@ -62,6 +55,8 @@ func (e *Clinic) Start() error {
 	}
 	e.logln("")
 	e.logln("CARE is up -> https://" + e.host() + "/   (login: admin)")
-	e.setUpThisComputer()
+	if !e.localSetupOffered {
+		e.setUpThisComputer()
+	}
 	return nil
 }

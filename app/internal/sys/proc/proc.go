@@ -23,6 +23,7 @@ type Runner struct {
 	Dir string
 	Env []string
 	Log func(string)
+	Ctx context.Context
 }
 
 func (r Runner) logln(s string) {
@@ -45,6 +46,9 @@ func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd 
 
 func (r Runner) cmd(name string, args ...string) *exec.Cmd {
 	c := Command(name, args...)
+	if r.Ctx != nil {
+		c = CommandContext(r.Ctx, name, args...)
+	}
 	c.Dir = r.Dir
 	c.Env = r.Env
 	return c
@@ -104,7 +108,11 @@ func (r Runner) Capture(name string, args ...string) (string, error) {
 }
 
 func (r Runner) CaptureIn(timeout time.Duration, extraEnv []string, name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	parent := r.Ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := CommandContext(ctx, name, args...)
 	cmd.Dir, cmd.Env = r.Dir, r.Env
@@ -112,6 +120,9 @@ func (r Runner) CaptureIn(timeout time.Duration, extraEnv []string, name string,
 		cmd.Env = append(cmd.Environ(), extraEnv...)
 	}
 	out, err := cmd.Output()
+	if err := parent.Err(); err != nil {
+		return "", fmt.Errorf("%s was stopped: %w", name, err)
+	}
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("%s timed out after %s", name, timeout)
 	}
