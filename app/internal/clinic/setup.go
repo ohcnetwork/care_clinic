@@ -5,10 +5,14 @@ import (
 
 	"github.com/ohcnetwork/care_desktop/app/internal/backup"
 	"github.com/ohcnetwork/care_desktop/app/internal/compose"
+	"github.com/ohcnetwork/care_desktop/app/internal/plugins"
 )
 
 func (e *Clinic) Setup() error {
 	if err := backup.CheckLocation(e.backupDir(), e.InstallDir); err != nil {
+		return err
+	}
+	if err := plugins.New(e.InstallDir).InitializeDefaults(); err != nil {
 		return err
 	}
 	if err := e.Backups().InstallCertificate([]byte(e.BackupCertificate)); err != nil {

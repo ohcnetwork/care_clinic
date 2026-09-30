@@ -121,7 +121,7 @@ func TestCaddyBootstrapServesMobileSetupAndPublicRoot(t *testing.T) {
 	}
 }
 
-func TestCaddyServesClinicSetupPageOverHTTPSOnly(t *testing.T) {
+func TestOnboardingIsServedByCARE(t *testing.T) {
 	data, err := os.ReadFile("../../../deployments/Caddyfile")
 	if err != nil {
 		t.Fatal(err)
@@ -133,22 +133,11 @@ func TestCaddyServesClinicSetupPageOverHTTPSOnly(t *testing.T) {
 		t.Fatal("missing site route group")
 	}
 	site := text[start:end]
-	route := "handle_path /seed-data* {\n\t\troot * /seed-data\n\t\ttry_files {path} /index.html\n\t\tfile_server\n\t}"
-	if !strings.Contains(site, route) {
-		t.Fatal("clinic setup page is not served from the site group")
+	if strings.Contains(text, "handle_path /onboarding") {
+		t.Fatal("onboarding must be handled by the CARE frontend, not a static loader")
 	}
-	if strings.Contains(text[:start], "seed-data") {
-		t.Fatal("clinic setup page must not be reachable over plain HTTP")
-	}
-	if strings.Index(site, "handle /api/*") > strings.Index(site, "handle_path /seed-data*") {
-		t.Fatal("API route must be matched before the setup page")
-	}
-	compose, err := os.ReadFile("../../../deployments/docker-compose.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(compose), "./seed-data:/seed-data:ro") {
-		t.Fatal("clinic setup page directory is not mounted read-only")
+	if !strings.Contains(site, "handle {\n\t\treverse_proxy frontend:80\n\t}") {
+		t.Fatal("CARE frontend catch-all must serve the onboarding route")
 	}
 }
 

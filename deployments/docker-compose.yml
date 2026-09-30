@@ -104,7 +104,6 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./setup:/setup:ro
-      - ./seed-data:/seed-data:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

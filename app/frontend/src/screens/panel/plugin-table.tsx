@@ -163,8 +163,20 @@ export function PluginTable() {
     () => new Map(catalog.map((c) => [c.plugin.id, c.description ?? ""])),
     [catalog],
   );
-  const available = catalog.filter((c) => !rows.some((r) => r.catalog && r.id === c.plugin.id));
+  const available = catalog.filter((c) => !rows.some((r) =>
+    r.id.trim() === c.plugin.id ||
+    (r.frontend && r.frontend.slug.trim() === c.plugin.frontend?.slug) ||
+    (r.backend && r.backend.name.trim() === c.plugin.backend?.name),
+  ));
   const metaErrors = rows.filter((r) => r.frontend && metaProblem(r.frontend.metaText));
+  const idProblem = (row: Row): string | null => {
+    const id = row.id.trim();
+    if (!id) return "Enter a plugin ID.";
+    if (!/^[A-Za-z0-9_.-]+$/.test(id)) return "Use letters, numbers, '.', '_' or '-'. Spaces belong in the display name.";
+    if (rows.some((r) => r.uid !== row.uid && r.id.trim() === id)) return "This plugin ID is already in use.";
+    return null;
+  };
+  const invalidIDs = rows.some((row) => idProblem(row));
 
   const patchRow = (uid: number, values: Partial<Row>) =>
     setRows((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...values } : r)));
@@ -220,7 +232,7 @@ export function PluginTable() {
   };
 
   const save = async () => {
-    if (busy || problem !== "" || metaErrors.length) return;
+    if (busy || problem !== "" || metaErrors.length || invalidIDs) return;
     try {
       await bridge.SavePlugins(serialize(rows));
       toast("Applying plugins");
@@ -288,14 +300,31 @@ export function PluginTable() {
                 <div className="flex flex-col gap-4 px-3 pb-4">
                   {!row.catalog ? (
                     <div className="flex flex-wrap items-center gap-4">
-                      <Field label="Name" className="w-[220px]">
+                      <Field label="Display name" className="w-[220px]">
+                        <Input
+                          className="h-9 text-[13px]"
+                          placeholder="CARE Onboarding"
+                          value={row.label}
+                          onChange={(e) => patchRow(row.uid, { label: e.target.value })}
+                        />
+                        <span className="text-[12px] text-muted-foreground">Spaces allowed. Optional; defaults to the plugin ID.</span>
+                      </Field>
+                      <Field label="Plugin ID" className="w-[220px]">
                         <Input
                           className="h-9 font-mono text-[13px]"
                           spellCheck={false}
                           placeholder="care_example"
                           value={row.id}
+                          aria-invalid={Boolean(idProblem(row))}
+                          aria-describedby={`plugin-id-help-${row.uid}`}
                           onChange={(e) => patchRow(row.uid, { id: e.target.value })}
                         />
+                        <span
+                          id={`plugin-id-help-${row.uid}`}
+                          className={cn("text-[12px]", idProblem(row) ? "text-danger-ink" : "text-muted-foreground")}
+                        >
+                          {idProblem(row) ?? "Unique technical ID; no spaces."}
+                        </span>
                       </Field>
                       <PartSwitch
                         label="Backend"
@@ -454,7 +483,7 @@ export function PluginTable() {
         <span className="flex-1" />
         <Button
           variant="primary"
-          disabled={busy || problem !== "" || metaErrors.length > 0}
+          disabled={busy || problem !== "" || metaErrors.length > 0 || invalidIDs}
           onClick={() => void save()}
         >
           Save and apply

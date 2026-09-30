@@ -162,12 +162,6 @@ export function OverviewTab() {
             </Button>
             <Button
               variant="glass"
-              onClick={() => void bridge.OpenURL(`https://${mdnsName}/seed-data`)}
-            >
-              Load data into clinic
-            </Button>
-            <Button
-              variant="glass"
               onClick={() => void bridge.OpenURL("https://docs.ohc.network/")}
             >
               Open docs

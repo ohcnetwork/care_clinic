@@ -99,7 +99,7 @@ remaining teardown files and the residue package.
 | Source | Responsibility |
 | --- | --- |
 | [`clinic.go`](../app/internal/clinic/clinic.go) | `Clinic`, nil-safe logging, effective paths/name, runtime environment, runner helpers, and builder construction. |
-| [`setup.go`](../app/internal/clinic/setup.go) | Ordered first-time preparation: location check, secret, domain, directories, encryption keys, and images. |
+| [`setup.go`](../app/internal/clinic/setup.go) | Ordered first-time preparation: location check, default plugins, secret, domain, directories, encryption keys, and images. |
 | [`secret.go`](../app/internal/clinic/secret.go) | One-time replacement of the Django secret placeholder. |
 | [`domain.go`](../app/internal/clinic/domain.go) | Discover managed hostnames, update selected settings and kit files, and construct the clinic host. |
 | [`domain_test.go`](../app/internal/clinic/domain_test.go) | Unmanaged-setting preservation, multiline dotenv handling, mode preservation, idempotence, incomplete setups, and validation before writes. |
@@ -256,7 +256,8 @@ sequenceDiagram
     App->>Config: Save initial configuration, setup incomplete
     App->>App: Unpack kit and check ports
     App->>Clinic: Setup()
-    Clinic->>Clinic: Validate location, secret, domain, directories
+    Clinic->>Clinic: Validate location and initialize default plugins
+    Clinic->>Clinic: Prepare secret, domain, directories
     Clinic->>Docker: Backup image, keys, Caddy, backend, frontend
     Clinic-->>App: Setup preparation succeeded
     App->>App: Restart advertising
@@ -276,15 +277,21 @@ error. There is no implicit rollback of earlier successful steps.
 | Order | Operation | Durable or operational effect |
 | --- | --- | --- |
 | 1 | `backup.CheckLocation(backupDir, InstallDir)` | Reject an unsafe backup location before setup changes the kit. The backup guide explains the path rules. |
-| 2 | `Backups().InstallCertificate(BackupCertificate)`, then `genSecret()` | Install only the public backup certificate and its ownership copy; replace the Django secret placeholder if present. |
-| 3 | `ApplyDomain()` | Apply the clinic host to managed settings and deployment assets. |
-| 4 | Create the backup directory with `MkdirAll(..., 0755)` | The destination may now exist even if later setup fails; its location is logged. |
-| 5 | `Backups().EnsureKeysDir()` | Prepare the keys directory before a Docker bind mount can create a root-owned source directory. |
-| 6 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The two slow image builds run while steps 7–8 continue. |
-| 7 | `Parallel(EnsureCaddy, EnsureBackup)` | Build the Caddy/WAF and cryptographic tooling images side by side. On error, the background group is cancelled and waited for before `Setup()` returns. |
-| 8 | `setUpThisComputerEarly()` | Start Caddy alone (`up -d --wait --no-deps caddy`), wait up to 60 seconds for its root certificate and site certificate, then run the this-computer setup so its approvals happen now instead of after the long builds. Any failure here is logged and left to the end of `Start()`. |
-| 9 | Wait for the background group | Backend and frontend image errors surface here. |
-| 10 | Log `Setup done.` | Preparation is complete, not proof that the clinic has started or that `SetupDone` was saved. |
+| 2 | `plugins.New(InstallDir).InitializeDefaults()` | For new-clinic setup, persist default catalog entries, including CARE Onboarding, only when `plugins.json` is absent. Preserve existing backend plugins and any saved list, including an empty one. Malformed saved JSON fails setup rather than being overwritten. |
+| 3 | `Backups().InstallCertificate(BackupCertificate)`, then `genSecret()` | Install only the public backup certificate and its ownership copy; replace the Django secret placeholder if present. |
+| 4 | `ApplyDomain()` | Apply the clinic host to managed settings and deployment assets. |
+| 5 | Create the backup directory with `MkdirAll(..., 0755)` | The destination may now exist even if later setup fails; its location is logged. |
+| 6 | `Backups().EnsureKeysDir()` | Prepare the keys directory before a Docker bind mount can create a root-owned source directory. |
+| 7 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The two slow image builds run while steps 8–9 continue. |
+| 8 | `Parallel(EnsureCaddy, EnsureBackup)` | Build the Caddy/WAF and cryptographic tooling images side by side. On error, the background group is cancelled and waited for before `Setup()` returns. |
+| 9 | `setUpThisComputerEarly()` | Start Caddy alone (`up -d --wait --no-deps caddy`), wait up to 60 seconds for its root certificate and site certificate, then run the this-computer setup so its approvals happen now instead of after the long builds. Any failure here is logged and left to the end of `Start()`. |
+| 10 | Wait for the background group | Backend and frontend image errors surface here. |
+| 11 | Log `Setup done.` | Preparation is complete, not proof that the clinic has started or that `SetupDone` was saved. |
+
+Default plugins are not initialized by ordinary reads, startup, rebuilds or upgrades.
+CARE Onboarding is loaded from its hosted remote, not bundled into Desktop.
+Its automatic pre-login flow also requires compatible CARE frontend/backend
+builds; see [facility setup](onboarding.md#care-compatibility-and-startup).
 
 Recovery-file generation uses Go's standard cryptographic library before
 installation. OpenSSL inside the backup image encrypts and decrypts backups;

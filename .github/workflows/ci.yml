@@ -115,11 +115,6 @@ jobs:
       - name: Check bindings, typecheck, and build frontend
         working-directory: app/frontend
         run: npm run build
-      - name: Check the master sheet conversion is committed
-        working-directory: data-loading/frontend
-        run: |
-          npm run convert
-          git diff --exit-code -- ../data/activity-definitions
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: desktop-frontend
@@ -161,8 +156,6 @@ jobs:
       - name: Install matching Wails CLI
         working-directory: app
         run: go install github.com/wailsapp/wails/v2/cmd/wails@"$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
-      - name: Build the clinic setup page
-        run: node app/frontend/scripts/build-seed-page.mjs
       - name: Prepare installer metadata and deployment kit
         run: node app/frontend/scripts/stage-install.mjs
       - name: Build native application

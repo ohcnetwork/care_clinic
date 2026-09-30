@@ -55,6 +55,7 @@ type Plugin struct {
 type CatalogEntry struct {
 	Plugin      Plugin `json:"plugin"`
 	Description string `json:"description,omitempty"`
+	Default     bool   `json:"default,omitempty"`
 }
 
 //go:embed catalog.yml
@@ -110,6 +111,34 @@ func (m *Manager) fromAdditionalPlugs() ([]Plugin, error) {
 		list = append(list, Plugin{ID: backends[i].Name, Backend: &backends[i]})
 	}
 	return list, nil
+}
+
+// InitializeDefaults is called only by new-clinic setup, never by reads or upgrades.
+func (m *Manager) InitializeDefaults() error {
+	if _, err := os.Stat(m.listPath()); err == nil {
+		_, err := m.ReadPlugins()
+		return err
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	list, err := m.fromAdditionalPlugs()
+	if err != nil {
+		return err
+	}
+	catalog, err := Catalog()
+	if err != nil {
+		return err
+	}
+	ids := map[string]bool{}
+	for _, p := range list {
+		ids[p.ID] = true
+	}
+	for _, entry := range catalog {
+		if entry.Default && !ids[entry.Plugin.ID] {
+			list = append(list, entry.Plugin)
+		}
+	}
+	return m.SavePlugins(list)
 }
 
 func (m *Manager) SavePlugins(list []Plugin) error {
@@ -185,7 +214,7 @@ func Prepare(list []Plugin) ([]Plugin, error) {
 			return nil, err
 		}
 		if ids[p.ID] {
-			return nil, fmt.Errorf("two plugins are named %q", p.ID)
+			return nil, fmt.Errorf("two plugins use the plugin ID %q", p.ID)
 		}
 		ids[p.ID] = true
 		if p.Backend != nil {
@@ -226,10 +255,10 @@ func fromCatalog(p, entry Plugin) Plugin {
 
 func check(p *Plugin) error {
 	if p.ID == "" {
-		return errors.New("every plugin needs a name")
+		return errors.New("every plugin needs a plugin ID")
 	}
 	if !idPattern.MatchString(p.ID) {
-		return fmt.Errorf("plugin name %q can only use letters, numbers, '.', '_' and '-'", p.ID)
+		return fmt.Errorf("plugin ID %q can only use letters, numbers, '.', '_' and '-'; spaces are allowed in the display name", p.ID)
 	}
 	if p.Backend == nil && p.Frontend == nil {
 		return fmt.Errorf("plugin %q needs a backend, a frontend, or both", p.ID)

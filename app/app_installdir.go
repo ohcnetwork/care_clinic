@@ -26,17 +26,10 @@ const installSubdir = "install"
 
 var installUserFiles = map[string]bool{"backend.env": true, "frontend.env": true}
 
-var installGeneratedDirs = []string{"seed-data"}
-
 const gitkeepPlaceholder = ".gitkeep"
 
 func (a *App) ensureInstallDir() (string, error) {
 	dest := a.installDir()
-	for _, dir := range installGeneratedDirs {
-		if err := os.RemoveAll(filepath.Join(dest, dir)); err != nil {
-			return "", err
-		}
-	}
 	err := fs.WalkDir(a.installFS, "install", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
