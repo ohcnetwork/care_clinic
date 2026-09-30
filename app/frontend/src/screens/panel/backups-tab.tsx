@@ -2,6 +2,7 @@ import { Database, FolderOpen, HardDrive } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 
 import { InfoButton } from "@/components/field";
+import { RecoveryFilePicker } from "@/components/recovery-file-picker";
 import { LEVEL_BADGE, StorageMeter } from "@/components/storage-meter";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -20,12 +21,17 @@ export function BackupsTab() {
   const { backups, backupsError, busy, restorePending, runAction, reloadBackups, restore } = useCare();
   const [showInfo, setShowInfo] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
-  const [passphrase, setPassphrase] = useState("");
+  const [recoveryFile, setRecoveryFile] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
 
   return (
     <div className="flex flex-col gap-3">
       <BackupFolderRow />
+      <Alert>
+        Restoring encrypted backups requires the separate backup recovery file saved during
+        setup. Keep it secure and separate from backups. Lost every copy? Old backups
+        cannot be unlocked. Forgot the Desktop password? Open Advanced to use a recovery code.
+      </Alert>
 
       <div className="flex items-center gap-[11px]">
         <Button
@@ -95,7 +101,7 @@ export function BackupsTab() {
                     {backup.manual ? "Manual" : "Automatic"}
                   </Badge>
                   <Button disabled={busy || restorePending} onClick={() => {
-                      setPassphrase("");
+                      setRecoveryFile("");
                       setAdminPassword("");
                       setConfirming(backup.db_dump);
                     }}>
@@ -105,7 +111,7 @@ export function BackupsTab() {
                 {confirming === backup.db_dump ? (
                   <div className="flex flex-col gap-3 border-t border-danger-bg bg-danger-tint px-4 py-[13px] text-[12.5px] text-danger-ink">
                     <label className="flex items-center gap-3">
-                      <span className="flex-none">Admin password</span>
+                      <span className="flex-none">Desktop admin password</span>
                       <input
                         type="password"
                         autoComplete="current-password"
@@ -115,17 +121,7 @@ export function BackupsTab() {
                       />
                     </label>
                     {backup.encrypted ? (
-                      <label className="flex items-center gap-3">
-                        <span className="flex-none">Backup password</span>
-                        <input
-                          autoFocus
-                          type="password"
-                          value={passphrase}
-                          onChange={(e) => setPassphrase(e.target.value)}
-                          placeholder="Leave blank to use the saved password"
-                          className="min-w-0 flex-1 rounded-sm border border-danger-bg bg-white px-2 py-1 font-mono text-[12.5px] text-ink"
-                        />
-                      </label>
+                      <RecoveryFilePicker value={recoveryFile} onChange={setRecoveryFile} disabled={busy} />
                     ) : null}
                     <div className="flex items-center gap-3">
                       <span className="flex-1">
@@ -134,12 +130,12 @@ export function BackupsTab() {
                       <Button onClick={() => setConfirming(null)}>Cancel</Button>
                       <Button
                         variant="destructive"
-                        disabled={busy || !adminPassword}
+                        disabled={busy || !adminPassword || (backup.encrypted && !recoveryFile)}
                         onClick={() => {
                           setConfirming(null);
-                          void restore(backup, passphrase, adminPassword);
+                          void restore(backup, recoveryFile, adminPassword);
                           setAdminPassword("");
-                          setPassphrase("");
+                          setRecoveryFile("");
                         }}
                       >
                         Yes, restore
@@ -291,7 +287,7 @@ function ImportCard() {
   const { busy, restorePending, restoreFile } = useCare();
   const [found, setFound] = useState<ImportedBackup | null>(null);
   const [problem, setProblem] = useState("");
-  const [passphrase, setPassphrase] = useState("");
+  const [recoveryFile, setRecoveryFile] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
 
@@ -300,7 +296,7 @@ function ImportCard() {
     if (!path) return;
     setProblem("");
     setConfirming(false);
-    setPassphrase("");
+    setRecoveryFile("");
     setAdminPassword("");
     try {
       setFound(await bridge.InspectBackupFile(path));
@@ -341,27 +337,11 @@ function ImportCard() {
               ? "Database and uploaded files."
               : "Database only — this backup has no uploaded files with it."}
           </div>
-          {found.encrypted && !found.has_key ? (
-            <Alert variant="danger">
-              No recovery key (<span className="font-mono">backup-key.pem.enc</span>) next to
-              that file. This computer&apos;s own key will be tried, which only works if the
-              backup came from this clinic. Copy the whole backup folder across instead.
-            </Alert>
-          ) : null}
           {found.encrypted ? (
-            <label className="flex items-center gap-3 text-[12.5px]">
-              <span className="flex-none text-muted-foreground">Backup password</span>
-              <input
-                type="password"
-                value={passphrase}
-                onChange={(e) => setPassphrase(e.target.value)}
-                placeholder="Leave blank to use the saved password"
-                className="min-w-0 flex-1 rounded-sm border border-line bg-white px-2 py-1 font-mono text-[12.5px] text-ink"
-              />
-            </label>
+            <RecoveryFilePicker value={recoveryFile} onChange={setRecoveryFile} disabled={busy} />
           ) : null}
           <label className="flex items-center gap-3 text-[12.5px]">
-            <span className="flex-none text-muted-foreground">Admin password</span>
+            <span className="flex-none text-muted-foreground">Desktop admin password</span>
             <input
               type="password"
               autoComplete="current-password"
@@ -379,12 +359,12 @@ function ImportCard() {
               <Button onClick={() => setConfirming(false)}>Cancel</Button>
               <Button
                 variant="destructive"
-                disabled={busy || !adminPassword}
+                disabled={busy || !adminPassword || (found.encrypted && !recoveryFile)}
                 onClick={() => {
                   setConfirming(false);
-                  void restoreFile(found.path, passphrase, adminPassword);
+                  void restoreFile(found.path, recoveryFile, adminPassword);
                   setAdminPassword("");
-                  setPassphrase("");
+                  setRecoveryFile("");
                 }}
               >
                 Yes, restore
@@ -394,7 +374,7 @@ function ImportCard() {
             <Button
               variant="destructive"
               className="self-start"
-              disabled={busy}
+              disabled={busy || !adminPassword || (found.encrypted && !recoveryFile)}
               onClick={() => setConfirming(true)}
             >
               Restore this file

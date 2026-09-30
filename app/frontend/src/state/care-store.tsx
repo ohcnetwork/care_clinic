@@ -20,13 +20,12 @@ import type { Backup, CareUpdate, StorageReport } from "@/types";
 
 export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
-export type PanelTab = "overview" | "backups" | "advanced";
+export type PanelTab = "overview" | "backups" | "plugins" | "updates" | "advanced";
 export type SystemState = "running" | "partial" | "stopped" | "unknown";
 
 export type InstallParams = {
   host: string;
   adminPassword: string;
-  backupPassword: string;
   backupDir: string;
 };
 
@@ -106,7 +105,7 @@ type CareStore = {
   careUpdate: CareUpdate | null;
   applyCareUpdate: () => Promise<void>;
   dismissCareUpdate: () => Promise<void>;
-  installAppUpdate: () => Promise<void>;
+  installAppUpdate: () => Promise<boolean>;
   restorePending: boolean;
   version: string;
   backups: Backup[];
@@ -118,8 +117,8 @@ type CareStore = {
   reloadBackups: () => Promise<void>;
   runAction: (action: string, adminPassword?: string) => Promise<void>;
   setAutostart: (on: boolean) => Promise<void>;
-  restore: (backup: Backup, passphrase: string, adminPassword: string) => Promise<void>;
-  restoreFile: (path: string, passphrase: string, adminPassword: string) => Promise<void>;
+  restore: (backup: Backup, recoveryFile: string, adminPassword: string) => Promise<void>;
+  restoreFile: (path: string, recoveryFile: string, adminPassword: string) => Promise<void>;
   uninstall: (
     removeImages: boolean,
     removeBackups: boolean,
@@ -348,15 +347,18 @@ export function CareProvider({ children }: { children: ReactNode }) {
   }, [runAction]);
 
   const installAppUpdate = useCallback(async () => {
-    if (busyRef.current) return;
+    if (busyRef.current) return false;
+    lastErrorRef.current = "";
     setBusy(true, "Updating CARE Desktop");
     log("\n$ care-desktop update");
     try {
       await bridge.InstallAppUpdate();
+      return true;
     } catch (e) {
       log(`error: ${errorText(e)}`);
       toast(firstLine(errorText(e)));
       setBusy(false);
+      return false;
     }
   }, [log, setBusy]);
 
@@ -391,7 +393,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   );
 
   const restore = useCallback(
-    async (backup: Backup, passphrase: string, adminPassword: string) => {
+    async (backup: Backup, recoveryFile: string, adminPassword: string) => {
       if (busyRef.current) return;
       if (restorePendingRef.current) {
         toast(RESTORE_PENDING_NOTICE);
@@ -403,7 +405,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       );
       toast("Restore started — data will be replaced");
       try {
-        await bridge.RestoreBackup(backup.db_dump, backup.files_archive, passphrase, adminPassword);
+        await bridge.RestoreBackup(backup.db_dump, backup.files_archive, recoveryFile, adminPassword);
       } catch (e) {
         log(`error: ${errorText(e)}`);
         setBusy(false);
@@ -413,7 +415,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   );
 
   const restoreFile = useCallback(
-    async (path: string, passphrase: string, adminPassword: string) => {
+    async (path: string, recoveryFile: string, adminPassword: string) => {
       if (busyRef.current) return;
       if (restorePendingRef.current) {
         toast(RESTORE_PENDING_NOTICE);
@@ -422,7 +424,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       setBusy(true, "Restoring");
       log("\n$ care restore imported backup");
       try {
-        await bridge.RestoreFromFile(path, passphrase, adminPassword);
+        await bridge.RestoreFromFile(path, recoveryFile, adminPassword);
       } catch (e) {
         log(`error: ${errorText(e)}`);
         setBusy(false);
@@ -522,7 +524,6 @@ export function CareProvider({ children }: { children: ReactNode }) {
         .RunSetup(
           params.host,
           params.adminPassword,
-          params.backupPassword,
           params.backupDir,
         )
         .catch((e) => {
@@ -563,7 +564,14 @@ export function CareProvider({ children }: { children: ReactNode }) {
         }
         logFromHost(line);
       }),
-      onCareEvent("care-done", (code: number) => {
+      onCareEvent("care-done", (code: number, label?: string) => {
+        if (label === "app-update") {
+          setBusy(false);
+          if (code !== 0) {
+            toast(firstLine(lastErrorRef.current || "CARE Desktop couldn't update. Try again."));
+          }
+          return;
+        }
         if (flowRef.current === "role" || flowRef.current === "client") return;
         if (flowRef.current === "remove") {
           setBusy(false);

@@ -2,136 +2,166 @@ package backup
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
-
-	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+	"time"
 )
 
-func (s *Store) keysDir() string    { return filepath.Join(s.Dir, "keys") }
-func (s *Store) certPath() string   { return filepath.Join(s.keysDir(), "backup-cert.pem") }
-func (s *Store) encKeyPath() string { return filepath.Join(s.keysDir(), "backup-key.pem.enc") }
-func (s *Store) encKeyName() string { return "backup-key.pem.enc" }
+const certificateName = "backup-cert.pem"
+
+func (s *Store) keysDir() string  { return filepath.Join(s.Dir, "keys") }
+func (s *Store) certPath() string { return filepath.Join(s.keysDir(), certificateName) }
 
 func (s *Store) BackupEncryptionOn() bool {
 	_, err := os.Stat(s.certPath())
 	return err == nil
 }
 
-func (s *Store) EnsureKeysDir() error {
-	return os.MkdirAll(s.keysDir(), 0o755)
+func (s *Store) EnsureKeysDir() error { return os.MkdirAll(s.keysDir(), 0o700) }
+
+// The private key is exported by the UI, never installed beside the backups.
+// Standard PEM/X.509 keeps these files compatible with OpenSSL CMS.
+func GenerateRecoveryFile() (certificate, recovery []byte, err error) {
+	key, err := rsa.GenerateKey(rand.Reader, 4096)
+	if err != nil {
+		return nil, nil, err
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, err
+	}
+	template := &x509.Certificate{
+		SerialNumber: serial, Subject: pkix.Name{CommonName: "care-backup"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().AddDate(100, 0, 0),
+		KeyUsage: x509.KeyUsageKeyEncipherment,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	certificate = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	recovery = pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	return certificate, recovery, nil
 }
 
-func (s *Store) GenBackupKeypair(passphrase string) error {
-	if passphrase == "" {
-		return fmt.Errorf("a backup password is required - every backup is encrypted, and without one none can be written")
+func parseCertificate(data []byte) (*x509.Certificate, error) {
+	block, rest := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
+		return nil, fmt.Errorf("invalid backup certificate")
 	}
-	hasKey, err := regularFileExists(s.encKeyPath())
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid backup certificate: %w", err)
+	}
+	if key, ok := cert.PublicKey.(*rsa.PublicKey); !ok || key.N.BitLen() < 3072 {
+		return nil, fmt.Errorf("invalid backup encryption public key")
+	}
+	return cert, nil
+}
+
+func ReadRecoveryFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, fmt.Errorf("could not open the backup recovery file: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 16384 {
+		return nil, fmt.Errorf("choose a nonempty CARE backup recovery file, not a link or directory")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	_, err = parseRecoveryFile(data)
+	return data, err
+}
+
+func parseRecoveryFile(data []byte) (*rsa.PrivateKey, error) {
+	block, rest := pem.Decode(data)
+	if block == nil || block.Type != "RSA PRIVATE KEY" || len(bytes.TrimSpace(rest)) != 0 {
+		return nil, fmt.Errorf("this is not a CARE backup recovery file")
+	}
+	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("the backup recovery file is damaged: %w", err)
+	}
+	if key.N.BitLen() < 3072 {
+		return nil, fmt.Errorf("the backup recovery key is too short")
+	}
+	if err := key.Validate(); err != nil {
+		return nil, fmt.Errorf("the backup recovery file is invalid: %w", err)
+	}
+	return key, nil
+}
+
+func VerifyRecoveryFile(certificate, recovery []byte) error {
+	cert, err := parseCertificate(certificate)
 	if err != nil {
 		return err
 	}
-	hasCert, err := regularFileExists(s.certPath())
+	key, err := parseRecoveryFile(recovery)
 	if err != nil {
 		return err
 	}
-	if hasCert && !hasKey {
-		return fmt.Errorf("the backup certificate exists but its private key is missing; recover %s before continuing", s.encKeyPath())
+	if !key.PublicKey.Equal(cert.PublicKey) {
+		return fmt.Errorf("this recovery file belongs to a different clinic; choose the file you just saved")
 	}
-	if !hasKey {
-		encrypted, err := s.hasEncryptedBackups()
-		if err != nil {
-			return err
-		}
-		existingKey, err := regularFileExists(filepath.Join(s.BackupDir, s.encKeyName()))
-		if err != nil {
-			return err
-		}
-		if encrypted || existingKey {
-			return fmt.Errorf("%s contains recovery data from another installation; choose a new backup folder and keep the old folder intact for restores", s.BackupDir)
-		}
+	return nil
+}
+
+func (s *Store) InstallCertificate(certificate []byte) error {
+	if _, err := parseCertificate(certificate); err != nil {
+		return err
+	}
+	foreign, err := s.ForeignRecoveryData()
+	if err != nil {
+		return err
+	}
+	if foreign {
+		return fmt.Errorf("the backup folder contains another clinic's backups; choose an empty folder")
 	}
 	if err := s.EnsureKeysDir(); err != nil {
 		return err
 	}
-	if err := s.EnsureImage(); err != nil {
+	if err := writeKeyCopy(s.certPath(), certificate); err != nil {
 		return err
 	}
-	if hasKey {
-		if err := s.keyUnlocks(passphrase, hasCert); err != nil {
-			return err
-		}
-		if err := s.CopyRecoveryKey(); err != nil {
-			return err
-		}
-		if hasCert {
-			return nil
-		}
-	}
-	stage, err := os.MkdirTemp(s.keysDir(), ".new-key-")
-	if err != nil {
+	if err := s.CopyBackupCertificate(); err != nil {
 		return err
 	}
-	defer func() { _ = os.RemoveAll(stage) }()
-	keyArgs := "-newkey rsa:4096 -keyout /keys/" + s.encKeyName() + " -passout env:PASS"
-	if hasKey {
-		key, err := s.readKey()
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(stage, s.encKeyName()), key, 0o600); err != nil {
-			return err
-		}
-		keyArgs = "-key /keys/" + s.encKeyName() + " -passin env:PASS"
-	}
-	s.logln("Preparing the backup encryption certificate...")
-	args := []string{"run", "--rm", "-e", "PASS", "-v", stage + ":/keys"}
-	if runtime.GOOS != "windows" {
-		args = append(args, "--user", strconv.Itoa(os.Geteuid())+":"+strconv.Itoa(os.Getegid()))
-	}
-	script := "set -e\nopenssl req -x509 -sha256 -days 36500 " + keyArgs +
-		" -out /keys/backup-cert.pem -subj /CN=care-backup\nchmod 600 /keys/" + s.encKeyName()
-	args = append(args, s.Image, "sh", "-c", script)
-	if err := s.run.RunWith([]string{"PASS=" + passphrase}, "docker", args...); err != nil {
-		return fmt.Errorf("could not prepare the backup encryption key: %w", err)
-	}
-	if !hasKey {
-		if err := copyFile(filepath.Join(stage, s.encKeyName()), s.encKeyPath()); err != nil {
-			return err
-		}
-	}
-	if err := copyFile(filepath.Join(stage, "backup-cert.pem"), s.certPath()); err != nil {
-		return err
-	}
-	if err := s.CopyRecoveryKey(); err != nil {
-		return err
-	}
-	s.logln("Backup encryption enabled; its recovery key is saved with the backups.")
+	s.logln("Backup encryption ready; only the public certificate is installed.")
 	return nil
 }
 
-func (s *Store) keyUnlocks(passphrase string, checkCertificate bool) error {
-	script := `set -e
-openssl pkey -in /keys/backup-key.pem.enc -passin env:PASS -pubout -out /tmp/key.pub`
-	if checkCertificate {
-		script += `
-openssl x509 -in /keys/backup-cert.pem -pubkey -noout > /tmp/cert.pub
-cmp -s /tmp/key.pub /tmp/cert.pub`
+func (s *Store) CopyBackupCertificate() error {
+	data, err := os.ReadFile(s.certPath())
+	if err != nil {
+		return err
 	}
-	cmd := proc.Command("docker", "run", "--rm",
-		"-e", "PASS",
-		"-v", s.keysDir()+":/keys:ro",
-		s.Image, "sh", "-c", script)
-	cmd.Env = append(cmd.Environ(), s.run.Env...)
-	cmd.Env = append(cmd.Env, "PASS="+passphrase)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("could not unlock and match the existing backup key; enter its original password and ensure Docker is running (the key was not changed): %w: %s", err, strings.TrimSpace(string(out)))
+	if err := os.MkdirAll(s.BackupDir, 0o755); err != nil {
+		return err
 	}
-	return nil
+	return writeKeyCopy(filepath.Join(s.BackupDir, certificateName), data)
+}
+
+func (s *Store) PreserveBackupCertificate() error {
+	if err := CheckLocation(s.BackupDir, s.Dir); err != nil {
+		return err
+	}
+	if _, err := os.Stat(s.certPath()); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return s.CopyBackupCertificate()
 }
 
 func (s *Store) hasEncryptedBackups() (bool, error) {
@@ -140,7 +170,7 @@ func (s *Store) hasEncryptedBackups() (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("could not inspect the backup folder: %w", err)
+		return false, err
 	}
 	for _, entry := range entries {
 		if safeName.MatchString(entry.Name()) && strings.HasSuffix(entry.Name(), ".enc") {
@@ -150,99 +180,46 @@ func (s *Store) hasEncryptedBackups() (bool, error) {
 	return false, nil
 }
 
-func regularFileExists(path string) (bool, error) {
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if !info.Mode().IsRegular() {
-		return false, fmt.Errorf("expected a regular file at %s", path)
-	}
-	return true, nil
-}
-
-func copyFile(src, dst string) error {
-	b, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return writeKeyCopy(dst, b)
-}
-
-func (s *Store) CopyRecoveryKey() error {
-	b, err := s.readKey()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(s.BackupDir, 0o755); err != nil {
-		return err
-	}
-	return writeKeyCopy(filepath.Join(s.BackupDir, s.encKeyName()), b)
-}
-
-func (s *Store) PreserveRecoveryKey() error {
-	if err := CheckLocation(s.BackupDir, s.Dir); err != nil {
-		return err
-	}
-	exists, err := regularFileExists(s.encKeyPath())
-	if err != nil || !exists {
-		return err
-	}
-	if err := s.CopyRecoveryKey(); err != nil {
-		return fmt.Errorf("the installation's recovery key must be preserved before its files can be removed: %w", err)
-	}
-	return nil
-}
-
 func (s *Store) ForeignRecoveryData() (bool, error) {
 	encrypted, err := s.hasEncryptedBackups()
 	if err != nil {
 		return false, err
 	}
-	existing, err := os.ReadFile(filepath.Join(s.BackupDir, s.encKeyName()))
+	existing, err := os.ReadFile(filepath.Join(s.BackupDir, certificateName))
 	if os.IsNotExist(err) {
 		return encrypted, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	key, err := s.readKey()
-	if errors.Is(err, os.ErrNotExist) {
+	cert, err := os.ReadFile(s.certPath())
+	if os.IsNotExist(err) {
 		return true, nil
 	}
-	if err != nil {
-		return false, err
-	}
-	return !bytes.Equal(existing, key), nil
+	return !bytes.Equal(existing, cert), err
 }
 
-func (s *Store) DiscardUnusedRecoveryKey() error {
+func (s *Store) DiscardUnusedCertificate() error {
 	encrypted, err := s.hasEncryptedBackups()
 	if err != nil || encrypted {
 		return err
 	}
-	copyPath := filepath.Join(s.BackupDir, s.encKeyName())
-	existing, err := os.ReadFile(copyPath)
+	path := filepath.Join(s.BackupDir, certificateName)
+	existing, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	key, err := s.readKey()
-	if errors.Is(err, os.ErrNotExist) {
+	cert, err := os.ReadFile(s.certPath())
+	if os.IsNotExist(err) {
 		return nil
 	}
-	if err != nil {
+	if err != nil || !bytes.Equal(existing, cert) {
 		return err
 	}
-	if !bytes.Equal(existing, key) {
-		return nil
-	}
-	return os.Remove(copyPath)
+	return os.Remove(path)
 }
 
 func CheckLocation(dir, protected string) error {
@@ -280,7 +257,7 @@ func CheckLocation(dir, protected string) error {
 		return err
 	}
 	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("backups cannot be kept inside %s because cleanup removes that directory; choose a separate folder", protected)
+		return fmt.Errorf("choose a location outside %s", protected)
 	}
 	return nil
 }
@@ -298,7 +275,7 @@ func (s *Store) DeleteBackups() error {
 	for _, entry := range entries {
 		name := entry.Name()
 		candidate := strings.Replace(strings.TrimPrefix(name, "."), ".tmp", "", 1)
-		if entry.IsDir() || (name != s.encKeyName() && name != ".backup.lock" && !safeName.MatchString(candidate)) {
+		if entry.IsDir() || (name != certificateName && name != ".backup.lock" && !safeName.MatchString(candidate)) {
 			kept = true
 			continue
 		}
@@ -316,23 +293,6 @@ func (s *Store) DeleteBackups() error {
 	return os.Remove(s.BackupDir)
 }
 
-func (s *Store) readKey() ([]byte, error) {
-	b, err := os.ReadFile(s.encKeyPath())
-	if errors.Is(err, os.ErrPermission) && runtime.GOOS == "linux" {
-		cmd := proc.Command("docker", "run", "--rm", "-v", s.keysDir()+":/keys:ro",
-			s.Image, "cat", "/keys/"+s.encKeyName())
-		cmd.Env = s.run.Env
-		b, err = cmd.Output()
-	}
-	if err != nil {
-		return nil, fmt.Errorf("could not read the recovery key at %s: %w", s.encKeyPath(), err)
-	}
-	if len(bytes.TrimSpace(b)) == 0 {
-		return nil, fmt.Errorf("the recovery key at %s is empty", s.encKeyPath())
-	}
-	return b, nil
-}
-
 func writeKeyCopy(path string, b []byte) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if os.IsExist(err) {
@@ -341,14 +301,14 @@ func writeKeyCopy(path string, b []byte) error {
 			return err
 		}
 		if !info.Mode().IsRegular() {
-			return fmt.Errorf("the recovery copy at %s must be an independent regular file, not a link or directory", path)
+			return fmt.Errorf("the certificate at %s must be a regular file, not a link or directory", path)
 		}
 		existing, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 		if !bytes.Equal(existing, b) {
-			return fmt.Errorf("a different recovery key or certificate already exists at %s; it was not overwritten", path)
+			return fmt.Errorf("a different backup certificate already exists at %s; it was not overwritten", path)
 		}
 		return nil
 	}

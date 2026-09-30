@@ -11,6 +11,9 @@ func (e *Clinic) Setup() error {
 	if err := backup.CheckLocation(e.backupDir(), e.InstallDir); err != nil {
 		return err
 	}
+	if err := e.Backups().InstallCertificate([]byte(e.BackupCertificate)); err != nil {
+		return err
+	}
 	if err := e.genSecret(); err != nil {
 		return err
 	}
@@ -44,5 +47,5 @@ func (e *Clinic) setupWhileBuilding(b *compose.Builder) error {
 		return err
 	}
 	e.setUpThisComputerEarly()
-	return e.Backups().GenBackupKeypair(e.BackupPassword)
+	return nil
 }

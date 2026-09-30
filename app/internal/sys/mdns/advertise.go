@@ -27,6 +27,9 @@ func Advertise(name string, logf func(string)) (*Advertiser, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkAvailable(name+".local.", links, probeConflict); err != nil {
+		return nil, err
+	}
 	a := &Advertiser{name: name, links: links}
 	for _, link := range links {
 		server, err := newResponder(name, link, logf)
@@ -157,6 +160,7 @@ func lanInterfaces() ([]lanInterface, error) {
 			}
 			if network.IP.To4() == nil && !network.IP.IsLoopback() && !network.IP.IsUnspecified() {
 				link.ipv6 = true
+				link.ips6 = append(link.ips6, network.IP)
 			}
 			if ip4 := network.IP.To4(); ip4 != nil && ip4.IsGlobalUnicast() && !ip4.IsLoopback() && !ip4.IsLinkLocalUnicast() {
 				link.ips = append(link.ips, ip4)

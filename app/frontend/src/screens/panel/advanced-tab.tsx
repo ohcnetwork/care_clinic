@@ -1,4 +1,4 @@
-import { FolderOpen, Lock, ScrollText } from "lucide-react";
+import { FolderOpen, Lock, ScrollText, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { InputBox } from "@/components/input-box";
@@ -13,12 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/sonner";
 import { bridge } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
 import { EnvEditor } from "./env-editor";
-import { PluginTable } from "./plugin-table";
-import { UpdatePanel } from "./update-panel";
+import { AdminPasswordForm, AdminRecoverySettings } from "./admin-recovery";
 
 export function AdvancedTab() {
   const [adminPassword, setAdminPassword] = useState<string | null>(null);
@@ -27,22 +27,10 @@ export function AdvancedTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      <RebuildCard adminPassword={adminPassword} />
+      <AdminRecoverySettings adminPassword={adminPassword} onPasswordChanged={setAdminPassword} />
       <LogRow />
 
       <Accordion type="multiple">
-        <AccordionItem value="updates">
-          <AccordionTrigger>
-            <SectionTitle
-              title="Updates"
-              summary="Which version of CARE this clinic runs, and this app's own version"
-            />
-          </AccordionTrigger>
-          <AccordionContent>
-            <UpdatePanel />
-          </AccordionContent>
-        </AccordionItem>
-
         <AccordionItem value="config">
           <AccordionTrigger>
             <SectionTitle
@@ -54,17 +42,11 @@ export function AdvancedTab() {
             <EnvEditor adminPassword={adminPassword} />
           </AccordionContent>
         </AccordionItem>
+      </Accordion>
 
-        <AccordionItem value="plugins">
-          <AccordionTrigger>
-            <SectionTitle title="Plugins" summary="Extra features for CARE" />
-          </AccordionTrigger>
-          <AccordionContent>
-            <PluginTable adminPassword={adminPassword} />
-          </AccordionContent>
-        </AccordionItem>
-
-        <AccordionItem value="danger" className="border-danger-line">
+      <RebuildCard adminPassword={adminPassword} />
+      <Accordion type="multiple">
+        <AccordionItem value="danger" className="border-danger-line bg-danger-tint">
           <AccordionTrigger>
             <SectionTitle
               title={<span className="text-danger-ink">Uninstall CARE Desktop</span>}
@@ -83,15 +65,16 @@ export function AdvancedTab() {
 function RebuildCard({ adminPassword }: { adminPassword: string }) {
   const { busy, runAction } = useCare();
   return (
-    <Card className="flex items-center gap-3.5 px-[18px] py-4">
+    <Card className="flex items-center gap-3.5 border-danger-line bg-danger-tint px-[18px] py-4">
+      <TriangleAlert className="size-5 shrink-0 text-danger-ink" />
       <div className="min-w-0 flex-1">
-        <CardTitle>Rebuild everything</CardTitle>
+        <CardTitle className="text-danger-ink">Rebuild everything</CardTitle>
         <CardDescription>
           Rebuilds CARE and restarts every service with this app's bundled files and current
           settings. Patient data is kept; CARE is unavailable for a few minutes.
         </CardDescription>
       </div>
-      <Button disabled={busy} onClick={() => void runAction("rebuild-all", adminPassword)}>
+      <Button variant="destructive" disabled={busy} onClick={() => void runAction("rebuild-all", adminPassword)}>
         Rebuild
       </Button>
     </Card>
@@ -103,10 +86,11 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
   const [reveal, setReveal] = useState(false);
   const [error, setError] = useState("");
   const [checking, setChecking] = useState(false);
+  const [recovering, setRecovering] = useState(false);
 
   const unlock = async () => {
     if (password === "") {
-      setError("Enter the admin password.");
+      setError("Enter the Desktop admin password.");
       return;
     }
     setChecking(true);
@@ -115,7 +99,7 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
         onUnlock(password);
         return;
       }
-      setError("That password does not match the admin password.");
+      setError("That password does not match the Desktop admin password.");
     } catch {
       setError("Couldn't check the password.");
     } finally {
@@ -123,12 +107,24 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
     }
   };
 
+  if (recovering) {
+    return (
+      <div className="mx-auto mt-6 flex max-w-lg flex-col gap-4 rounded-2xl border border-line bg-card p-6">
+        <h2 className="text-[17px] font-bold">Reset Desktop admin password</h2>
+        <AdminPasswordForm onSuccess={(password) => {
+          toast("Desktop password reset. Mark that recovery code used. Your CARE web login is unchanged.");
+          onUnlock(password);
+        }} onCancel={() => setRecovering(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto mt-[34px] max-w-[420px] rounded-2xl border border-line bg-card p-[26px] text-center shadow-card">
       <span className="mx-auto flex size-10 items-center justify-center rounded-full bg-hair text-muted-foreground">
         <Lock className="size-[18px]" strokeWidth={2} />
       </span>
-      <div className="mt-3.5 text-[17px] font-bold text-ink">Admin password</div>
+      <div className="mt-3.5 text-[17px] font-bold text-ink">Desktop admin password</div>
       <div className="mt-[5px] text-[13px] text-muted-foreground">
         These options can rebuild or remove CARE.
       </div>
@@ -166,6 +162,9 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
         onClick={() => void unlock()}
       >
         Unlock
+      </Button>
+      <Button className="mt-3" disabled={checking} onClick={() => { setPassword(""); setRecovering(true); }}>
+        Forgot Desktop password?
       </Button>
     </div>
   );

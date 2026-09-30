@@ -81,7 +81,7 @@ and a small runner value, rather than a framework or a container registry.
 | `InstallDir` | The unpacked runtime kit and local source/build workspace, not this repository's checkout. |
 | `MDNSName` | The saved clinic name. An empty engine value defaults to `care`. `Host()` normalizes the label and appends `.local`; `Label()` exposes the configured name or default. |
 | `AdminPassword` | Used by administrator creation when nonempty. It is not the desktop administrator hash. |
-| `BackupPassword` | Input to setup's protected backup-key generation. Saving it in an OS password store is an App responsibility. |
+| `BackupCertificate` | Public encryption certificate prepared by the Desktop recovery setup. The private recovery file is exported separately, never installed. |
 | `BackupDir` | Effective backup destination. Empty means the engine default, `Desktop/care-db-backups` under the user's home directory. |
 | `Pins` | A non-nil, validated `release.Pins` supplied by the App. The engine dereferences it; it is not an optional discovery mechanism. |
 | `Log` | A nil-safe callback. The App can forward the same line to its persistent log and the desktop. |
@@ -146,8 +146,8 @@ refresh. It deliberately suppresses that refresh while removal or a pending
 restore makes replacement unsafe; see [Wails application](wails-application.md).
 
 `Setup()` therefore assumes its input kit has already been unpacked. It does
-not compile the desktop UI, copy the executable, save `SetupDone`, or store the
-backup password in the keychain.
+not compile the desktop UI, copy the executable, save `SetupDone`, or export
+the private recovery file.
 
 ### Desktop build versus clinic-image build
 
@@ -240,7 +240,7 @@ edits from overlapping a job; an external file editor is outside that gate.
 
 The outer App flow validates input, persists initial configuration with setup
 still incomplete, installs the kit, and checks port availability. It then
-calls `Setup`, stores the backup password, starts advertising, and calls
+calls `Setup`, starts advertising, and calls
 `Start`. Only after the entire callback succeeds does the App persist
 `SetupDone=true`. See [configuration and settings](configuration-and-settings.md)
 for that boundary.
@@ -259,7 +259,7 @@ sequenceDiagram
     Clinic->>Clinic: Validate location, secret, domain, directories
     Clinic->>Docker: Backup image, keys, Caddy, backend, frontend
     Clinic-->>App: Setup preparation succeeded
-    App->>App: Save backup password and restart advertising
+    App->>App: Restart advertising
     App->>Clinic: Start()
     Clinic->>Docker: Recover, stop workers, start, migrate, resume
     Clinic->>Clinic: Health check and restore completion
@@ -276,19 +276,19 @@ error. There is no implicit rollback of earlier successful steps.
 | Order | Operation | Durable or operational effect |
 | --- | --- | --- |
 | 1 | `backup.CheckLocation(backupDir, InstallDir)` | Reject an unsafe backup location before setup changes the kit. The backup guide explains the path rules. |
-| 2 | `genSecret()` | Replace the Django secret placeholder in installed `backend.env`, if present. |
+| 2 | `Backups().InstallCertificate(BackupCertificate)`, then `genSecret()` | Install only the public backup certificate and its ownership copy; replace the Django secret placeholder if present. |
 | 3 | `ApplyDomain()` | Apply the clinic host to managed settings and deployment assets. |
 | 4 | Create the backup directory with `MkdirAll(..., 0755)` | The destination may now exist even if later setup fails; its location is logged. |
 | 5 | `Backups().EnsureKeysDir()` | Prepare the keys directory before a Docker bind mount can create a root-owned source directory. |
-| 6 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The two slow image builds run while steps 7–9 continue. |
+| 6 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The two slow image builds run while steps 7–8 continue. |
 | 7 | `Parallel(EnsureCaddy, EnsureBackup)` | Build the Caddy/WAF and cryptographic tooling images side by side. On error, the background group is cancelled and waited for before `Setup()` returns. |
 | 8 | `setUpThisComputerEarly()` | Start Caddy alone (`up -d --wait --no-deps caddy`), wait up to 60 seconds for its root certificate and site certificate, then run the this-computer setup so its approvals happen now instead of after the long builds. Any failure here is logged and left to the end of `Start()`. |
-| 9 | `Backups().GenBackupKeypair(BackupPassword)` | Generate or validate protected backup-key material and export the recovery copy according to the backup package's rules. |
-| 10 | Wait for the background group | Backend and frontend image errors surface here. |
-| 11 | Log `Setup done.` | Preparation is complete, not proof that the clinic has started or that `SetupDone` was saved. |
+| 9 | Wait for the background group | Backend and frontend image errors surface here. |
+| 10 | Log `Setup done.` | Preparation is complete, not proof that the clinic has started or that `SetupDone` was saved. |
 
-The backup image precedes key generation because cryptographic tooling runs
-inside that image; the desktop does not assume a suitable host OpenSSL.
+Recovery-file generation uses Go's standard cryptographic library before
+installation. OpenSSL inside the backup image encrypts and decrypts backups;
+the desktop does not assume a suitable host OpenSSL.
 Caddy is the only container this method starts, and only so its local CA exists
 early; `Start()` later force-recreates it with the rest of the stack, and the CA
 persists in the `caddy-data` volume. Database, Redis, and Silo containers do not
@@ -317,7 +317,7 @@ all-or-nothing setup transaction.
 
 This function does not generate PostgreSQL passwords, storage credentials, a
 new password for an existing CARE administrator, or a replacement backup
-passphrase. The backup keypair and Caddy's local CA are separate key systems
+recovery file. The backup keypair and Caddy's local CA are separate key systems
 with different owners and lifetimes.
 
 ## 5. Image builder: freshness is local evidence

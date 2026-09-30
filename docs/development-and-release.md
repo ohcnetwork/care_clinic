@@ -33,7 +33,6 @@ The direct Go dependencies have narrow jobs:
 | `github.com/hashicorp/mdns` | DNS-SD record construction; CARE owns the interface-bound responder transport. |
 | `github.com/miekg/dns` | DNS packet encoding/decoding for the responder and direct hostname probes. |
 | `golang.org/x/net` | Interface-bound IPv4/IPv6 multicast sockets. |
-| `github.com/zalando/go-keyring` | Platform credential-store access for the saved backup password. |
 | `golang.org/x/crypto` | Bcrypt hashing and comparison for desktop administrator authorization. |
 | `golang.org/x/sys` | Low-level platform operations, including Windows durable file replacement. |
 

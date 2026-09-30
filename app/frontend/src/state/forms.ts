@@ -5,8 +5,6 @@ export type SetupForm = {
   hostInput: string;
   adminPassword: string;
   adminConfirm: string;
-  backupPassword: string;
-  backupConfirm: string;
   backupDir: string;
 };
 
@@ -14,7 +12,5 @@ export const EMPTY_SETUP_FORM: SetupForm = {
   hostInput: "care",
   adminPassword: "",
   adminConfirm: "",
-  backupPassword: "",
-  backupConfirm: "",
   backupDir: "",
 };

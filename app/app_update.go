@@ -192,7 +192,7 @@ func (a *App) CheckAppUpdate() (AppUpdate, error) {
 }
 
 func (a *App) InstallAppUpdate() error {
-	return a.run(func() error {
+	return a.runJob(func() error {
 		rel, err := latestRelease()
 		if err != nil {
 			return err

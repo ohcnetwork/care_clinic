@@ -19,21 +19,16 @@ func (a *App) ScanResidue() (residue.Report, error) {
 	if err != nil {
 		return residue.Report{}, err
 	}
-	stored, err := backup.HasPassword()
-	if err != nil {
-		return residue.Report{}, err
-	}
 	configPath := ""
 	if cfg := a.loadConfig(); cfg.SetupDone || cfg.Removing || cfg.AdminPwHash != "" || cfg.BackupDir != "" {
 		configPath = a.configPath()
 	}
 	return residue.Scan(residue.Options{
-		Runner:       e.Runner(),
-		Project:      e.Project(),
-		InstallDir:   dir,
-		ConfigPath:   configPath,
-		Images:       e.Images(),
-		StoredSecret: stored,
+		Runner:     e.Runner(),
+		Project:    e.Project(),
+		InstallDir: dir,
+		ConfigPath: configPath,
+		Images:     e.Images(),
 	})
 }
 
@@ -44,8 +39,7 @@ func (a *App) keepChosenName(before Config) error {
 	if err := a.saveConfig(Config{Role: before.Role, MDNSName: before.MDNSName}); err != nil {
 		return err
 	}
-	a.restartAdvertise()
-	return nil
+	return a.restartAdvertise()
 }
 
 func (a *App) PurgeResidue() error {
@@ -65,7 +59,7 @@ func (a *App) PurgeResidue() error {
 			return errors.New("open CARE Desktop to confirm removal of the earlier installation")
 		}
 		items := ""
-		kept := "\n\nYour backups and their recovery key are kept. Make sure you know the backup password before removing its saved copy."
+		kept := "\n\nYour backups are kept. Keep the separate backup recovery file you saved during setup; it is needed to restore them."
 		for _, t := range before.Traces {
 			items += "\n  - " + t.Label + ": " + t.Detail
 		}
@@ -89,7 +83,7 @@ func (a *App) PurgeResidue() error {
 				return err
 			}
 		}
-		if err := e.Backups().PreserveRecoveryKey(); err != nil {
+		if err := e.Backups().PreserveBackupCertificate(); err != nil {
 			return err
 		}
 		if err := a.beginRemoval(); err != nil {
@@ -103,9 +97,6 @@ func (a *App) PurgeResidue() error {
 			return err
 		}
 		if err := a.log.PurgeFolder(); err != nil {
-			return err
-		}
-		if err := backup.ForgetPassword(); err != nil {
 			return err
 		}
 		if err := a.forgetConfig(); err != nil {

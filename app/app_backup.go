@@ -27,7 +27,7 @@ func (a *App) ListBackups() ([]backup.Backup, error) {
 	return a.engine().Backups().ListBackups()
 }
 
-func (a *App) RestoreBackup(dbDump, filesArchive, passphrase, adminPassword string) error {
+func (a *App) RestoreBackup(dbDump, filesArchive, recoveryFile, adminPassword string) error {
 	return a.run(func() error {
 		if err := a.requireAdmin(adminPassword); err != nil {
 			return err
@@ -35,14 +35,7 @@ func (a *App) RestoreBackup(dbDump, filesArchive, passphrase, adminPassword stri
 		if err := a.requireStableClinic(); err != nil {
 			return err
 		}
-		if passphrase == "" {
-			var err error
-			passphrase, err = backup.LoadPassword()
-			if err != nil {
-				return err
-			}
-		}
-		return a.engine().Backups().Restore(dbDump, filesArchive, passphrase)
+		return a.engine().Backups().Restore(dbDump, filesArchive, recoveryFile)
 	}, false, "restore")
 }
 
@@ -70,7 +63,7 @@ func (a *App) SetBackupDir(dir string) (string, error) {
 		}
 		next := a.engine()
 		next.BackupDir = target
-		if err := next.Backups().CopyRecoveryKey(); err != nil {
+		if err := next.Backups().CopyBackupCertificate(); err != nil {
 			return err
 		}
 		cfg := previousConfig
@@ -88,7 +81,7 @@ func (a *App) SetBackupDir(dir string) (string, error) {
 		}
 		a.logln("Backups will now go to " + target)
 		if old := previous.BackupDirPath(); old != target {
-			a.logln("Earlier backups and their recovery key were left in " + old + ".")
+			a.logln("Earlier backups were left in " + old + ". Keep your recovery file safe.")
 		}
 		return nil
 	})
@@ -104,7 +97,6 @@ type ImportedBackup struct {
 	FilesArchive string `json:"files_archive"`
 	Label        string `json:"label"`
 	Encrypted    bool   `json:"encrypted"`
-	HasKey       bool   `json:"has_key"`
 }
 
 func (a *App) InspectBackupFile(path string) (ImportedBackup, error) {
@@ -143,16 +135,6 @@ func (a *App) InspectBackupFile(path string) (ImportedBackup, error) {
 		}
 	}
 	out.Encrypted = out.Encrypted || strings.HasSuffix(out.FilesArchive, ".enc")
-	key, err := os.Stat(filepath.Join(dir, "backup-key.pem.enc"))
-	if err == nil {
-		if !key.Mode().IsRegular() {
-			return out, errors.New("the recovery key beside this backup is not a regular file")
-		}
-		out.HasKey = true
-	} else if !os.IsNotExist(err) {
-		return out, err
-	}
-
 	scope := "database only"
 	if out.FilesArchive != "" {
 		scope = "database + files"
@@ -164,7 +146,7 @@ func (a *App) InspectBackupFile(path string) (ImportedBackup, error) {
 	return out, nil
 }
 
-func (a *App) RestoreFromFile(path, passphrase, adminPassword string) error {
+func (a *App) RestoreFromFile(path, recoveryFile, adminPassword string) error {
 	return a.run(func() error {
 		if err := a.requireAdmin(adminPassword); err != nil {
 			return err
@@ -176,16 +158,7 @@ func (a *App) RestoreFromFile(path, passphrase, adminPassword string) error {
 		if err != nil {
 			return err
 		}
-		if found.Encrypted && !found.HasKey {
-			a.logln("No recovery key beside that file; trying this installation's key.")
-		}
-		if passphrase == "" {
-			passphrase, err = backup.LoadPassword()
-			if err != nil {
-				return err
-			}
-		}
-		return a.engine().Backups().RestoreFrom(found.Dir, found.DBDump, found.FilesArchive, passphrase)
+		return a.engine().Backups().RestoreFrom(found.Dir, found.DBDump, found.FilesArchive, recoveryFile)
 	}, false, "restore")
 }
 

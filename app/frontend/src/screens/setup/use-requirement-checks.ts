@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { bridge } from "@/lib/bridge";
-import type { ToolPlan } from "@/types";
+import type { DownloadInfo, ToolPlan } from "@/types";
 
 export type CheckTone = "wait" | "ok" | "bad";
 export type CheckId =
@@ -37,6 +37,7 @@ export type CheckAction = {
   label: string;
   detail: string;
   run: () => Promise<string | void>;
+  preview?: () => Promise<DownloadInfo>;
 };
 
 export type Check = {
@@ -86,7 +87,12 @@ function actionFor(plan: ToolPlan, install: () => Promise<string | void>): Check
       run: () => bridge.OpenURL(plan.url),
     };
   }
-  return { label: plan.label, detail: plan.detail, run: install };
+  return {
+    label: plan.label,
+    detail: plan.detail,
+    run: install,
+    preview: plan.download_preview ? () => bridge.RancherDownloadInfo() : undefined,
+  };
 }
 
 /**
@@ -101,7 +107,11 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   const [docker, setDocker] = useState<Result>(WAITING);
   const [git, setGit] = useState<Result>(WAITING);
   const [disk, setDisk] = useState<Result & { message: string }>({ ...WAITING, message: "" });
-  const [mdns, setMdns] = useState<Result>(WAITING);
+  const [nameCheck, setNameCheck] = useState<{ host: string; result: Result }>({ host: "", result: WAITING });
+  const hostRef = useRef(host);
+  hostRef.current = host;
+  const nameRequest = useRef(0);
+  const mdns = nameCheck.host === host ? nameCheck.result : WAITING;
   const [clinic, setClinic] = useState<Result>(WAITING);
   const [network, setNetwork] = useState<Result | null>(null);
   const [inFlight, setInFlight] = useState(0);
@@ -266,10 +276,12 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   }, []);
 
   const checkMDNS = useCallback(async (): Promise<Result> => {
-    setMdns(WAITING);
+    const requestedHost = hostRef.current;
+    const request = ++nameRequest.current;
+    setNameCheck({ host: requestedHost, result: WAITING });
     let result: Result;
     try {
-      const status = await bridge.MDNSStatus();
+      const status = await bridge.MDNSStatus(requestedHost);
       result = {
         state: status.ok ? "ok" : "bad",
         how: status.ok ? "" : status.message,
@@ -277,9 +289,20 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
     } catch (e) {
       result = { state: "bad", how: String(e) };
     }
-    setMdns(result);
+    if (request !== nameRequest.current || requestedHost !== hostRef.current) return WAITING;
+    setNameCheck({ host: requestedHost, result });
     return result;
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void checkMDNS(), 400);
+    const poll = window.setInterval(() => void checkMDNS(), 30_000);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(poll);
+      nameRequest.current++;
+    };
+  }, [host, checkMDNS]);
 
   // Windows-only gate; elsewhere the host reports it as not applicable and the
   // row is hidden rather than shown as passing.
@@ -388,7 +411,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
     });
     list.push({
       id: "mdns",
-      title: "Network name",
+      title: inSetup ? "Clinic address availability" : "Network name",
       detail: `${host} on the clinic WiFi`,
       ...mdns,
     });

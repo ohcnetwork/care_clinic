@@ -90,7 +90,6 @@ app/internal/
 |-- backup/
 |   |-- store.go
 |   |-- crypto.go
-|   |-- keychain.go
 |   |-- restore.go
 |   |-- restore_data.go
 |   |-- restore_journal.go
@@ -198,7 +197,7 @@ app/internal/
 | Package | Responsibility | Detailed explanation and source-file roles |
 | --- | --- | --- |
 | [`internal/clinic`](../app/internal/clinic) | Orders operations across the domains; no Wails dependency. | [Clinic lifecycle](clinic-lifecycle.md), [cleanup](cleanup-and-uninstall.md), [backup callbacks](backups-and-restore.md), [local device access](native-integrations.md). |
-| [`internal/backup`](../app/internal/backup) | Backup inventory, keys/keyring, decryption, staged replacement, journal recovery. | [Backups and restore](backups-and-restore.md). |
+| [`internal/backup`](../app/internal/backup) | Backup inventory, recovery files/public certificates, decryption, staged replacement, journal recovery. | [Backups and restore](backups-and-restore.md). |
 | [`internal/compose`](../app/internal/compose) | Infrastructure and CARE image building, source checkout, freshness inputs. | [Clinic lifecycle](clinic-lifecycle.md). |
 | [`internal/health`](../app/internal/health) | HTTP readiness and port availability. | [Native integrations](native-integrations.md). |
 | [`internal/plugins`](../app/internal/plugins) | Desktop plugin list (`plugins.json`), bundled catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
@@ -271,12 +270,12 @@ app/frontend/
 | [`run-steps.ts`](../app/frontend/src/lib/run-steps.ts) | Progress milestones derived from backend log messages. |
 | [`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx) | Collects the local admin password and passes it to protected settings/plugin/removal requests. |
 | [`remove-screen.tsx`](../app/frontend/src/screens/remove-screen.tsx) | The screen the Windows uninstaller opens: server uninstall, client disconnect or unfinished-setup cleanup, then exit. |
-| [`update-panel.tsx`](../app/frontend/src/screens/panel/update-panel.tsx) | The Advanced -> Updates section: CARE branch status and the desktop release updater. |
+| [`update-panel.tsx`](../app/frontend/src/screens/panel/update-panel.tsx) | The password-free Updates tab: CARE branch status and the desktop release updater. |
 | [`env-editor.tsx`](../app/frontend/src/screens/panel/env-editor.tsx) | Concurrent environment reads, draft changes, writes and apply action. |
 | [`env-file.ts`](../app/frontend/src/lib/env-file.ts) | Line-based environment parsing, value quoting, change application. |
 | [`env-schema.ts`](../app/frontend/src/screens/panel/env-schema.ts) | Key/file ownership, friendly field constraints, managed-value notes. |
 | [`env-controls.tsx`](../app/frontend/src/screens/panel/env-controls.tsx) | Raw string/undefined values rendered as typed controls. |
-| [`plugin-table.tsx`](../app/frontend/src/screens/panel/plugin-table.tsx) | Catalog picker, custom plugin editor, and save followed by `apply-plugins`. |
+| [`plugin-table.tsx`](../app/frontend/src/screens/panel/plugin-table.tsx) | Password-free Plugins tab: catalog picker, custom editor, and save followed by `apply-plugins`. |
 
 See [Wails API](wails-application.md) and [configuration](configuration-and-settings.md) for behavior rather than visual layout.
 

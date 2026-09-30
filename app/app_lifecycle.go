@@ -23,7 +23,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.refreshInstallDir()
 	a.advStop = make(chan struct{})
-	a.startAdvertise()
+	_ = a.startAdvertise()
 	go a.watchAdvertise()
 	if a.loadConfig().Role != roleServer {
 		return

@@ -14,6 +14,8 @@ const SETUP_STEPS: { id: SetupStep; label: string }[] = [
 const PANEL_TABS: { id: PanelTab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "backups", label: "Backups" },
+  { id: "plugins", label: "Plugins" },
+  { id: "updates", label: "Updates" },
   { id: "advanced", label: "Advanced" },
 ];
 

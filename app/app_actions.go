@@ -8,7 +8,6 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/ohcnetwork/care_desktop/app/internal/backup"
 	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	"github.com/ohcnetwork/care_desktop/app/internal/health"
 	"github.com/ohcnetwork/care_desktop/app/internal/prereq"
@@ -23,6 +22,10 @@ func (a *App) run(fn func() error, markSetup bool, label string) error {
 	if err := a.requireServer(); err != nil {
 		return err
 	}
+	return a.runJob(fn, markSetup, label)
+}
+
+func (a *App) runJob(fn func() error, markSetup bool, label string) error {
 	if err := a.lockJob(); err != nil {
 		return err
 	}
@@ -43,7 +46,7 @@ func (a *App) run(fn func() error, markSetup bool, label string) error {
 					a.notifyActionFailed(label, detail)
 				}
 			}
-			a.emit("care-done", code)
+			a.emit("care-done", code, label)
 		}()
 		err := fn()
 		if markSetup && err == nil {
@@ -147,8 +150,7 @@ func (a *App) beginRemoval() error {
 	if err := a.saveConfig(cfg); err != nil {
 		return err
 	}
-	a.restartAdvertise()
-	return nil
+	return a.restartAdvertise()
 }
 
 func (a *App) requireAdmin(password string) error {
@@ -156,7 +158,7 @@ func (a *App) requireAdmin(password string) error {
 		return err
 	}
 	if !a.loadConfig().SetupDone || !a.VerifyAdminPassword(password) {
-		return errors.New("the admin password does not match this installation")
+		return errors.New("the Desktop admin password does not match this installation")
 	}
 	return nil
 }
@@ -201,6 +203,8 @@ func (a *App) notifyActionFailed(label, detail string) {
 		title = "Cleanup didn't finish"
 	case "app-update":
 		title = "The CARE Desktop update didn't finish"
+	case "network-name":
+		title = "The clinic address is already in use"
 	}
 	_, _ = wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
 		Type:    wruntime.ErrorDialog,
@@ -239,7 +243,7 @@ func (a *App) ClinicAction(action, adminPassword string) error {
 				return err
 			}
 		}
-		if strings.HasPrefix(action, "rebuild-") || action == "apply-plugins" {
+		if strings.HasPrefix(action, "rebuild-") {
 			if err := a.requireAdmin(adminPassword); err != nil {
 				return err
 			}
@@ -306,11 +310,8 @@ func actionFunc(e *clinic.Clinic, action string) func() error {
 	return nil
 }
 
-func (a *App) RunSetup(mdnsName, adminPassword, backupPassword, backupDir string) error {
+func (a *App) RunSetup(mdnsName, adminPassword, backupDir string) error {
 	if err := ValidatePassword(adminPassword); err != nil {
-		return err
-	}
-	if err := ValidatePassword(backupPassword); err != nil {
 		return err
 	}
 
@@ -326,6 +327,15 @@ func (a *App) RunSetup(mdnsName, adminPassword, backupPassword, backupDir string
 		cfg := a.loadConfig()
 		if cfg.SetupDone || cfg.Removing {
 			return errors.New("this computer already has a clinic set up")
+		}
+		if cfg.BackupCertificate == "" || !cfg.BackupRecoveryVerified || cfg.adminRecoveryCount() != 6 {
+			return errors.New("save and verify the backup recovery file and save your six Desktop admin recovery codes before installing")
+		}
+		if err := a.recoveryLocation(cfg.BackupRecoveryPath, backupDir); err != nil {
+			return err
+		}
+		if err := mdns.CheckAvailable(host); err != nil {
+			return err
 		}
 		cfg.MDNSName = host + ".local"
 		h, err := bcrypt.GenerateFromPassword([]byte(adminPassword), bcrypt.DefaultCost)
@@ -351,17 +361,16 @@ func (a *App) RunSetup(mdnsName, adminPassword, backupPassword, backupDir string
 		}
 		e := a.engine()
 		e.AdminPassword = adminPassword
-		e.BackupPassword = backupPassword
+		e.BackupCertificate = cfg.BackupCertificate
 		if err := health.EnsurePortFree(e.Runner(), e.Host()); err != nil {
 			return err
 		}
 		if err := e.Setup(); err != nil {
 			return err
 		}
-		if err := backup.StorePassword(backupPassword); err != nil {
-			return fmt.Errorf("couldn't save the backup password to this computer's keychain: %w", err)
+		if err := a.restartAdvertise(); err != nil {
+			return err
 		}
-		a.restartAdvertise()
 		return e.Start()
 	}, true, "setup")
 }
@@ -376,7 +385,7 @@ func (a *App) CleanupFailedInstall() error {
 		if _, err := a.ScanResidue(); err != nil {
 			return err
 		}
-		if err := e.Backups().PreserveRecoveryKey(); err != nil {
+		if err := e.Backups().PreserveBackupCertificate(); err != nil {
 			return err
 		}
 		if err := a.beginRemoval(); err != nil {
@@ -384,17 +393,16 @@ func (a *App) CleanupFailedInstall() error {
 		}
 		if err := e.Uninstall(clinic.UninstallOptions{
 			RemoveInstallDir:        true,
-			RemoveUnusedRecoveryKey: true,
+			RemoveUnusedCertificate: true,
 		}); err != nil {
-			return err
-		}
-		if err := backup.ForgetPassword(); err != nil {
 			return err
 		}
 		if err := a.forgetConfig(); err != nil {
 			return err
 		}
-		a.restartAdvertise()
+		if err := a.restartAdvertise(); err != nil {
+			return err
+		}
 		return a.keepChosenName(cfg)
 	})
 }

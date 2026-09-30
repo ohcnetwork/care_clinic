@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/ohcnetwork/care_desktop/app/internal/backup"
 	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/autostart"
 )
@@ -19,7 +18,7 @@ func (a *App) RunUninstall(removeImages, removeBackups, removeRancher bool, admi
 		}
 		e := a.engine()
 		if !removeBackups {
-			if err := e.Backups().PreserveRecoveryKey(); err != nil {
+			if err := e.Backups().PreserveBackupCertificate(); err != nil {
 				return err
 			}
 		}
@@ -39,9 +38,6 @@ func (a *App) RunUninstall(removeImages, removeBackups, removeRancher bool, admi
 			}
 		}
 		if err := a.reportUninstall(removeImages); err != nil {
-			return err
-		}
-		if err := backup.ForgetPassword(); err != nil {
 			return err
 		}
 		if err := a.resetConfigAfterUninstall(); err != nil {

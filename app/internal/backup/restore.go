@@ -129,11 +129,11 @@ func backupLabel(ts string, manual, withFiles, encrypted bool) string {
 	return label
 }
 
-func (s *Store) Restore(dbDump, filesArchive, passphrase string) error {
-	return s.RestoreFrom(s.BackupDir, dbDump, filesArchive, passphrase)
+func (s *Store) Restore(dbDump, filesArchive, recoveryFile string) error {
+	return s.RestoreFrom(s.BackupDir, dbDump, filesArchive, recoveryFile)
 }
 
-func (s *Store) RestoreFrom(srcDir, dbDump, filesArchive, passphrase string) error {
+func (s *Store) RestoreFrom(srcDir, dbDump, filesArchive, recoveryFile string) error {
 	if srcDir == "" {
 		srcDir = s.BackupDir
 	}
@@ -167,15 +167,15 @@ func (s *Store) RestoreFrom(srcDir, dbDump, filesArchive, passphrase string) err
 	var key string
 	encrypted := strings.HasSuffix(dbDump, ".enc") || strings.HasSuffix(filesArchive, ".enc")
 	if encrypted {
-		if passphrase == "" {
-			return fmt.Errorf("this backup is encrypted - the backup password is required to restore it")
+		if recoveryFile == "" {
+			return fmt.Errorf("select the backup recovery file saved when this clinic was set up")
 		}
-		key, err = s.keyFor(srcDir)
+		key, err = filepath.Abs(recoveryFile)
 		if err != nil {
 			return err
 		}
-		if key == "" {
-			return fmt.Errorf("backup encryption key not found - restore on the original computer, or copy %s into the backup folder next to the dumps", s.encKeyName())
+		if _, err := ReadRecoveryFile(key); err != nil {
+			return err
 		}
 	}
 	if pending, err := s.readRestoreJournal(); err != nil {
@@ -196,7 +196,7 @@ func (s *Store) RestoreFrom(srcDir, dbDump, filesArchive, passphrase string) err
 	if err := s.writeRestoreJournal(j); err != nil {
 		return err
 	}
-	if err := s.prepareRestore(j, srcDir, dbDump, filesArchive, key, passphrase); err != nil {
+	if err := s.prepareRestore(j, srcDir, dbDump, filesArchive, key); err != nil {
 		return s.restoreFailure(j, err)
 	}
 	s.logln("Stopping and checking all CARE writers, including backups and uploads...")
@@ -251,24 +251,7 @@ func (s *Store) mustExist(dir, name string) error {
 	return nil
 }
 
-func (s *Store) keyFor(dir string) (string, error) {
-	for _, path := range []string{filepath.Join(dir, s.encKeyName()), s.encKeyPath()} {
-		info, err := os.Lstat(path)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return "", err
-		}
-		if !info.Mode().IsRegular() || info.Size() == 0 {
-			return "", fmt.Errorf("the backup key is not a nonempty regular file: %s", path)
-		}
-		return filepath.Abs(path)
-	}
-	return "", nil
-}
-
-func (s *Store) prepareRestore(j *restoreJournal, srcDir, dump, archive, key, passphrase string) error {
+func (s *Store) prepareRestore(j *restoreJournal, srcDir, dump, archive, key string) error {
 	s.logln("Copying and fully validating the backup without changing the current database or files...")
 	if err := s.createRestoreVolume(j, j.stageVolume()); err != nil {
 		return err
@@ -281,11 +264,11 @@ func (s *Store) prepareRestore(j *restoreJournal, srcDir, dump, archive, key, pa
 	mounts := []string{"--mount", restoreMount("volume", j.stageVolume(), "/restore", false),
 		"--mount", restoreMount("bind", srcDir, "/backups", true)}
 	if key != "" {
-		mounts = append(mounts, "--mount", restoreMount("bind", key, "/restore-key.pem.enc", true))
+		mounts = append(mounts, "--mount", restoreMount("bind", key, "/restore-key.pem", true))
 	}
 	args := s.restoreHelperArgs(j, "preflight", "none", mounts...)
-	args = append(args, "-e", "BACKUP_PASS", s.Image, "sh", "-c", script)
-	if err := s.run.RunWith([]string{"BACKUP_PASS=" + passphrase}, "docker", args...); err != nil {
+	args = append(args, s.Image, "sh", "-c", script)
+	if err := s.run.Run("docker", args...); err != nil {
 		return fmt.Errorf("backup copy, decryption or full dump validation failed: %w", err)
 	}
 	if j.WithFiles {
@@ -336,7 +319,7 @@ func stageBackupFile(name, target string) string {
 	if strings.HasSuffix(name, ".enc") {
 		return script + "cp /backups/" + name + " /restore/" + target + ".enc\n" +
 			"openssl cms -decrypt -binary -inform DER -in /restore/" + target + ".enc -out /restore/" + target +
-			" -inkey /restore-key.pem.enc -passin env:BACKUP_PASS\n"
+			" -inkey /restore-key.pem -passin pass:\n"
 	}
 	return script + "cp /backups/" + name + " /restore/" + target + "\n"
 }

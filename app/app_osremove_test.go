@@ -15,6 +15,7 @@ func TestRemovalExitCodeFollowsSetupState(t *testing.T) {
 		"never chosen":            {Config{}, exitRemovable},
 		"server chosen only":      {Config{Role: roleServer, MDNSName: "clinic.local"}, exitRemovable},
 		"client chosen only":      {Config{Role: roleClient}, exitRemovable},
+		"recovery kit prepared":   {Config{Role: roleServer, BackupCertificate: "public", BackupRecoveryPath: "/external/recovery.pem", BackupRecoveryVerified: true, AdminRecoveryHashes: [6]string{"hash"}}, exitRemovable},
 		"installed server":        {Config{Role: roleServer, SetupDone: true, MDNSName: "clinic.local"}, exitSetUp},
 		"partial server":          {Config{Role: roleServer, AdminPwHash: "partial"}, exitSetUp},
 		"removing server":         {Config{Role: roleServer, Removing: true}, exitSetUp},

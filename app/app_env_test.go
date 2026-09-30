@@ -69,7 +69,7 @@ func TestSettingsReadsCanRunConcurrently(t *testing.T) {
 			return nil
 		},
 		func() error {
-			list, err := a.ReadPlugins(settingsPassword)
+			list, err := a.ReadPlugins()
 			if err != nil {
 				return err
 			}
@@ -97,7 +97,7 @@ func TestSettingsReadsRespectMutationsAndClosing(t *testing.T) {
 	a := settingsApp(t)
 	a.jobMu.Lock()
 	text, envErr := a.ReadEnv("backend", settingsPassword)
-	list, pluginErr := a.ReadPlugins(settingsPassword)
+	list, pluginErr := a.ReadPlugins()
 	a.jobMu.Unlock()
 	for _, err := range []error{envErr, pluginErr} {
 		if err == nil || !strings.Contains(err.Error(), "still running") {
@@ -134,8 +134,10 @@ func TestSettingsReadsKeepAuthorizationAndLifecycleGuards(t *testing.T) {
 			if text, err := a.ReadEnv("backend", password); err == nil || text != "" {
 				t.Fatalf("settings read bypassed its guard: %v", err)
 			}
-			if list, err := a.ReadPlugins(password); err == nil || list != nil {
-				t.Fatalf("plugin read bypassed its guard: %v", err)
+			if state != "wrong password" {
+				if list, err := a.ReadPlugins(); err == nil || list != nil {
+					t.Fatalf("plugin read bypassed its guard: %v", err)
+				}
 			}
 		})
 	}

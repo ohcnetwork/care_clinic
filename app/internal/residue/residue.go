@@ -27,12 +27,11 @@ type Report struct {
 }
 
 type Options struct {
-	Runner       proc.Runner
-	Project      string
-	InstallDir   string
-	ConfigPath   string
-	Images       []string
-	StoredSecret bool
+	Runner     proc.Runner
+	Project    string
+	InstallDir string
+	ConfigPath string
+	Images     []string
 }
 
 func Scan(o Options) (Report, error) {
@@ -87,9 +86,6 @@ func scan(o Options, inspectSystem func(proc.Runner) ([]Trace, error)) (Report, 
 	traces = append(traces, system...)
 	if err != nil {
 		failed = append(failed, err)
-	}
-	if o.StoredSecret {
-		add("secret", "Saved backup password", "the old backup password is still in this computer's password store")
 	}
 
 	blocking := 0

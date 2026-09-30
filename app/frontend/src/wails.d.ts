@@ -11,6 +11,7 @@ import type {
   ChannelStatus,
   DiskStatus,
   DockerStatus,
+  DownloadInfo,
   Health,
   ImportedBackup,
   NameStatus,
@@ -34,12 +35,13 @@ declare global {
           DisconnectClient(): Promise<void>;
           DockerStatus(): Promise<DockerStatus>;
           GitStatus(): Promise<DockerStatus>;
-          MDNSStatus(): Promise<NameStatus>;
+          MDNSStatus(name: string): Promise<NameStatus>;
           NetworkStatus(): Promise<NetworkStatus>;
           FixNetwork(): Promise<void>;
           WSLStatus(): Promise<WSLStatus>;
           InstallWSL(): Promise<string>;
           DockerPlan(): Promise<ToolPlan>;
+          RancherDownloadInfo(): Promise<DownloadInfo>;
           GitPlan(): Promise<ToolPlan>;
           InstallDocker(): Promise<string>;
           InstallGit(): Promise<string>;
@@ -58,27 +60,33 @@ declare global {
           RecheckStorage(): Promise<StorageReport>;
           SetMDNSName(name: string): Promise<void>;
           VerifyAdminPassword(pw: string): Promise<boolean>;
+          GetSetupRecoveryStatus(): Promise<{ backup_saved: boolean; backup_verified: boolean; codes_saved: boolean }>;
+          SaveSetupBackupRecovery(backupDir: string): Promise<boolean>;
+          VerifySetupBackupRecovery(backupDir: string): Promise<boolean>;
+          ChooseRecoveryFile(): Promise<string>;
+          SaveAdminRecoveryCodes(adminPassword: string, backupDir: string): Promise<boolean>;
+          ChangeAdminPassword(currentPassword: string, newPassword: string): Promise<void>;
+          ResetAdminPassword(code: string, newPassword: string): Promise<void>;
           ClinicAction(action: string, adminPassword: string): Promise<void>;
           ClinicStatus(): Promise<string>;
           RunSetup(
             mdnsName: string,
             adminPassword: string,
-            backupPassword: string,
             backupDir: string,
           ): Promise<void>;
           CleanupFailedInstall(): Promise<void>;
           ReadEnv(name: string, adminPassword: string): Promise<string>;
           WriteEnv(name: string, content: string, adminPassword: string): Promise<void>;
-          ReadPlugins(adminPassword: string): Promise<CarePlugin[]>;
-          SavePlugins(plugins: CarePlugin[], adminPassword: string): Promise<void>;
+          ReadPlugins(): Promise<CarePlugin[]>;
+          SavePlugins(plugins: CarePlugin[]): Promise<void>;
           PluginCatalog(): Promise<PluginCatalogEntry[]>;
           ListBackups(): Promise<Backup[]>;
           GetBackupDir(): Promise<string>;
           SetBackupDir(dir: string): Promise<string>;
           ChooseBackupFile(): Promise<string>;
           InspectBackupFile(path: string): Promise<ImportedBackup>;
-          RestoreFromFile(path: string, passphrase: string, adminPassword: string): Promise<void>;
-          RestoreBackup(dbDump: string, filesArchive: string, passphrase: string, adminPassword: string): Promise<void>;
+          RestoreFromFile(path: string, recoveryFile: string, adminPassword: string): Promise<void>;
+          RestoreBackup(dbDump: string, filesArchive: string, recoveryFile: string, adminPassword: string): Promise<void>;
           RancherDesktopInstalled(): Promise<boolean>;
           RunUninstall(removeImages: boolean, removeBackups: boolean, removeRancher: boolean, adminPassword: string): Promise<void>;
           OpenURL(url: string): Promise<void>;

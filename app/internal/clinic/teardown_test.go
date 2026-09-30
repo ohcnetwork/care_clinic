@@ -57,7 +57,7 @@ func TestInstallRemovalRejectsUnownedDirectories(t *testing.T) {
 	}
 }
 
-func TestInstallRemovalHandlesUnusedRecoveryKeyAfterExport(t *testing.T) {
+func TestInstallRemovalHandlesUnusedCertificate(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		removeUnusedKey  bool
@@ -79,10 +79,10 @@ func TestInstallRemovalHandlesUnusedRecoveryKeyAfterExport(t *testing.T) {
 			if err := os.MkdirAll(keys, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(filepath.Join(keys, "backup-key.pem.enc"), []byte("protected key"), 0o600); err != nil {
+			if err := os.WriteFile(filepath.Join(keys, "backup-cert.pem"), []byte("public certificate"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := e.Backups().PreserveRecoveryKey(); err != nil {
+			if err := e.Backups().PreserveBackupCertificate(); err != nil {
 				t.Fatal(err)
 			}
 			dump := filepath.Join(e.BackupDir, "care-20260101-010101.dump.enc")
@@ -94,13 +94,13 @@ func TestInstallRemovalHandlesUnusedRecoveryKeyAfterExport(t *testing.T) {
 			if err := e.removeInstallFiles(tc.removeUnusedKey); err != nil {
 				t.Fatal(err)
 			}
-			key, err := os.ReadFile(filepath.Join(e.BackupDir, "backup-key.pem.enc"))
+			key, err := os.ReadFile(filepath.Join(e.BackupDir, "backup-cert.pem"))
 			if tc.wantKey {
-				if err != nil || string(key) != "protected key" {
-					t.Fatalf("recovery key was not retained: %q, %v", key, err)
+				if err != nil || string(key) != "public certificate" {
+					t.Fatalf("backup certificate was not retained: %q, %v", key, err)
 				}
 			} else if !os.IsNotExist(err) {
-				t.Fatalf("unused recovery key still blocks retry: %v", err)
+				t.Fatalf("unused certificate still blocks retry: %v", err)
 			}
 			if _, err := os.Stat(e.InstallDir); !os.IsNotExist(err) {
 				t.Fatalf("installed files were not removed: %v", err)

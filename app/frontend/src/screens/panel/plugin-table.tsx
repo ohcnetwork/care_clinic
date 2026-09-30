@@ -128,7 +128,7 @@ function serialize(rows: Row[]): CarePlugin[] {
 const emptyBackend = (): BackendDraft => ({ name: "", package_name: "", version: "@main", configs: [] });
 const emptyFrontend = (): FrontendDraft => ({ slug: "", url: "", metaText: "{}" });
 
-export function PluginTable({ adminPassword }: { adminPassword: string }) {
+export function PluginTable() {
   const { busy, runAction, log } = useCare();
   const [rows, setRows] = useState<Row[]>([]);
   const [catalog, setCatalog] = useState<PluginCatalogEntry[]>([]);
@@ -143,7 +143,7 @@ export function PluginTable({ adminPassword }: { adminPassword: string }) {
     setProblem(null);
     try {
       const [saved, available] = await Promise.all([
-        bridge.ReadPlugins(adminPassword),
+        bridge.ReadPlugins(),
         bridge.PluginCatalog(),
       ]);
       setCatalog(available);
@@ -153,7 +153,7 @@ export function PluginTable({ adminPassword }: { adminPassword: string }) {
       setRows([]);
       setProblem(errorText(e));
     }
-  }, [adminPassword]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -222,9 +222,9 @@ export function PluginTable({ adminPassword }: { adminPassword: string }) {
   const save = async () => {
     if (busy || problem !== "" || metaErrors.length) return;
     try {
-      await bridge.SavePlugins(serialize(rows), adminPassword);
+      await bridge.SavePlugins(serialize(rows));
       toast("Applying plugins");
-      await runAction("apply-plugins", adminPassword);
+      await runAction("apply-plugins");
     } catch (e) {
       log(`error saving plugins: ${errorText(e)}`);
       toast(firstLine(errorText(e)));

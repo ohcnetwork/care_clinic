@@ -18,7 +18,7 @@ type UninstallOptions struct {
 	RemoveImages            bool
 	RemoveInstallDir        bool
 	RemoveBackups           bool
-	RemoveUnusedRecoveryKey bool
+	RemoveUnusedCertificate bool
 }
 
 func (e *Clinic) Uninstall(opts UninstallOptions) error {
@@ -27,7 +27,7 @@ func (e *Clinic) Uninstall(opts UninstallOptions) error {
 		return err
 	}
 	if opts.RemoveInstallDir && !opts.RemoveBackups {
-		if err := e.Backups().PreserveRecoveryKey(); err != nil {
+		if err := e.Backups().PreserveBackupCertificate(); err != nil {
 			return err
 		}
 	}
@@ -74,7 +74,7 @@ func (e *Clinic) Uninstall(opts UninstallOptions) error {
 		}
 	}
 	if opts.RemoveInstallDir {
-		if err := e.removeInstallFiles(opts.RemoveUnusedRecoveryKey); err != nil {
+		if err := e.removeInstallFiles(opts.RemoveUnusedCertificate); err != nil {
 			return err
 		}
 	}
@@ -93,7 +93,7 @@ func (e *Clinic) removeInstallFiles(removeUnusedKey bool) error {
 		return fmt.Errorf("refusing to delete an unrecognized installation directory: %s", dir)
 	}
 	if removeUnusedKey {
-		if err := e.Backups().DiscardUnusedRecoveryKey(); err != nil {
+		if err := e.Backups().DiscardUnusedCertificate(); err != nil {
 			return err
 		}
 	}

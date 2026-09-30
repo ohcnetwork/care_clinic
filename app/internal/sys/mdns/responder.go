@@ -22,6 +22,7 @@ var multicastAddr6 = &net.UDPAddr{IP: net.ParseIP("ff02::fb"), Port: 5353}
 type lanInterface struct {
 	iface    net.Interface
 	ips      []net.IP
+	ips6     []net.IP
 	networks []*net.IPNet
 	ipv6     bool
 }

@@ -2,7 +2,7 @@
 
 [Documentation index](README.md)
 
-CARE Desktop lets the clinic administrator add CARE plugins from a bundled catalog, or add custom ones, from **Advanced → Plugins**. One click on **Save and apply** installs whatever the plugin needs, whether that's a backend part, a frontend part, or both.
+CARE Desktop lets operators add CARE plugins from a bundled catalog, or add custom ones, from the **Plugins** tab. No Desktop admin password is required to view, save or apply plugins. One click on **Save and apply** installs whatever the plugin needs, whether that's a backend part, a frontend part, or both. This includes custom plugin code, so access to the clinic computer should remain restricted to trusted staff.
 
 This guide explains how CARE itself loads plugins, the catalog file format, every component on the desktop side, and how a save flows through them.
 
@@ -152,7 +152,7 @@ Rows created by hand in CARE's `/admin/apps` are never touched unless they share
 
 ## Save and apply
 
-The panel calls `SavePlugins(list)`, which validates and persists, and then `ClinicAction("apply-plugins")`. Both require the administrator password and a stable clinic (no unfinished restore). `ApplyPlugins` then:
+The panel calls `SavePlugins(list)`, which validates and persists, and then `ClinicAction("apply-plugins")`. Both require a stable installed server clinic (no unfinished restore), but neither requires a Desktop admin password. Explicit rebuild actions remain password-protected. `ApplyPlugins` then:
 
 1. Recovers any pending restore.
 2. If `BackendImageCurrent` is false, runs `RebuildBackend`: build, stop workers, start backend, migrate, sync frontend rows, restart workers.

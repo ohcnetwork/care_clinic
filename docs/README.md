@@ -78,7 +78,7 @@ An arrow in an architecture diagram means "calls or depends on" unless stated ot
 
 These guides describe the code in this checkout, including the shared read lock for environment/plugin reads, staged restore recovery, recovery-key-safe cleanup, and the Silo-backed storage service.
 
-The root [design notes](../design.md) explain the original intent, but include historical file counts, signatures, and flows. The code and these current guides take precedence where they differ. For example, settings reads are no longer exclusive jobs, backup passwords are saved after the engine's setup succeeds, and restore is no longer a direct drop-and-reload of the live database.
+The root [design notes](../design.md) explain the original intent, but include historical file counts, signatures, and flows. The code and these current guides take precedence where they differ. For example, settings reads are no longer exclusive jobs, backups use an exported recovery file instead of a password, and restore is no longer a direct drop-and-reload of the live database.
 
 File links lead to the implementation rather than fixed line numbers. When changing a component, update its guide, affected flowcharts, and the API or file map if the contract changed. Do not treat a diagram as a substitute for error handling in the code.
 
