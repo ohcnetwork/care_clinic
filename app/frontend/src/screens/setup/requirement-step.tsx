@@ -60,7 +60,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
     <>
       {page === "space" ? (
         <div className="on-card on-pad">
-          <div className="on-card-head"><span className="on-tile on-large"><HardDrive aria-hidden="true" /></span><div className="on-grow"><h2>{ready ? "There's room for the clinic" : check.error ? "Couldn't measure the free space" : "Not enough space yet"}</h2></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Ready" : "Needs you"}</StatusBadge></div>
+          <div className="on-card-head"><span className="on-tile on-large"><HardDrive aria-hidden="true" /></span><div className="on-grow"><h2>{ready ? "There's room for the clinic" : check.error ? "Couldn't measure the free space" : "Not enough space yet"}</h2></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Ready" : "Action required"}</StatusBadge></div>
           <div className="on-check-work">
             {checks.space.value?.need ? ready ? <p className="on-success">{diskSize(checks.space.value.free)} is free on this computer.</p> : (
               <Callout tone="danger" title={/settings/.test(checks.space.value.how) ? "The drive that holds CARE's settings is nearly full." : `Only ${diskSize(checks.space.value.free)} is free. CARE needs ${diskSize(checks.space.value.need)}.`}>
@@ -72,7 +72,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
         </div>
       ) : page === "windows" ? (
         <div className="on-card on-pad">
-          <div className="on-card-head"><span className="on-tile on-large"><Monitor aria-hidden="true" /></span><div className="on-grow"><h2>{checks.windows.value?.restart.needed ? "WSL 2 installed — Windows needs to restart" : ready ? "Windows is ready" : "WSL 2 needs to be installed or turned on"}</h2><p>Windows Subsystem for Linux — {engine} runs the clinic inside it.</p></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Ready" : checks.windows.value?.restart.needed ? "Restart" : "Needs you"}</StatusBadge></div>
+          <div className="on-card-head"><span className="on-tile on-large"><Monitor aria-hidden="true" /></span><div className="on-grow"><h2>{checks.windows.value?.restart.needed ? "WSL 2 installed — Windows needs to restart" : ready ? "Windows is ready" : "WSL 2 needs to be installed or turned on"}</h2><p>Windows Subsystem for Linux — {engine} runs the clinic inside it.</p></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Ready" : checks.windows.value?.restart.needed ? "Restart" : "Action required"}</StatusBadge></div>
           {!ready ? <div className="on-check-work"><Callout title={checks.windows.value?.restart.needed ? "Save anything you have open before restarting." : "CARE will install WSL 2 for you."}>
             It switches on two Windows features — Virtual Machine Platform and Windows Subsystem for Linux — then installs WSL 2. Windows will ask for permission and usually needs to restart afterwards.
             <div className="on-actions">{checks.windows.value?.restart.needed ? <Button variant="primary" disabled={busy} onClick={onRestart}>Restart now</Button>
@@ -99,7 +99,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
                     : status?.ok ? "Ready" : plan?.action === "open" ? "Installed, but not running" : "Not ready yet"}</p>
                   {active && download ? <Progress className="on-progress" aria-label={`${name} download progress`} value={download.total > 0 ? Math.max(0, Math.min(100, download.done / download.total * 100)) : null} /> : null}
                 </div>
-                <StatusBadge tone={status?.ok ? "ok" : ""}>{active ? "Working" : status?.ok ? "Ready" : tool ? "Waiting" : "Needs you"}</StatusBadge>
+                <StatusBadge tone={status?.ok ? "ok" : ""}>{active ? "Working" : status?.ok ? "Ready" : tool ? "Waiting" : "Action required"}</StatusBadge>
               </div>;
             })}
           </div>
@@ -131,7 +131,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
         </div>
       ) : (
         <div className="on-card on-pad">
-          <div className="on-card-head"><span className="on-tile on-large"><Network aria-hidden="true" /></span><div className="on-grow"><h2>{ready ? "This network is ready" : checks.network.value?.fixable ? "This network is set to Public" : "We couldn't read this network's profile just now"}</h2><p>{ready ? "Staff devices on this network can reach the clinic." : "Windows blocks incoming connections on a Public network, so devices can't reach the clinic."}</p></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Ready" : "Needs you"}</StatusBadge></div>
+          <div className="on-card-head"><span className="on-tile on-large"><Network aria-hidden="true" /></span><div className="on-grow"><h2>{ready ? "This network is ready" : checks.network.value?.fixable ? "This network is set to Public" : "We couldn't read this network's profile just now"}</h2><p>{ready ? "Staff devices on this network can reach the clinic." : "Windows blocks incoming connections on a Public network, so devices can't reach the clinic."}</p></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Ready" : "Action required"}</StatusBadge></div>
           {!ready ? <div className="on-check-work"><Callout title={checks.network.value?.fixable ? "CARE will switch this network to Private." : "Connect this computer to the clinic's network, then check again."}>
             On a Private network Windows lets devices on the same Wi-Fi reach this computer. It applies to this network only — networks you join elsewhere are untouched. Windows will ask for permission.
             <div className="on-actions">{checks.network.value?.fixable ? <Button variant="primary" disabled={busy} onClick={() => onAction("network")}>{tool ? <Spinner /> : null}{tool ? "Changing…" : "Set to Private"}</Button> : null}{footer()}</div>

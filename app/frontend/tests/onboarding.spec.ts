@@ -505,6 +505,7 @@ for (const item of [
     }, item);
     await page.getByRole("button", { name: "Start setup" }).click();
     await expect(page.getByRole("heading", { name: item.heading })).toBeVisible();
+    await expect(page.getByText("Action required", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: item.button, exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Your computer didn't approve the change");
     expect(await calls(page, item.method)).toBe(1);
@@ -963,18 +964,28 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
   });
   test(`requirement and taken-address screens fit ${size.width}x${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
-    for (const [scenario, title] of [
-      ["setup-space", "Room for the clinic"],
-      ["setup-windows", "Getting Windows ready"],
-      ["setup-software", "Installing what CARE needs"],
-      ["setup-cleanup", "Removing stale files from an earlier setup"],
-      ["setup-address", "Choosing the clinic address"],
-    ]) {
+    for (const [scenario, title, requiredActions] of [
+      ["setup-space", "Room for the clinic", 1],
+      ["setup-windows", "Getting Windows ready", 1],
+      ["setup-software", "Installing what CARE needs", 2],
+      ["setup-cleanup", "Removing stale files from an earlier setup", 0],
+      ["setup-address", "Choosing the clinic address", 0],
+    ] as const) {
       await page.goto(`/tests/fixtures/index.html?scenario=${scenario}`);
       await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Back", exact: true })).toBeEnabled();
+      await expect(page.getByText("Action required", { exact: true })).toHaveCount(requiredActions);
+      await expect(page.getByText("Needs you", { exact: true })).toHaveCount(0);
       await fits(page); await capture(page, `onboarding-${scenario}-${size.width}x${size.height}`);
       await expect(forward(page)).toBeInViewport();
+      if (scenario === "setup-windows") {
+        await page.evaluate(() => { window.careTest.fixtures.wsl.ok = true; });
+        await page.getByRole("button", { name: "Check again", exact: true }).click();
+        await expect(page.getByRole("heading", { name: "Setting this network to Private" })).toBeVisible();
+        await expect(page.getByText("Action required", { exact: true })).toBeVisible();
+        await expect(forward(page)).toBeDisabled();
+        await fits(page); await capture(page, `onboarding-setup-network-${size.width}x${size.height}`);
+      }
     }
   });
   test(`Windows setup with the update card stays usable at ${size.width}x${size.height}`, async ({ page }) => {

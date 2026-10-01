@@ -35,7 +35,8 @@ screen's time estimate is not a deadline or measured installation progress.
    installation files, and the applicable Windows setup and network requirements.
    Passing checks can advance automatically; a failed check keeps an explanation,
    a fix where available, and a way to check again. Requirements that do not apply
-   to this operating system are omitted.
+   to this operating system are omitted. **Action required** identifies a check
+   that needs intervention; **Ready** identifies a passing check.
 2. **Clinic address.** Choose the local clinic name. CARE validates it and checks
    for another visible server using it. Keep other clinic servers awake during
    setup: an offline or isolated computer cannot be detected. Choosing a name
