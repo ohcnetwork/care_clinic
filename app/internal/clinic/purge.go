@@ -16,7 +16,7 @@ func (e *Clinic) Purge() error {
 	if _, err := e.inspectProject(); err != nil {
 		return err
 	}
-	if err := e.Backups().PreserveRecoveryKey(); err != nil {
+	if err := e.Backups().PreserveBackupCertificate(); err != nil {
 		return err
 	}
 	rootPEM := ""

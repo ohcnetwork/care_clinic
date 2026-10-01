@@ -10,10 +10,14 @@ import { AdvancedTab } from "./advanced-tab";
 import { BackupsTab } from "./backups-tab";
 import { OverviewTab } from "./overview-tab";
 import { TroubleDialog } from "./trouble-dialog";
+import { PluginTable } from "./plugin-table";
+import { UpdatePanel } from "./update-panel";
 
 const TAB_META: Record<PanelTab, { title: string; subtitle: string }> = {
   overview: { title: "Overview", subtitle: "Your clinic server at a glance." },
   backups: { title: "Backups", subtitle: "Safe copies of your patient data." },
+  plugins: { title: "Plugins", subtitle: "Manage extra features for your clinic." },
+  updates: { title: "Updates", subtitle: "Keep CARE and CARE Desktop up to date." },
   advanced: { title: "Advanced", subtitle: "Technical options for this clinic." },
 };
 
@@ -106,13 +110,19 @@ export function PanelScreen() {
         </Button>
       </div>
 
-      {/* All three stay mounted so half-finished edits survive a tab switch. */}
+      {/* Keep panels mounted so half-finished edits survive a tab switch. */}
       <ScreenBody>
         <div hidden={tab !== "overview"}>
           <OverviewTab />
         </div>
         <div hidden={tab !== "backups"}>
           <BackupsTab />
+        </div>
+        <div hidden={tab !== "plugins"}>
+          <PluginTable />
+        </div>
+        <div hidden={tab !== "updates"}>
+          <UpdatePanel />
         </div>
         <div hidden={tab !== "advanced"}>
           <AdvancedTab />

@@ -13,15 +13,21 @@ import (
 const appDirName = "care-desktop"
 
 type Config struct {
-	Role                   string `json:"role"`
-	ClientURL              string `json:"client_url"`
-	ClientCertificate      string `json:"client_certificate,omitempty"`
-	ClientCertificateOwned bool   `json:"client_certificate_owned,omitempty"`
-	SetupDone              bool   `json:"setup_done"`
-	Removing               bool   `json:"removing,omitempty"`
-	MDNSName               string `json:"mdns_name"`
-	BackupDir              string `json:"backup_dir"`
-	AdminPwHash            string `json:"admin_pw_hash"`
+	Role                   string    `json:"role"`
+	ClientURL              string    `json:"client_url"`
+	ClientCertificate      string    `json:"client_certificate,omitempty"`
+	ClientCertificateOwned bool      `json:"client_certificate_owned,omitempty"`
+	SetupDone              bool      `json:"setup_done"`
+	Removing               bool      `json:"removing,omitempty"`
+	MDNSName               string    `json:"mdns_name"`
+	BackupDir              string    `json:"backup_dir"`
+	AdminPwHash            string    `json:"admin_pw_hash"`
+	AdminRecoveryHashes    [6]string `json:"admin_recovery_hashes"`
+	RecoveryFailures       int       `json:"recovery_failures,omitempty"`
+	RecoveryRetryAfter     int64     `json:"recovery_retry_after,omitempty"`
+	BackupCertificate      string    `json:"backup_certificate,omitempty"`
+	BackupRecoveryPath     string    `json:"backup_recovery_path,omitempty"`
+	BackupRecoveryVerified bool      `json:"backup_recovery_verified,omitempty"`
 }
 
 const (
@@ -30,7 +36,18 @@ const (
 )
 
 func (cfg Config) hasServerSettings() bool {
-	return cfg.SetupDone || cfg.Removing || cfg.AdminPwHash != "" || cfg.BackupDir != "" || cfg.MDNSName != ""
+	return cfg.SetupDone || cfg.Removing || cfg.AdminPwHash != "" || cfg.BackupDir != "" || cfg.MDNSName != "" ||
+		cfg.BackupCertificate != "" || cfg.adminRecoveryCount() > 0
+}
+
+func (cfg Config) adminRecoveryCount() int {
+	count := 0
+	for _, hash := range cfg.AdminRecoveryHashes {
+		if hash != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func normalizeRole(cfg Config) (Config, error) {
@@ -197,8 +214,7 @@ func (a *App) ClearRole() error {
 		if err := a.resetConfigAfterUninstall(); err != nil {
 			return err
 		}
-		a.restartAdvertise()
-		return nil
+		return a.restartAdvertise()
 	})
 }
 
@@ -218,8 +234,7 @@ func (a *App) SelectRole(role string) error {
 		if err := a.saveConfig(cfg); err != nil {
 			return err
 		}
-		a.restartAdvertise()
-		return nil
+		return a.restartAdvertise()
 	})
 }
 

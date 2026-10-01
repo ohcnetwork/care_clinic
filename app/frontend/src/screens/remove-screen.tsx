@@ -103,7 +103,7 @@ export function RemoveScreen() {
             <CardTitle>Remove the unfinished setup</CardTitle>
             <CardDescription>
               This computer has files and settings from a clinic setup that did not finish.
-              Backups and their recovery key are kept.
+              Backups are kept. Keep your separately saved backup recovery file to restore them.
             </CardDescription>
             <Button
               variant="destructive"

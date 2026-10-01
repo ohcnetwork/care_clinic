@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { AppUpdateCard } from "@/components/app-update-card";
 import { Screen } from "@/components/screen";
 import { SectionTitle } from "@/components/section-header";
 import {
@@ -12,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { useCare } from "@/state/care-store";
 
 export function FailedScreen() {
-  const { run, retryInstall, restartSetup } = useCare();
+  const { run, retryInstall, restartSetup, busy } = useCare();
   const [retrying, setRetrying] = useState(false);
 
   return (
@@ -44,6 +45,9 @@ export function FailedScreen() {
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+        <div className="mt-4">
+          <AppUpdateCard disabled={retrying} />
+        </div>
       </div>
 
       <div className="flex items-center gap-3.5">
@@ -51,7 +55,7 @@ export function FailedScreen() {
           variant="primary"
           size="lg"
           className="shadow-lift disabled:shadow-none"
-          disabled={retrying}
+          disabled={retrying || busy}
           onClick={() => {
             setRetrying(true);
             void retryInstall().finally(() => setRetrying(false));
@@ -59,7 +63,7 @@ export function FailedScreen() {
         >
           Try again
         </Button>
-        <Button onClick={restartSetup}>Back to setup</Button>
+        <Button disabled={retrying || busy} onClick={restartSetup}>Back to setup</Button>
       </div>
     </Screen>
   );

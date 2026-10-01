@@ -1,10 +1,11 @@
-import { Download, Server } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Download, FileKey, KeyRound, Server, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Field } from "@/components/field";
 import { BoxNote, InputBox } from "@/components/input-box";
 import { FootNote, Screen, ScreenBody, ScreenFoot, ScreenHead } from "@/components/screen";
 import { SectionTitle, StepDot } from "@/components/section-header";
+import { Spinner } from "@/components/spinner";
 import {
   Accordion,
   AccordionContent,
@@ -29,11 +30,7 @@ import { PasswordPair } from "./password-pair";
 import { useRequirementChecks } from "./use-requirement-checks";
 
 const ADDRESS_INFO =
-  "The address staff type in their browser. Change it only if another CARE clinic is already running on this WiFi, so the two names do not clash.";
-const BACKUP_INFO =
-  "Daily backups are encrypted with this password. If it is lost, the backups cannot be opened by anyone, including us. Store it somewhere safe.";
-const ADMIN_INFO =
-  "This is the first login for the clinic. Add staff accounts later from inside CARE.";
+  "The address staff type in their browser. Each clinic server on this WiFi needs a different name, for example care-reception. Keep other clinic servers awake while checking: an offline device cannot answer.";
 
 export function SetupScreen({
   form,
@@ -50,19 +47,37 @@ export function SetupScreen({
   const [hostProblem, setHostProblem] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [verifyNote, setVerifyNote] = useState("");
-  const [showAdminInfo, setShowAdminInfo] = useState(false);
   const [backupDirProblem, setBackupDirProblem] = useState("");
   const [backupSpace, setBackupSpace] = useState<BackupSpace | null>(null);
   const [restart, setRestart] = useState<RestartPlan | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [fixing, setFixing] = useState(false);
+  const [recovery, setRecovery] = useState({ backup_saved: false, backup_verified: false, codes_saved: false });
+  const [recoveryAction, setRecoveryAction] = useState<"backup" | "verify" | "codes" | null>(null);
+  const savingRecovery = recoveryAction !== null;
+  const [recoveryProblem, setRecoveryProblem] = useState("");
   const leavingRef = useRef(false);
   const verifyingRef = useRef(false);
   const hostSave = useRef<Promise<boolean>>(Promise.resolve(false));
   const hostTimer = useRef(0);
 
   const adminStrength = usePasswordStrength(form.adminPassword);
-  const backupStrength = usePasswordStrength(form.backupPassword);
+  useEffect(() => {
+    void bridge.GetSetupRecoveryStatus().then(setRecovery, (e) => setRecoveryProblem(errorText(e)));
+  }, []);
+
+  const saveRecovery = async (kind: "backup" | "verify" | "codes", action: () => Promise<boolean>) => {
+    setRecoveryAction(kind);
+    setRecoveryProblem("");
+    try {
+      await action();
+      setRecovery(await bridge.GetSetupRecoveryStatus());
+    } catch (e) {
+      setRecoveryProblem(errorText(e));
+    } finally {
+      setRecoveryAction(null);
+    }
+  };
 
   const pushHost = useCallback((raw: string): Promise<boolean> => {
     // Serialize saves so Back can wait for every native write before clearing the role.
@@ -112,11 +127,10 @@ export function SetupScreen({
 
   const hostOk = hostProblem === "";
   const adminDone =
-    adminStrength.strong && form.adminConfirm !== "" && form.adminConfirm === form.adminPassword;
+    adminStrength.strong && form.adminConfirm !== "" && form.adminConfirm === form.adminPassword &&
+    recovery.codes_saved;
   const backupDone =
-    backupStrength.strong &&
-    form.backupConfirm !== "" &&
-    form.backupConfirm === form.backupPassword &&
+    recovery.backup_verified &&
     backupDirProblem === "";
   const ready = overall === "ok" && hostOk && backupDone && adminDone;
 
@@ -124,8 +138,7 @@ export function SetupScreen({
   useEffect(() => setStepDone("backup", backupDone), [backupDone, setStepDone]);
   useEffect(() => setStepDone("admin", adminDone), [adminDone, setStepDone]);
 
-  // The address is applied before the name check runs, so step 1 verifies the
-  // name the clinic actually picked rather than the default.
+  // Persist the address and refresh its live availability check.
   const applyHost = useCallback(
     async (raw: string) => {
       if (await pushHost(raw)) void checkMDNS();
@@ -133,10 +146,7 @@ export function SetupScreen({
     [pushHost, checkMDNS],
   );
 
-  // Apply the form's own default once, so the address the operator sees in the
-  // field is the one actually being advertised. The host no longer invents a name
-  // of its own, so without this the wizard would show "care" while nothing was
-  // advertised - and the address check gates the Install button.
+  // Save the form's default without advertising it before installation.
   useEffect(() => {
     void applyHost(form.hostInput);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only
@@ -207,7 +217,6 @@ export function SetupScreen({
       startInstall({
         host,
         adminPassword: form.adminPassword,
-        backupPassword: form.backupPassword,
         backupDir: form.backupDir,
       });
     } catch (e) {
@@ -231,9 +240,9 @@ export function SetupScreen({
           : backupDirProblem
             ? "Choose a backup folder this computer can write to."
             : !backupDone
-              ? "Set and confirm the backup password to continue."
+              ? "Save and verify your backup recovery file to continue."
               : !adminDone
-                ? "Set and confirm the admin password to continue."
+                ? "Set your admin password and save the six recovery codes to continue."
                 : "Ready. This takes about 10 to 20 minutes.");
 
   return (
@@ -243,10 +252,11 @@ export function SetupScreen({
         title="Set up your clinic"
         subtitle="One time, on this computer. About 15 minutes."
         onBack={() => void goBack()}
-        backDisabled={leaving || verifying || fixing}
+        backDisabled={leaving || verifying || fixing || savingRecovery}
       />
 
       <ScreenBody>
+        {recoveryProblem ? <Alert variant="danger">{recoveryProblem}</Alert> : null}
         <Accordion
           type="single"
           collapsible
@@ -338,8 +348,8 @@ export function SetupScreen({
                 title="Backup"
                 summary={
                   backupDone
-                    ? `${form.backupDir || "Desktop (default)"}, password set`
-                    : "Drive and password for daily backups"
+                    ? `${form.backupDir || "Desktop (default)"}, recovery file verified`
+                    : "Choose a backup drive and save your recovery file"
                 }
               />
               <Badge variant={backupDone ? "ok" : "default"}>
@@ -364,7 +374,7 @@ export function SetupScreen({
                     {form.backupDir || "Desktop (default)"}
                   </div>
                 </div>
-                <Button onClick={() => void chooseBackupFolder()}>Choose</Button>
+                <Button disabled={savingRecovery} onClick={() => void chooseBackupFolder()}>Choose</Button>
               </div>
               {backupDirProblem ? (
                 <div className="-mt-2 text-[12.5px] leading-[1.5] text-danger-ink">
@@ -385,27 +395,47 @@ export function SetupScreen({
                 </div>
               ) : null}
 
-              <Field
-                label="Backup password"
-                htmlFor="backuppw"
-                info={BACKUP_INFO}
-                infoTitle="Backups are encrypted with this password"
-              >
-                <PasswordPair
-                  id="backuppw"
-                  password={form.backupPassword}
-                  confirm={form.backupConfirm}
-                  strength={backupStrength}
-                  onPasswordChange={(v) => {
-                    setVerifyNote("");
-                    patch({ backupPassword: v });
-                  }}
-                  onConfirmChange={(v) => {
-                    setVerifyNote("");
-                    patch({ backupConfirm: v });
-                  }}
+              <div className="overflow-hidden rounded-xl border border-line">
+                <RecoveryStep
+                  icon={<FileKey className="size-5" />}
+                  title={recovery.backup_saved ? "Recovery file saved" : "Save your backup recovery file"}
+                  detail={recovery.backup_saved
+                    ? "Keep this file secure, outside the clinic computer."
+                    : "No backup password to remember. This file unlocks your encrypted backups."}
+                  done={recovery.backup_saved}
+                  working={recoveryAction === "backup"}
+                  status="Saved"
+                  action={!recovery.backup_saved ? (
+                    <Button variant="primary" disabled={savingRecovery}
+                      onClick={() => void saveRecovery("backup", () => bridge.SaveSetupBackupRecovery(form.backupDir))}>
+                      <Download className="size-4" /> {recoveryAction === "backup" ? "Saving..." : "Save file"}
+                    </Button>
+                  ) : null}
                 />
-              </Field>
+                <RecoveryStep
+                  icon={<ShieldCheck className="size-5" />}
+                  title={recovery.backup_verified ? "Recovery file verified" : "Check the file you saved"}
+                  detail={recovery.backup_verified
+                    ? "The file matches this clinic. You are ready to continue."
+                    : "Select the saved file so CARE can confirm it is the right one."}
+                  done={recovery.backup_verified}
+                  working={recoveryAction === "verify"}
+                  status="Verified"
+                  action={
+                    <Button variant={recovery.backup_verified ? "default" : "primary"}
+                      disabled={savingRecovery || !recovery.backup_saved}
+                      onClick={() => void saveRecovery("verify", () => bridge.VerifySetupBackupRecovery(form.backupDir))}>
+                      {recoveryAction === "verify" ? "Checking..." : recovery.backup_verified ? "Check again" : "Select saved file"}
+                    </Button>
+                  }
+                />
+              </div>
+              <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                Keep a second secure copy, separate from your backups. Anyone with both can
+                read patient data. <strong className="font-semibold text-ink2">If every copy of
+                this file is lost, old backups cannot be unlocked.</strong> CARE does not keep
+                a private copy.
+              </p>
             </AccordionContent>
           </AccordionItem>
 
@@ -413,8 +443,8 @@ export function SetupScreen({
             <AccordionTrigger>
               <StepDot done={adminDone}>3</StepDot>
               <SectionTitle
-                title="Admin login"
-                summary={adminDone ? "admin, password set" : "The first login for this clinic"}
+                title="Admin password and recovery codes"
+                summary={adminDone ? "Password set, recovery codes saved" : "Protect Desktop administration and set the initial CARE login"}
               />
               <Badge variant={adminDone ? "ok" : "default"}>{adminDone ? "Done" : "To do"}</Badge>
             </AccordionTrigger>
@@ -426,21 +456,11 @@ export function SetupScreen({
                 <span className="rounded-full bg-brand-bg px-3 py-1 font-mono text-[13.5px] font-semibold text-brand-ink">
                   admin
                 </span>
-                <button
-                  type="button"
-                  title="Staff accounts are added later inside CARE"
-                  aria-expanded={showAdminInfo}
-                  onClick={() => setShowAdminInfo((v) => !v)}
-                  className="flex size-[17px] shrink-0 cursor-pointer items-center justify-center rounded-full border border-[#d1d5db] bg-white p-0 font-mono text-[11px] leading-none font-bold text-muted-foreground hover:border-brand hover:text-brand-ink"
-                >
-                  i
-                </button>
               </div>
-              {showAdminInfo ? <Alert>{ADMIN_INFO}</Alert> : null}
 
               <div>
                 <Label htmlFor="adminpw" className="mb-2 block">
-                  Password
+                  Initial admin password
                 </Label>
                 <PasswordPair
                   id="adminpw"
@@ -457,6 +477,28 @@ export function SetupScreen({
                   }}
                 />
               </div>
+              <div className="overflow-hidden rounded-xl border border-line">
+                <RecoveryStep
+                  icon={<KeyRound className="size-5" />}
+                  title={recovery.codes_saved ? "Your six recovery codes are saved" : "Save Desktop admin recovery codes"}
+                  detail={recovery.codes_saved
+                    ? "Keep the sheet safe, or print a copy. Each code can be used once."
+                    : "Use an unused code to reset a forgotten Desktop password, even offline."}
+                  done={recovery.codes_saved}
+                  working={recoveryAction === "codes"}
+                  status="Saved"
+                  action={!recovery.codes_saved ? (
+                    <Button variant="primary" disabled={savingRecovery}
+                      onClick={() => void saveRecovery("codes", () => bridge.SaveAdminRecoveryCodes("", form.backupDir))}>
+                      <Download className="size-4" /> {recoveryAction === "codes" ? "Saving..." : "Save codes"}
+                    </Button>
+                  ) : null}
+                />
+              </div>
+              <p className="text-[13px] text-muted-foreground">
+                You can print the saved sheet. Each code resets the Desktop admin password
+                once; it does not change the CARE web login or unlock backups.
+              </p>
             </AccordionContent>
           </AccordionItem>
         </Accordion>
@@ -467,7 +509,7 @@ export function SetupScreen({
           variant="primary"
           size="lg"
           className="shadow-lift disabled:shadow-none"
-          disabled={!ready || verifying || leaving || checking || fixing}
+          disabled={!ready || verifying || leaving || checking || fixing || savingRecovery}
           onClick={() => void onContinue()}
         >
           <Download className="size-[17px]" strokeWidth={2.2} />
@@ -476,5 +518,37 @@ export function SetupScreen({
         <FootNote>{note}</FootNote>
       </ScreenFoot>
     </Screen>
+  );
+}
+
+function RecoveryStep({
+  icon, title, detail, done, working, status, action,
+}: {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  done: boolean;
+  working: boolean;
+  status: string;
+  action: ReactNode;
+}) {
+  return (
+    <div className={cn(
+      "flex flex-wrap items-center gap-3 border-t border-line p-4 first:border-t-0",
+      done ? "bg-brand-bg/50" : "bg-card",
+    )}>
+      <span className={cn(
+        "flex size-10 shrink-0 items-center justify-center rounded-xl",
+        done ? "bg-brand text-white" : "bg-hair text-muted-foreground",
+      )}>
+        {working ? <Spinner className="size-5" /> : done ? <Check className="size-5" strokeWidth={2.5} /> : icon}
+      </span>
+      <div className="min-w-[160px] flex-1" role="status">
+        <div className="text-[13.5px] font-semibold text-ink">{title}</div>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{detail}</p>
+      </div>
+      {done ? <Badge variant="ok"><Check className="mr-1 size-3" />{status}</Badge> : null}
+      {action}
+    </div>
   );
 }

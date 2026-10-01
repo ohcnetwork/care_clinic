@@ -7,7 +7,3 @@
 
 # Default backup dir if BACKUP_DIR is unset and compose runs from there.
 /deployments/db-backups/
-
-# Built by data-loading/frontend (npm run build); staged into the kit at build time.
-/deployments/seed-data/
-/data-loading/frontend/node_modules/

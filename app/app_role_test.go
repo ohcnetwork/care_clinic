@@ -218,7 +218,9 @@ func TestClientAndUnchosenStateSkipServerChecks(t *testing.T) {
 				t.Fatalf("non-server state included server checks: %+v", state)
 			}
 			a.refreshInstallDir()
-			a.startAdvertise()
+			if err := a.startAdvertise(); err != nil {
+				t.Fatal(err)
+			}
 			if a.clinicRunning() || a.advRunning() {
 				t.Fatal("non-server started server lifecycle services")
 			}
@@ -237,7 +239,7 @@ func TestClientRejectsServerMutations(t *testing.T) {
 	}
 	for name, action := range map[string]func() error{
 		"setup": func() error {
-			return a.RunSetup("clinic", settingsPassword, settingsPassword, "")
+			return a.RunSetup("clinic", settingsPassword, "")
 		},
 		"set address": func() error { return a.SetMDNSName("clinic") },
 		"cleanup":     a.CleanupFailedInstall,

@@ -21,9 +21,10 @@ import (
 )
 
 type Provisioner struct {
-	Log  func(string)
-	run  proc.Runner
-	pins *release.Pins
+	Log      func(string)
+	Progress func(DownloadProgress)
+	run      proc.Runner
+	pins     *release.Pins
 }
 
 func NewProvisioner(run proc.Runner, pins *release.Pins, log func(string)) *Provisioner {
@@ -61,10 +62,11 @@ const (
 )
 
 type ToolPlan struct {
-	Action ToolAction `json:"action"`
-	Label  string     `json:"label"`
-	Detail string     `json:"detail"`
-	URL    string     `json:"url"`
+	Action          ToolAction `json:"action"`
+	Label           string     `json:"label"`
+	Detail          string     `json:"detail"`
+	URL             string     `json:"url"`
+	DownloadPreview bool       `json:"download_preview"`
 }
 
 func (pr *Provisioner) DockerPlan() ToolPlan {
@@ -87,6 +89,7 @@ func (pr *Provisioner) dockerInstallPlan() ToolPlan {
 	}
 	switch runtime.GOOS {
 	case "darwin":
+		p.DownloadPreview = true
 		p.Detail = "Downloads Rancher Desktop, the open source Docker engine, and installs it. " +
 			"You'll be asked for this Mac's password. Keep server connected to internet."
 	case "windows":
@@ -94,6 +97,7 @@ func (pr *Provisioner) dockerInstallPlan() ToolPlan {
 			p.Action, p.Label = ActionNone, ""
 			return p
 		}
+		p.DownloadPreview = true
 		p.Detail = "Downloads Rancher Desktop, the open source Docker engine, and installs it. " +
 			"Windows will ask for permission. Keep this computer connected to the internet."
 	case "linux":
@@ -566,8 +570,27 @@ func downloadClient() *http.Client {
 	return &http.Client{Transport: tr}
 }
 
-func (pr *Provisioner) download(d Download) (string, error) {
+type DownloadProgress struct {
+	Name  string `json:"name"`
+	Phase string `json:"phase"`
+	Done  int64  `json:"done"`
+	Total int64  `json:"total"`
+}
+
+func (pr *Provisioner) download(d Download) (path string, resultErr error) {
 	name := d.Name
+	var done, total int64
+	report := func(phase string) {
+		if pr.Progress != nil {
+			pr.Progress(DownloadProgress{Name: name, Phase: phase, Done: done, Total: total})
+		}
+	}
+	report("connecting")
+	defer func() {
+		if resultErr != nil {
+			report("failed")
+		}
+	}()
 	pr.logln("Downloading " + name + " from " + hostOf(d.URL) + "...")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -579,7 +602,9 @@ func (pr *Provisioner) download(d Download) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp, err := downloadClient().Do(req)
+	client := downloadClient()
+	defer client.CloseIdleConnections()
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("could not download %s: %w", name, err)
 	}
@@ -587,19 +612,25 @@ func (pr *Provisioner) download(d Download) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("could not download %s: the server said %s", name, resp.Status)
 	}
+	total = max(resp.ContentLength, 0)
+	report("downloading")
 
 	f, err := os.CreateTemp("", "care-*-"+name)
 	if err != nil {
 		return "", err
 	}
-	path := f.Name()
+	path = f.Name()
 	sum := sha256.New()
-	_, err = io.Copy(io.MultiWriter(f, sum), &progressReader{
+	done, err = io.Copy(io.MultiWriter(f, sum), &progressReader{
 		r:     resp.Body,
 		total: resp.ContentLength,
 		log:   pr.logln,
 		name:  name,
 		alive: func() { stall.Reset(downloadStallTimeout) },
+		progress: func(read int64) {
+			done = read
+			report("downloading")
+		},
 	})
 	closeErr := f.Close()
 	if err != nil {
@@ -614,6 +645,7 @@ func (pr *Provisioner) download(d Download) (string, error) {
 		_ = os.Remove(path)
 		return "", closeErr
 	}
+	report("verifying")
 	if got := hex.EncodeToString(sum.Sum(nil)); got != d.SHA256 {
 		_ = os.Remove(path)
 		return "", fmt.Errorf("the downloaded %s is not the file this version of CARE was tested with "+
@@ -621,17 +653,20 @@ func (pr *Provisioner) download(d Download) (string, error) {
 			name, d.SHA256, got)
 	}
 	pr.logln("Downloaded " + name + " and verified its checksum.")
+	report("complete")
 	return path, nil
 }
 
 type progressReader struct {
-	r        io.Reader
-	total    int64
-	read     int64
-	lastStep int64
-	log      func(string)
-	name     string
-	alive    func()
+	r          io.Reader
+	total      int64
+	read       int64
+	lastStep   int64
+	log        func(string)
+	name       string
+	alive      func()
+	progress   func(int64)
+	lastReport time.Time
 }
 
 func (p *progressReader) Read(b []byte) (int, error) {
@@ -645,6 +680,10 @@ func (p *progressReader) Read(b []byte) (int, error) {
 			p.lastStep = step
 			p.log(fmt.Sprintf("  %s: %d%%", p.name, step*10))
 		}
+	}
+	if n > 0 && p.progress != nil && (p.lastReport.IsZero() || time.Since(p.lastReport) >= 200*time.Millisecond) {
+		p.lastReport = time.Now()
+		p.progress(p.read)
 	}
 	return n, err
 }

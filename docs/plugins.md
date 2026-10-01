@@ -2,7 +2,7 @@
 
 [Documentation index](README.md)
 
-CARE Desktop lets the clinic administrator add CARE plugins from a bundled catalog, or add custom ones, from **Advanced → Plugins**. One click on **Save and apply** installs whatever the plugin needs, whether that's a backend part, a frontend part, or both.
+CARE Desktop lets operators add CARE plugins from a bundled catalog, or add custom ones, from the **Plugins** tab. No Desktop admin password is required to view, save or apply plugins. One click on **Save and apply** installs whatever the plugin needs, whether that's a backend part, a frontend part, or both. This includes custom plugin code, so access to the clinic computer should remain restricted to trusted staff.
 
 This guide explains how CARE itself loads plugins, the catalog file format, every component on the desktop side, and how a save flows through them.
 
@@ -21,7 +21,7 @@ Staff browsers download a frontend plugin's bundle straight from its `url`. If t
 
 ## The catalog: `catalog.yml`
 
-[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Desktop release. The current entries are placeholders.
+[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Desktop release. CARE Onboarding is enabled by default for new clinic installations only; booking notifications and Filly are opt-in.
 
 ### Structure
 
@@ -29,6 +29,7 @@ The file is a YAML list. Each item is one catalog entry:
 
 ```yaml
 - description: One sentence shown under the plugin's name in the panel.
+  default: false                 # opt in during new-clinic setup only
   plugin:
     id: care_example              # required, unique across the catalog
     label: Example                # name shown in the panel
@@ -51,8 +52,9 @@ The file is a YAML list. Each item is one catalog entry:
 | Field | Required | Meaning | Rules enforced on save |
 | --- | --- | --- | --- |
 | `description` | No | Subtitle in the panel. Not saved with the plugin. | None. |
+| `default` | No | Enable during new-clinic setup. Defaults to `false`; never auto-added on upgrade or an ordinary read. | Boolean. |
 | `plugin.id` | Yes | Identity of the plugin. Also how a saved plugin is matched back to its catalog entry. | Letters, numbers, `.`, `_`, `-`; unique. |
-| `plugin.label` | No | Display name. Falls back to `id`. | None. |
+| `plugin.label` | No | Display name, such as `CARE Onboarding`. Falls back to `id`. | Spaces allowed; surrounding whitespace trimmed. |
 | `plugin.backend` | One of `backend`/`frontend` | Present when the plugin has a Django part. | |
 | `backend.name` | Yes | The importable Python module. A wrong value stops Django from starting. | Python dotted name; unique across plugins. |
 | `backend.package_name` | Yes | Anything pip accepts: a PyPI name, `git+https://…`, or a URL. | Non-empty, no whitespace. |
@@ -120,6 +122,10 @@ The saved list lives in `plugins.json` in the install directory, next to `backen
 
 When the file does not exist, `ReadPlugins` builds the list from `ADDITIONAL_PLUGS`. Each entry becomes a backend-only custom plugin. This carries over installations from before the file existed. The first save writes the file.
 
+New-clinic `Clinic.Setup` calls `InitializeDefaults` before building images. If `plugins.json` is absent, it preserves those legacy backend entries, adds catalog entries marked `default: true` (without replacing an existing ID), and persists the list. If a list already exists, it is left untouched, including an empty list. Reads, restarts, rebuilds and upgrades never initialize defaults. Existing clinics must explicitly add CARE Onboarding; removing it and saving keeps it removed.
+
+CARE Onboarding uses the hosted GitHub Pages remote with `{"config":{"auto_onboarding":true}}`. Automatic pre-login setup also requires compatible CARE frontend/backend builds; see [facility setup](onboarding.md#care-compatibility-and-startup).
+
 ### `ADDITIONAL_PLUGS`
 
 `SavePlugins` writes only the backend parts to `ADDITIONAL_PLUGS`, as `[{name, package_name, version?, configs?}]` wrapped in single quotes so dotenv does not expand values. Frontend data never goes there, because CARE builds a strict dataclass from each entry and an unknown key would crash the backend at startup. Unrelated lines are preserved, duplicate assignments (including `export` forms) are removed, the result is re-parsed before it is written, and an empty list removes the variable. The settings editor refuses to edit `ADDITIONAL_PLUGS` directly.
@@ -152,7 +158,7 @@ Rows created by hand in CARE's `/admin/apps` are never touched unless they share
 
 ## Save and apply
 
-The panel calls `SavePlugins(list)`, which validates and persists, and then `ClinicAction("apply-plugins")`. Both require the administrator password and a stable clinic (no unfinished restore). `ApplyPlugins` then:
+The panel calls `SavePlugins(list)`, which validates and persists, and then `ClinicAction("apply-plugins")`. Both require a stable installed server clinic (no unfinished restore), but neither requires a Desktop admin password. Explicit rebuild actions remain password-protected. `ApplyPlugins` then:
 
 1. Recovers any pending restore.
 2. If `BackendImageCurrent` is false, runs `RebuildBackend`: build, stop workers, start backend, migrate, sync frontend rows, restart workers.
@@ -165,11 +171,11 @@ So a change to frontend parts only takes a few seconds, and a change to any back
 
 ## The panel
 
-- **Add a plugin** lists catalog entries not yet added, then **Custom plugin**. A newly added plugin opens expanded.
+- **Add a plugin** lists catalog entries whose plugin ID, backend module and frontend name are not already in the list, then **Custom plugin**. This includes custom entries using the same identities. A newly added plugin opens expanded.
 - Each plugin shows **Backend**, **Frontend**, and **Custom** badges as they apply, and a remove button. Removing a plugin and saving uninstalls both parts: the backend is rebuilt without it and its `PlugConfig` row is deleted.
 - **Backend settings** are key/value rows. `true`/`false`, integers, decimals, and text starting with `[` or `{` (parsed as JSON) are converted to the matching type; anything else stays a string.
 - **Frontend settings** are the raw `meta` JSON object, the same format as CARE's `/admin/apps` editor. Invalid JSON, or a value that is not an object, disables saving.
-- **Custom plugins** also show the name, a switch for each part, the backend module, pip source, and version, and the frontend name and `remoteEntry.js` URL.
+- **Custom plugins** show a **Display name** (spaces allowed) separately from the required **Plugin ID** (letters, numbers, `.`, `_`, `-`; no spaces). Invalid or duplicate IDs have inline errors and block saving. They also show a switch for each part, the backend module, pip source and version, and the frontend name and `remoteEntry.js` URL.
 
 ## Troubleshooting
 

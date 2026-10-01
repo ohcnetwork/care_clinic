@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sync"
@@ -33,9 +34,10 @@ type App struct {
 
 	quitConfirmed atomic.Bool
 
-	advMu   sync.Mutex
-	adv     *mdns.Advertiser
-	advStop chan struct{}
+	advMu    sync.Mutex
+	adv      *mdns.Advertiser
+	advError error
+	advStop  chan struct{}
 
 	store storageWatch
 
@@ -89,36 +91,56 @@ func (a *App) emit(event string, data ...any) {
 	}
 }
 
-func (a *App) startAdvertise() {
+// Failures are logged and conflicts are shown here; background callers retry.
+func (a *App) startAdvertise() error {
 	a.advMu.Lock()
 	defer a.advMu.Unlock()
 	select {
 	case <-a.advStop:
-		return
+		return nil
 	default:
 	}
 	if a.adv != nil {
-		return
+		return nil
 	}
 	cfg := a.loadConfig()
 	name := cfg.MDNSName
-	if cfg.Role != roleServer || name == "" || cfg.Removing {
-		return
+	if cfg.Role != roleServer || name == "" || cfg.Removing || (!cfg.SetupDone && cfg.AdminPwHash == "") {
+		a.advError = nil
+		return nil
 	}
 	adv, err := mdns.Advertise(name, a.logln)
 	if err != nil {
-		a.logln("mDNS: couldn't advertise " + mdns.Label(name) + ".local (" + err.Error() + ")")
-		return
+		a.reportAdvertiseError(err)
+		return err
 	}
 	a.adv = adv
+	a.advError = nil
+	return nil
 }
 
-func (a *App) restartAdvertise() {
+func (a *App) restartAdvertise() error {
 	a.advMu.Lock()
 	a.adv.Stop()
 	a.adv = nil
 	a.advMu.Unlock()
-	a.startAdvertise()
+	return a.startAdvertise()
+}
+
+// Caller holds advMu. Report a continuing conflict once, not every watcher tick.
+func (a *App) reportAdvertiseError(err error) {
+	if a.advError != nil && a.advError.Error() == err.Error() {
+		return
+	}
+	var previous, conflict *mdns.ConflictError
+	continuingConflict := errors.As(a.advError, &previous) &&
+		errors.As(err, &conflict) && previous.Host == conflict.Host
+	a.advError = err
+	a.logln("mDNS: " + err.Error())
+	if errors.As(err, &conflict) && !continuingConflict {
+		go a.notifyActionFailed("network-name", err.Error()+
+			"\n\nNetwork advertising is paused. Ask your clinic administrator to resolve the duplicate addresses. No clinic data has been changed.")
+	}
 }
 
 func (a *App) advRunning() bool {
@@ -140,7 +162,7 @@ func (a *App) watchAdvertise() {
 			adv := a.adv
 			a.advMu.Unlock()
 			if adv == nil {
-				a.startAdvertise()
+				_ = a.startAdvertise()
 				continue
 			}
 			changed, err := adv.IPsChanged()
@@ -149,8 +171,25 @@ func (a *App) watchAdvertise() {
 			}
 			if changed || err != nil {
 				misses = 0
-				a.restartAdvertise()
+				_ = a.restartAdvertise()
 				continue
+			}
+			if err := mdns.CheckAvailable(adv.Name()); err != nil {
+				var conflict *mdns.ConflictError
+				inUse := errors.As(err, &conflict)
+				a.advMu.Lock()
+				if a.adv == adv {
+					if inUse {
+						adv.Stop()
+						a.adv = nil
+					}
+					a.reportAdvertiseError(err)
+				}
+				a.advMu.Unlock()
+				if inUse {
+					misses = 0
+					continue
+				}
 			}
 			if err := adv.Resolves(); err == nil {
 				misses = 0
@@ -162,7 +201,7 @@ func (a *App) watchAdvertise() {
 			if misses >= 2 {
 				misses = 0
 				a.logln("mDNS: " + adv.Name() + ".local stopped resolving - re-advertising.")
-				a.restartAdvertise()
+				_ = a.restartAdvertise()
 			}
 		}
 	}

@@ -1,13 +1,134 @@
 package prereq
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
+
+func TestDownloadPreviewOnlyRequestsHeaders(t *testing.T) {
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/installer", http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Length", "734003200")
+	}))
+	defer server.Close()
+	info, err := inspectDownload(Download{Name: "Rancher.dmg", URL: server.URL + "/redirect"})
+	if err != nil || info.Name != "Rancher.dmg" || info.Size != 734003200 {
+		t.Fatalf("incorrect preview: %+v, %v", info, err)
+	}
+	if strings.Join(methods, ",") != "HEAD,HEAD" {
+		t.Fatalf("preview requested installer content: %v", methods)
+	}
+}
+
+func TestDownloadPreviewRejectsUnavailableSize(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusNotFound, http.StatusMethodNotAllowed} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(status)
+			}))
+			defer server.Close()
+			if _, err := inspectDownload(Download{Name: "installer", URL: server.URL}); err == nil {
+				t.Fatal("missing size or failed request accepted")
+			}
+		})
+	}
+}
+
+func TestDownloadReportsBytesAndVerification(t *testing.T) {
+	body := strings.Repeat("synthetic installer", 8192)
+	hash := sha256.Sum256([]byte(body))
+	for _, test := range []struct {
+		name  string
+		known bool
+		valid bool
+	}{
+		{"known size", true, true},
+		{"unknown size", false, true},
+		{"checksum failure", true, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if test.known {
+					w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+				} else {
+					w.(http.Flusher).Flush()
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			var events []DownloadProgress
+			pr := &Provisioner{Progress: func(p DownloadProgress) { events = append(events, p) }}
+			sum := hex.EncodeToString(hash[:])
+			if !test.valid {
+				sum = strings.Repeat("0", 64)
+			}
+			path, err := pr.download(Download{Name: "fixture-installer", URL: server.URL, SHA256: sum})
+			if test.valid {
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.Remove(path); err != nil {
+						t.Errorf("remove downloaded fixture: %v", err)
+					}
+				})
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != body {
+					t.Fatal("download contents changed")
+				}
+			} else if err == nil || path != "" {
+				t.Fatal("checksum mismatch did not fail")
+			}
+			if len(events) < 4 || events[0].Phase != "connecting" || events[1].Phase != "downloading" {
+				t.Fatalf("missing download lifecycle: %+v", events)
+			}
+			last := events[len(events)-1]
+			wantPhase := "complete"
+			if !test.valid {
+				wantPhase = "failed"
+			}
+			total := int64(0)
+			if test.known {
+				total = int64(len(body))
+			}
+			if last.Phase != wantPhase || last.Done != int64(len(body)) || last.Total != total {
+				t.Fatalf("incorrect terminal progress: %+v", last)
+			}
+			var previous int64
+			sawBytes := false
+			for _, event := range events {
+				if event.Name != "fixture-installer" || event.Done < previous {
+					t.Fatalf("invalid progress: %+v", event)
+				}
+				if event.Phase == "complete" && !test.valid {
+					t.Fatal("verification failure reported completion")
+				}
+				previous = event.Done
+				if event.Phase == "downloading" && event.Done > 0 {
+					sawBytes = true
+				}
+			}
+			if !sawBytes {
+				t.Fatal("missing byte progress while downloading")
+			}
+		})
+	}
+}
 
 func deploymentPins(t *testing.T) *release.Pins {
 	t.Helper()

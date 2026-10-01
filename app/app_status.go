@@ -74,6 +74,13 @@ func (a *App) InstallWSL() (string, error) {
 func (a *App) DockerPlan() prereq.ToolPlan { return a.provisioner().DockerPlan() }
 func (a *App) GitPlan() prereq.ToolPlan    { return a.provisioner().GitPlan() }
 
+func (a *App) RancherDownloadInfo() (prereq.DownloadInfo, error) {
+	if err := a.requireServer(); err != nil {
+		return prereq.DownloadInfo{}, err
+	}
+	return a.provisioner().RancherDownloadInfo()
+}
+
 func (a *App) InstallDocker() (string, error) {
 	var result string
 	err := a.withLabeledJob(jobPrereq, func() error {
@@ -100,7 +107,11 @@ func (a *App) OpenDocker() error {
 
 func (a *App) provisioner() *prereq.Provisioner {
 	e := a.engine()
-	return prereq.NewProvisioner(e.Runner(), a.pins, e.Log)
+	pr := prereq.NewProvisioner(e.Runner(), a.pins, e.Log)
+	pr.Progress = func(progress prereq.DownloadProgress) {
+		a.emit("prereq-download-progress", progress)
+	}
+	return pr
 }
 
 func (a *App) RestartPlan() reboot.Plan { return reboot.Check() }
@@ -146,6 +157,11 @@ func (a *App) ValidateBackupDir(dir string) string {
 			if err := backup.CheckLocation(target, protected); err != nil {
 				return err.Error()
 			}
+			if recoveryPath := a.loadConfig().BackupRecoveryPath; recoveryPath != "" {
+				if err := backup.CheckLocation(recoveryPath, target); err != nil {
+					return "Keep the backup recovery file separate from the backup folder. Choose another folder."
+				}
+			}
 		}
 	}
 	e := a.engine()
@@ -155,7 +171,7 @@ func (a *App) ValidateBackupDir(dir string) string {
 		return "Couldn't check that folder for earlier backups: " + err.Error()
 	}
 	if foreign {
-		return "That folder already holds backups or a recovery key from another CARE installation. Choose a different folder, and leave that one as it is so those backups stay restorable."
+		return "That folder already holds backups from another CARE installation. Choose a different folder and leave the existing backups intact."
 	}
 	if dir == "" {
 		return a.backupSpaceProblem(target)
@@ -199,8 +215,7 @@ func (a *App) SetMDNSName(name string) error {
 		if err := a.saveConfig(cfg); err != nil {
 			return err
 		}
-		a.restartAdvertise()
-		return nil
+		return a.restartAdvertise()
 	})
 }
 
@@ -208,13 +223,26 @@ func (a *App) VerifyAdminPassword(pw string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(a.loadConfig().AdminPwHash), []byte(pw)) == nil
 }
 
-func (a *App) MDNSStatus() mdns.NameStatus {
-	name := a.loadConfig().MDNSName
-	switch {
-	case name == "":
+func (a *App) MDNSStatus(name string) mdns.NameStatus {
+	if name == "" {
 		return mdns.NameStatus{OK: false, Message: "No clinic address chosen yet"}
-	case a.advRunning():
-		return mdns.NameStatus{OK: true, Message: name + " is being advertised by this app"}
 	}
-	return mdns.NameStatus{OK: false, Message: "Not advertising " + name}
+	if err := mdns.CheckAvailable(name); err != nil {
+		return mdns.NameStatus{OK: false, Message: err.Error()}
+	}
+	name = mdns.Label(name) + ".local"
+	cfg := a.loadConfig()
+	if !cfg.SetupDone && cfg.AdminPwHash == "" {
+		return mdns.NameStatus{OK: true, Message: "No other device answered for " + name}
+	}
+	a.advMu.Lock()
+	adv := a.adv
+	a.advMu.Unlock()
+	if adv == nil || adv.Name()+".local" != name {
+		return mdns.NameStatus{OK: false, Message: "Not advertising " + name}
+	}
+	if err := adv.Resolves(); err != nil {
+		return mdns.NameStatus{OK: false, Message: "Could not verify " + name + ": " + err.Error()}
+	}
+	return mdns.NameStatus{OK: true, Message: name + " is being advertised; no conflicting device answered"}
 }

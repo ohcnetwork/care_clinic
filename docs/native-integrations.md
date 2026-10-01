@@ -775,7 +775,8 @@ than assuming that any certificate-management window is showing it.
 
 Sources: [advertise.go](../app/internal/sys/mdns/advertise.go),
 [responder.go](../app/internal/sys/mdns/responder.go), and
-[probe.go](../app/internal/sys/mdns/probe.go). Renewal is an
+[probe.go](../app/internal/sys/mdns/probe.go), and
+[conflict.go](../app/internal/sys/mdns/conflict.go). Renewal is an
 application-lifetime responsibility at the integration boundary in
 [app.go](../app/app.go), not a background loop inside this package.
 
@@ -862,8 +863,36 @@ that wait.
 Startup sends two announcements, one second apart, and shutdown withdraws the
 records with TTL zero. Multicast packets use TTL/hop-limit 255. Socket and send
 failures are reported through the application's log. This is not a complete
-general-purpose mDNS implementation: automatic hostname conflict resolution is
-not implemented, and the clinic name must be unique on its LAN.
+general-purpose mDNS implementation: conflicts are detected, but automatic
+renaming and RFC probe tie-breaking are not implemented. Each clinic server
+must have a unique name on its LAN.
+
+### Checking for an occupied name
+
+The setup wizard saves the chosen name without advertising it. `MDNSStatus(name)`
+checks the address currently shown in the form, not merely the existence of this
+process's advertiser. It sends A and AAAA questions directly to IPv4 mDNS on every
+selected LAN interface, bypassing the system resolver, cached records, and
+`/etc/hosts`. Three query rounds listen for 500 ms each under a two-second overall
+deadline. Live foreign A/AAAA records in answers or additional records block
+setup with the conflicting address. Local addresses, unrelated names, and
+TTL-zero goodbyes are not conflicts. Receiving our own answer does **not** end
+the listening window. Socket and interface errors fail the check explicitly.
+
+The frontend rechecks when the address changes and every 30 seconds, ignores
+superseded results, and requires a fresh check before installation. `RunSetup`
+also checks before saving installation credentials or changing installation
+files; `Advertise` checks again before opening responders, including after the
+installation work and on restart. An installed server's status additionally
+requires its own responder to answer.
+
+An offline or sleeping server cannot answer. Multicast isolation, packet loss,
+and peers reachable only through IPv6 transport can also prevent detection;
+a green result means no conflict was detected, not a global reservation.
+Simultaneous installations can pass before either starts advertising. The
+runtime watcher checks for later conflicts, withdraws the local advertisement,
+and shows an error asking the administrator to resolve the duplicate names.
+It does not rename installed clinics, alter certificates, or stop containers.
 
 ### A genuine response probe
 
@@ -896,8 +925,11 @@ an unchanged network.
 
 The application watches every **30 seconds**. It attempts to start a missing
 advertiser, restarts when the topology comparison reports a change or error,
-and restarts after **two consecutive failed response probes**. A successful
-probe clears the miss count. Shutdown prevents the watcher from reopening a
+and restarts after **two consecutive failed response probes**. It also checks
+for foreign claims before the own-response probe, withdrawing advertising and
+reporting a conflict if one appears (for example when a sleeping server wakes).
+Retries must pass the availability check before advertising again. A successful
+response probe clears the miss count. Shutdown prevents the watcher from reopening a
 responder. The watcher and advertiser must be stopped with
 application shutdown. The package itself does not automatically restart after
 a WiFi roam, dock change, or firewall change.
@@ -908,7 +940,10 @@ flowchart TD
     Have -- No --> Start["Try Advertise with current usable IPv4 addresses"]
     Have -- Yes --> Changed{"IPsChanged reports a change?"}
     Changed -- Yes --> Renew["Stop old responder and start a new one"]
-    Changed -- No --> Probe["Query hostname A records on every selected IPv4 interface"]
+    Changed -- No --> Conflict{"Another device claims this name?"}
+    Conflict -- Yes --> Pause["Withdraw advertisement and warn administrator"]
+    Pause --> Later
+    Conflict -- No --> Probe["Query hostname A records on every selected IPv4 interface"]
     Probe --> Match{"Matching response, no query error, still running?"}
     Match -- Yes --> Reset["Reset miss count"]
     Match -- No --> Misses{"Two consecutive misses?"}
@@ -976,7 +1011,15 @@ cd app
 CARE_MDNS_NETWORK_TEST=1 go test -race ./internal/sys/mdns -run '^TestHostnameOverLAN$' -count=1 -v
 ```
 
-The live check advertises a unique temporary test hostname, checks the watchdog,
+With a known, awake server on the same LAN, this read-only check verifies that
+both the network detector and the setup status reject its name without
+advertising it:
+
+```sh
+CARE_MDNS_CONFLICT_TEST_HOST=care.local go test -race ./ ./internal/sys/mdns -run 'TestExistingNameConflictOverLAN|TestOccupiedNameBlocksSetupStatusOverLAN' -count=1 -v
+```
+
+The temporary-hostname check advertises a unique name, checks the watchdog,
 and exercises multicast and legacy hostname replies on each selected interface
 and available transport family. It withdraws that name afterwards. QU framing
 is covered by deterministic tests; observing a QU reply on a second machine is
@@ -1122,8 +1165,16 @@ status request.
 
 ### Plans and follow-up checks
 
-`ToolPlan` carries `Action`, `Label`, `Detail`, and `URL`; actions are `""`,
+`ToolPlan` carries `Action`, `Label`, `Detail`, `URL`, and `DownloadPreview`; actions are `""`,
 `install`, `open`, and `manual`.
+
+Rancher install plans set `download_preview`. Before invoking installation,
+the prerequisite UI calls `RancherDownloadInfo()` to inspect the pinned
+platform-specific installer with a HEAD request (following redirects, with a
+30-second overall timeout). It displays the filename and size in a confirmation
+dialog. No installer body is fetched until **Download and install** is chosen.
+Cancellation leaves the machine unchanged. Missing size or failed metadata
+requests show an error and require retry, rather than guessing a size.
 
 - If a tool is ready, its plan offers no action.
 - If Docker's daemon is not answering but an installation is detected, the plan
@@ -1447,7 +1498,15 @@ verification, and:
 - No overall `http.Client.Timeout` cap for a long but progressing download.
 - A stall timer reset whenever a body read returns positive bytes.
 - Progress logs at crossed 10-percent steps when content length is known.
+- Structured `prereq-download-progress` events carry filename, phase, downloaded
+  bytes and total bytes. Byte updates are throttled to roughly five per second,
+  including downloads with unknown length; terminal events report the final count.
 - HTTP 200 as the required response; other status codes are errors.
+
+The UI shows a progress bar, percentage and downloaded/total size. Unknown
+totals use an indeterminate indicator and downloaded bytes rather than a made-up
+percentage. Connecting, downloading, checksum verification and verified download
+are distinct states; download completion is not reported as installation success.
 
 Every download is hashed while it is written. A SHA-256 that differs from the
 pinned value deletes the file and fails the install before anything runs, with
@@ -1780,6 +1839,7 @@ For the rest of the repository, use [Repository map](repository-map.md).
 | [sys/mdns/advertise.go](../app/internal/sys/mdns/advertise.go) | DNS labels, usable interfaces, responder lifetime, topology comparison, and bounded hostname probes. |
 | [sys/mdns/responder.go](../app/internal/sys/mdns/responder.go) | Interface-bound multicast/unicast transport, hostname and DNS-SD replies, announcements and goodbyes. |
 | [sys/mdns/probe.go](../app/internal/sys/mdns/probe.go) | Direct hostname queries and interface-local response validation. |
+| [sys/mdns/conflict.go](../app/internal/sys/mdns/conflict.go) | Live foreign-name checks independent of hosts entries and cached resolver answers. |
 | [sys/mdns/advertise_test.go](../app/internal/sys/mdns/advertise_test.go) | Protocol framing, known answers, address validation, lifecycle and topology regression checks. |
 | [sys/mdns/hostname_network_test.go](../app/internal/sys/mdns/hostname_network_test.go) | Opt-in live multicast and legacy hostname checks using a temporary name. |
 | [sys/netfix/netfix.go](../app/internal/sys/netfix/netfix.go) | Windows profile/rule readiness, scoped repair, verified prefix-owned removal, and non-Windows no-op entry points. |

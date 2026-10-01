@@ -127,7 +127,7 @@ These locks solve different problems. Protecting the `Config` struct does not ma
 
 The local configuration records setup completion, an incomplete-removal checkpoint, the clinic hostname, the backup directory, and the desktop administrator's bcrypt hash. Installed files include the deployment kit, editable environments, keys, and build material.
 
-The operating-system keyring stores the backup password separately. Restore also has its own durable journal and staging resources. These are different records with different recovery purposes; `config.json` is not a complete inventory of everything the application owns.
+The clinic manager keeps an exported private backup recovery file and a separate printable sheet of Desktop admin recovery codes. Config stores only the public encryption certificate, recovery-code hashes and recovery metadata; there is no backup password or keyring entry. Restore also has its own durable journal and staging resources. `config.json` is not a complete inventory of everything the application owns.
 
 See [configuration](configuration-and-settings.md) for locations and [restore](backups-and-restore.md) for its journal.
 

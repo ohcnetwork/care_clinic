@@ -28,6 +28,15 @@ export type ToolPlan = {
   label: string;
   detail: string;
   url: string;
+  download_preview: boolean;
+};
+
+export type DownloadInfo = { name: string; size: number };
+export type PrereqDownloadProgress = {
+  name: string;
+  phase: "connecting" | "downloading" | "verifying" | "complete" | "failed";
+  done: number;
+  total: number;
 };
 export type AppState = {
   role: "" | "server" | "client";
@@ -62,7 +71,6 @@ export type ImportedBackup = {
   files_archive: string;
   label: string;
   encrypted: boolean;
-  has_key: boolean;
 };
 
 export type PluginBackend = {
@@ -89,6 +97,7 @@ export type CarePlugin = {
 export type PluginCatalogEntry = {
   plugin: CarePlugin;
   description?: string;
+  default?: boolean;
 };
 
 /** Which of the two .env files an editor is pointed at. */

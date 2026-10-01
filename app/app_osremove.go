@@ -42,7 +42,12 @@ func (a *App) setUp() (bool, error) {
 	if err != nil {
 		return true, err
 	}
-	return installed || cfg != (Config{Role: cfg.Role, MDNSName: cfg.MDNSName}), nil
+	wizard := Config{
+		Role: cfg.Role, MDNSName: cfg.MDNSName,
+		BackupCertificate: cfg.BackupCertificate, BackupRecoveryPath: cfg.BackupRecoveryPath,
+		BackupRecoveryVerified: cfg.BackupRecoveryVerified, AdminRecoveryHashes: cfg.AdminRecoveryHashes,
+	}
+	return installed || cfg != wizard, nil
 }
 
 func (a *App) removalExitCode() int {

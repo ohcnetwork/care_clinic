@@ -67,7 +67,7 @@ The backend starts name advertising, but the desktop state store makes the norma
 
 ### Advertiser lifetime
 
-`App` owns the mDNS advertiser. Its watcher wakes every 30 seconds, restarts advertising when LAN interfaces/addresses change or enumeration fails, and retries after two consecutive direct-hostname probe failures. Probe and network errors are logged. It can also recreate an absent advertiser. No name is advertised when the name is empty, removal is in progress, or application shutdown has begun.
+`App` owns the mDNS advertiser. Its watcher wakes every 30 seconds, restarts advertising when LAN interfaces/addresses change or enumeration fails, and retries after two consecutive direct-hostname probe failures. Live foreign-name checks run before advertising and on watcher ticks. A conflict withdraws advertising and shows an administrator warning; retries cannot advertise while the conflict is detected. Probe and network errors are logged. It can also recreate an absent advertiser. No name is advertised merely by choosing it in the setup wizard, when the name is empty, during removal, or after application shutdown has begun.
 
 `shutdown()` closes the watcher's stop channel and stops the advertiser. Stopping the desktop's advertisement is distinct from stopping Docker containers.
 
@@ -178,12 +178,13 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `GetState()` | `AppState` | Query. Returns embedded version, role and client URL. Only servers inspect Docker/restore state and expose server setup/name/status; journal errors propagate. Never exposes the pinned PEM or certificate ownership flag. |
 | `DockerStatus()` | `DockerStatus` | Query. Checks actual Docker/Compose usability. |
 | `GitStatus()` | `DockerStatus` | Query. Uses the same `{ok, message}` shape for Git. |
-| `MDNSStatus()` | `NameStatus` | Query. Reports whether this process has an advertiser, not an end-to-end remote-device verdict. |
+| `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. Offline/isolated peers cannot be ruled out. |
 | `NetworkStatus()` | `NetworkStatus` | Query. Platform-specific networking inspection. |
 | `FixNetwork()` | `void` | Sync. Runs the native networking repair. |
 | `WSLStatus()` | `WSLStatus` | Query. Windows-only; `applicable` is false elsewhere and the row is hidden. |
 | `InstallWSL()` | `string` | Sync. Turns on WSL 2. A non-empty result is the restart instruction, not an error. |
 | `DockerPlan()` | `ToolPlan` | Query. Describes the available Docker install/open/manual action. |
+| `RancherDownloadInfo()` | `DownloadInfo` | Server-only metadata query. HEAD request for the pinned installer returns filename and byte size before the UI asks for download confirmation. |
 | `GitPlan()` | `ToolPlan` | Query. Describes the available Git action. |
 | `InstallDocker()` | `string` | Sync. Runs prerequisite provisioning and returns its result or error. |
 | `InstallGit()` | `string` | Sync. Runs Git provisioning. |
@@ -248,9 +249,15 @@ Desktop app** was ticked; see [removing the desktop app](cleanup-and-uninstall.m
 | `ValidatePassword(pw)` | `string` | Query. Empty string means valid; otherwise a policy message. |
 | `ValidateDomain(name)` | `string` | Query. Empty string means a valid clinic label. |
 | `ValidateBackupDir(dir)` | `string` | Query-like validation with filesystem inspection and a temporary write probe. Empty input selects the default destination for validation. |
-| `SetMDNSName(name)` | `void` | Sync. Pre-setup only; rejects installed or removing state, saves the normalized `.local` name, restarts advertising. |
+| `SetMDNSName(name)` | `void` | Sync. Pre-setup only; rejects installed or removing state and saves the normalized `.local` name. The uninstalled wizard does not advertise it. |
 | `VerifyAdminPassword(pw)` | `boolean` | Query. Compares with the saved desktop bcrypt hash. |
-| `RunSetup(mdnsName, adminPassword, backupPassword, backupDir)` | `void` | Job. Validates passwords/name, requires no installed/removing clinic, prepares configuration and kit, sets up and starts the engine. |
+| `RunSetup(mdnsName, adminPassword, backupDir)` | `void` | Job. Validates password/name, requires the recovery kit saved and the backup file verified, rejects live hostname conflicts before writing installation settings, then sets up and starts the engine. Advertising rechecks for conflicts after setup. |
+| `GetSetupRecoveryStatus()` | `SetupRecoveryStatus` | Reports saved/verified flags, never key material or code hashes. |
+| `SaveSetupBackupRecovery(backupDir)` / `VerifySetupBackupRecovery(backupDir)` | `boolean` | Sync. Native export/reselection; false means cancellation. Export is locked after installation starts. |
+| `ChooseRecoveryFile()` | `string` | Native picker and structural validation. Cancellation returns empty; errors propagate. |
+| `SaveAdminRecoveryCodes(adminPassword, backupDir)` | `boolean` | Sync. Exports six printable single-use codes. Requires authentication once installed; successful replacement invalidates all prior codes. |
+| `ChangeAdminPassword(currentPassword, newPassword)` | `void` | Sync. Authenticated Desktop-only password change. |
+| `ResetAdminPassword(code, newPassword)` | `void` | Sync. Rate-limited offline recovery; atomically consumes one code and changes the Desktop password. No CARE web reset. |
 | `CleanupFailedInstall()` | `void` | Sync. Only for an incomplete setup; safely removes failed-install resources while retaining required recovery material. |
 | `ClinicAction(action, adminPassword)` | `void` | Job. Allow-listed action dispatch; details below. |
 | `RunUninstall(removeImages, removeBackups, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. |
@@ -258,9 +265,19 @@ Desktop app** was ticked; see [removing the desktop app](cleanup-and-uninstall.m
 | `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves the branch heads and builds a newer commit into the `-next` images. A network failure is logged, not surfaced. A check already in flight is joined rather than refused, so pressing "Check now" during the automatic check is not an error. |
 | `DismissCareUpdate()` | `void` | Sync. Records the staged commits as declined so the banner stops. The staged build still applies at the next start. |
 | `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
-| `InstallAppUpdate()` | `void` | Job. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. |
+| `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. |
 
 `InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job would ask the user whether to quit during the update. `quitAfterJob` waits for the job lock to be released and quits then.
+
+The shared [CARE Desktop update card](../app/frontend/src/components/app-update-card.tsx)
+is available on the initial Server/Client choice screen, the client screen, and
+the failed-installation screen, as well as the installed server's Updates tab.
+It checks automatically and supports manual retries, download progress, and
+update installation without a Desktop admin password, Docker, Git, or a clinic
+connection. The OS may still request permission to replace the application.
+Check failures are shown without blocking role selection. While an update is
+running, conflicting role, client connection, and installation-retry actions
+are disabled. CARE backend/frontend updates remain server-only.
 
 The download is capped and checksum-verified before it is launched: an installer arrives from the network and replaces the application, so an unbounded or unverified body is not something a clinic should be asked to run. A download that fails or whose SHA-256 differs from `SHA256SUMS` is deleted and fetched once more, since a dropped connection is the usual cause; if the second attempt is also bad, the temporary folder is removed and the operator is told the update didn't download properly and to choose Update again. Nothing unverified is ever opened. Windows runs the downloaded installer, which needs this app closed.
 
@@ -275,7 +292,7 @@ Replacing the bundle while the old binary is still running is safe on macOS: the
 | `ScanResidue()` | `ResidueReport` | Query. Inspects owned files, Docker resources, saved password presence, and native traces. Inspection errors propagate. |
 | `PurgeResidue()` | `void` | Sync. Refuses a normal installed clinic; requires a native destructive confirmation when residue exists. Preserves backups. |
 
-The password policy in [`password.go`](../app/password.go) is 8 through 20 Unicode characters, with at least one uppercase letter, lowercase letter, and digit. Setup checks both administrator and backup passwords.
+The password policy in [`password.go`](../app/password.go) is 8 through 20 Unicode characters, with at least one uppercase letter, lowercase letter, and digit. Setup, change and recovery enforce it for the Desktop admin password. There is no backup password.
 
 `ClinicAction` accepts only:
 
@@ -287,7 +304,7 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `rebuild-all` | `RebuildAll()` | Stable clinic and administrator password required. Before the engine call, the app recopies its bundled kit into the install directory and reapplies the domain, the same refresh it does at launch. This is the Advanced tab's **Rebuild everything** button. |
 | `rebuild-backend` | `RebuildBackend()` | Stable clinic and administrator password required. |
 | `rebuild-frontend` | `RebuildFrontend()` | Stable clinic and administrator password required. |
-| `apply-plugins` | `ApplyPlugins()` | Stable clinic and administrator password required. Rebuilds the backend only when its plugin inputs changed, otherwise syncs frontend plugin rows. |
+| `apply-plugins` | `ApplyPlugins()` | Stable clinic required; no Desktop admin password. Rebuilds the backend only when its plugin inputs changed, otherwise syncs frontend plugin rows. |
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from "Free up space" on the Overview storage card: the Rancher Desktop disk row on macOS and Windows, the Clinic data row on Linux. |
 | `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. |
@@ -315,16 +332,16 @@ The API does not require the desktop admin password for every operational contro
 | --- | --- | --- |
 | `ReadEnv(name, adminPassword)` | `string` | Read. Admin plus setup required; `name` is only `backend` or `frontend`. Returns installed file contents. |
 | `WriteEnv(name, content, adminPassword)` | `void` | Sync. Admin plus stable clinic required; parse dotenv syntax, then atomically replace the selected file. |
-| `ReadPlugins(adminPassword)` | `CarePlugin[]` | Read. Admin plus setup required; read `plugins.json`, or derive the list from `ADDITIONAL_PLUGS` when that file is absent. |
-| `SavePlugins(plugins, adminPassword)` | `void` | Sync. Admin plus stable clinic required; validate, write `ADDITIONAL_PLUGS` and `plugins.json`, without rebuilding or syncing by itself. |
+| `ReadPlugins()` | `CarePlugin[]` | Read. Installed server required, no password; read `plugins.json`, or derive the list from `ADDITIONAL_PLUGS` when that file is absent. |
+| `SavePlugins(plugins)` | `void` | Sync. Stable clinic required, no password; validate, write `ADDITIONAL_PLUGS` and `plugins.json`, without rebuilding or syncing by itself. |
 | `PluginCatalog()` | `PluginCatalogEntry[]` | Query. The bundled plugin catalog. |
 | `ListBackups()` | `Backup[]` | Query. Returns an empty list if the installed compose file is absent; other file/read errors are not treated as an empty list. |
 | `GetBackupDir()` | `string` | Query. Effective backup directory, including the engine's default if unconfigured. |
 | `SetBackupDir(dir)` | `string` | Sync. Stable clinic required. Takes a parent folder, appends `care-db-backups`, preserves the key and conditionally restarts the sidecar. |
 | `ChooseBackupFile()` | `string` | Native dialog. Starts in the backup directory; empty string means canceled or dialog failure. |
-| `InspectBackupFile(path)` | `ImportedBackup` | Query. Checks filename/regular-file metadata and matching neighboring archive/key; does not yet validate dump contents. |
-| `RestoreFromFile(path, passphrase, adminPassword)` | `void` | Job. Admin plus stable clinic required; inspect chosen file, obtain saved password if needed, restore from its directory. |
-| `RestoreBackup(dbDump, filesArchive, passphrase, adminPassword)` | `void` | Job. Admin plus stable clinic required; restore selected names from the configured backup directory. |
+| `InspectBackupFile(path)` | `ImportedBackup` | Query. Checks filename/regular-file metadata and matching neighboring archive; does not yet validate dump contents. |
+| `RestoreFromFile(path, recoveryFile, adminPassword)` | `void` | Job. Desktop admin plus stable clinic required; restore using the explicitly selected recovery file. |
+| `RestoreBackup(dbDump, filesArchive, recoveryFile, adminPassword)` | `void` | Job. Desktop admin plus stable clinic required; restore selected names from the configured backup directory using the selected recovery file. |
 
 File selection is not restore authorization. Full validation and data replacement occur in the later protected restore job. See [backups and restore](backups-and-restore.md).
 
@@ -385,14 +402,15 @@ action only fires on a non-default answer must be a `QuestionDialog`: an
 | Event | Payload | Meaning |
 | --- | --- | --- |
 | `care-log` | One string | A line already written by Go to the host log. Do not write it back to the host again. |
-| `care-done` | Number `0` or `1` | An asynchronous App job succeeded or failed. Not a detailed subprocess exit code. |
+| `prereq-download-progress` | `name`, `phase`, `done`, `total` | Installer download byte progress; phases are connecting, downloading, verifying, complete and failed. A zero total means unknown. |
+| `care-done` | Number `0` or `1`, followed by a job label for asynchronous jobs | An App job succeeded or failed. Not a detailed subprocess exit code. `app-update` completion clears update state in every screen without treating an update failure as a clinic-installation failure. |
 | `setup-done` | `true` | Setup callback and persistence of `SetupDone` succeeded. |
 | `uninstalled` | `true` | Normal uninstall completed its cleanup and local state removal. |
 | `care-update` | `{backend, frontend}` | A newer CARE commit has finished building and is staged. Raises the panel banner. |
-| `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the progress bar in the CARE Desktop update card; the panel's `busy` state disables the button so a second click can't start another download. |
+| `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the shared CARE Desktop update card; global `busy` state prevents another update or conflicting screen action. |
 | `care-check` | `{running, found}` | An update check started or finished. `running` covers the whole check, including the build a found commit starts, which is why the panel says a check can take minutes. A finished check with `found` false is what lets the Updates panel say "up to date" rather than stay blank. |
 
-There is no job identifier or structured progress event. The single-job model keeps completion unambiguous, and the desktop derives setup progress from log messages using [`run-steps.ts`](../app/frontend/src/lib/run-steps.ts). Changes to important setup messages can therefore affect displayed progress. Image builds run in parallel and their lines carry a `[backend]`-style prefix, so the milestones match the builder's own phase lines (`Building CARE's images`, `Setting up this computer`, `finish building`) rather than per-image lines, which would otherwise jump the bar ahead while other builds are still running.
+There is no unique job identifier or structured clinic-setup progress event. The single-job model and completion label distinguish app updates from clinic operations, and the desktop derives setup progress from log messages using [`run-steps.ts`](../app/frontend/src/lib/run-steps.ts). Changes to important setup messages can therefore affect displayed progress. Image builds run in parallel and their lines carry a `[backend]`-style prefix, so the milestones match the builder's own phase lines (`Building CARE's images`, `Setting up this computer`, `finish building`) rather than per-image lines, which would otherwise jump the bar ahead while other builds are still running.
 
 Lines such as `$ care start` in the desktop log are action labels written by the state store. They do not imply that this repository ships a separate `care` command-line program.
 
@@ -404,11 +422,11 @@ The core serialized shapes are:
 | `DockerStatus`, `NameStatus` | `ok`, `message`. |
 | `Health` | `active`, `code`, `detail`. |
 | `NetworkStatus`, `WSLStatus` | `applicable`, `ok`, `message`, `how`, `fixable`. |
-| `ToolPlan` | `action`, `label`, `detail`, `url`. |
+| `ToolPlan` | `action`, `label`, `detail`, `url`, `download_preview`. |
 | `RestartPlan` | `needed`, `title`, `detail`, `label`. |
 | `ResidueReport` | `clean`, `traces`; each trace has `id`, `label`, `detail`. |
 | `Backup` | `db_dump`, `files_archive`, `label`, `manual`, `encrypted`, `size_bytes`. |
-| `ImportedBackup` | `path`, `dir`, `db_dump`, `files_archive`, `label`, `encrypted`, `has_key`. |
+| `ImportedBackup` | `path`, `dir`, `db_dump`, `files_archive`, `label`, `encrypted`. |
 | `CarePlugin` | `id`, optional `label`, `catalog`, `backend` (`name`, `package_name`, optional `version`, `configs`) and `frontend` (`slug`, `url`, optional `meta`). |
 | `PluginCatalogEntry` | `plugin` (`CarePlugin`), optional `description`. |
 

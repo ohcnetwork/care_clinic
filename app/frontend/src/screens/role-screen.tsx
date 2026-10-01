@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { AppUpdateCard } from "@/components/app-update-card";
 import { Screen, ScreenBody, ScreenHead } from "@/components/screen";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,7 @@ import { errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
 
 export function RoleScreen() {
-  const { selectRole } = useCare();
+  const { selectRole, busy: updating } = useCare();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -39,7 +40,7 @@ export function RoleScreen() {
               Use this computer as the clinic server. Install and manage CARE here,
               and keep it running for other computers on the clinic network.
             </p>
-            <Button variant="primary" disabled={busy} onClick={() => void choose("server")}>
+            <Button variant="primary" disabled={busy || updating} onClick={() => void choose("server")}>
               Use as server
             </Button>
           </Card>
@@ -50,11 +51,12 @@ export function RoleScreen() {
               approve its certificate with your computer administrator, and open CARE.
               No server installation is needed here.
             </p>
-            <Button variant="primary" disabled={busy} onClick={() => void choose("client")}>
+            <Button variant="primary" disabled={busy || updating} onClick={() => void choose("client")}>
               Use as client
             </Button>
           </Card>
         </div>
+        <AppUpdateCard disabled={busy} />
       </ScreenBody>
     </Screen>
   );

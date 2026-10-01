@@ -62,6 +62,130 @@ func TestExistingBackendPluginsAreReadWithoutAList(t *testing.T) {
 	}
 }
 
+func TestNewInstallDefaultsRegisterOnboarding(t *testing.T) {
+	m := withEnv(t, "OTHER=value\n")
+	if err := m.InitializeDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	list, err := m.ReadPlugins()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("expected only onboarding by default: %#v, %v", list, err)
+	}
+	p := list[0]
+	if p.ID != "care_onboarding_fe" || p.Label != "CARE Onboarding" || !p.Catalog || p.Backend != nil {
+		t.Fatalf("incorrect default plugin: %#v", p)
+	}
+	rows, err := m.FrontendRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]any{
+		"care_onboarding_fe": {
+			"name":     "care_onboarding_fe",
+			"url":      "https://ohcnetwork.github.io/care_onboarding_fe/assets/remoteEntry.js",
+			"config":   map[string]any{"auto_onboarding": true},
+			ManagedKey: ManagedValue,
+		},
+	}
+	if !reflect.DeepEqual(rows, want) {
+		t.Fatalf("onboarding runtime configuration: %#v", rows)
+	}
+	if raw, err := m.AdditionalPlugs(); err != nil || raw != "" {
+		t.Fatalf("frontend default changed backend dependencies: %q, %v", raw, err)
+	}
+	if err := m.InitializeDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := m.ReadPlugins(); err != nil || !reflect.DeepEqual(got, list) {
+		t.Fatalf("setup retry changed saved plugins: %#v, %v", got, err)
+	}
+}
+
+func TestDefaultsDoNotChangeExistingPluginChoices(t *testing.T) {
+	for _, content := range []string{"[]\n", "null\n",
+		`[{"id":"care_onboarding_fe","label":"My Onboarding","frontend":{"slug":"care_onboarding_fe","url":"http://localhost:4178/assets/remoteEntry.js","meta":{"config":{"auto_onboarding":false}}}}]`,
+	} {
+		t.Run(content, func(t *testing.T) {
+			m := withEnv(t, "OTHER=kept\n")
+			if err := os.WriteFile(m.listPath(), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.InitializeDefaults(); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := os.ReadFile(m.listPath()); err != nil || string(got) != content {
+				t.Fatalf("existing choices were overwritten: %q, %v", got, err)
+			}
+			if got, _ := os.ReadFile(m.backendEnvPath()); string(got) != "OTHER=kept\n" {
+				t.Fatalf("existing environment was rewritten: %q", got)
+			}
+		})
+	}
+}
+
+func TestDefaultInitializationReportsUnreadableConfiguration(t *testing.T) {
+	m := New(t.TempDir())
+	if err := m.InitializeDefaults(); err == nil {
+		t.Fatal("missing backend environment was ignored")
+	}
+	m = withEnv(t, "OTHER=kept\n")
+	if err := os.WriteFile(m.listPath(), []byte("invalid JSON\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.InitializeDefaults(); err == nil || !strings.Contains(err.Error(), "not valid JSON") {
+		t.Fatalf("invalid saved configuration was ignored: %v", err)
+	}
+	if got, err := os.ReadFile(m.listPath()); err != nil || string(got) != "invalid JSON\n" {
+		t.Fatalf("invalid saved configuration was overwritten: %q, %v", got, err)
+	}
+}
+
+func TestExistingInstallReadDoesNotEnableDefaults(t *testing.T) {
+	m := withEnv(t, "OTHER=kept\n")
+	rows, err := m.FrontendRows()
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("ordinary read enabled a default: %#v, %v", rows, err)
+	}
+	if _, err := os.Stat(m.listPath()); !os.IsNotExist(err) {
+		t.Fatalf("ordinary read persisted a plugin list: %v", err)
+	}
+}
+
+func TestDefaultInitializationPreservesBackendPlugins(t *testing.T) {
+	m := withEnv(t, `ADDITIONAL_PLUGS='[{"name":"care_x","package_name":"care-x","version":"==1.0"}]'`+"\n")
+	before, err := m.readBackends()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.InitializeDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := m.readBackends()
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("backend plugins changed: %#v, %v", after, err)
+	}
+	if got, err := m.ReadPlugins(); err != nil || len(got) != 2 {
+		t.Fatalf("defaults not added alongside backend plugin: %#v, %v", got, err)
+	}
+}
+
+func TestDisplayNamesAllowSpacesWhileIDsRemainTechnical(t *testing.T) {
+	m := withEnv(t, "")
+	list := []Plugin{{ID: "care_onboarding_fe", Label: "CARE Onboarding", Frontend: &Frontend{
+		Slug: "care_onboarding_fe", URL: "https://example.com/assets/remoteEntry.js",
+	}}}
+	if err := m.SavePlugins(list); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := m.ReadPlugins(); err != nil || !reflect.DeepEqual(got, list) {
+		t.Fatalf("display name was not preserved: %#v, %v", got, err)
+	}
+	list[0].ID = "CARE Onboarding"
+	if err := m.SavePlugins(list); err == nil || !strings.Contains(err.Error(), "plugin ID") {
+		t.Fatalf("invalid technical ID should identify the field: %v", err)
+	}
+}
+
 func TestSaveKeepsFrontendOnlyPluginsOutOfTheBackendImage(t *testing.T) {
 	m := withEnv(t, "OTHER=value\n")
 	list := []Plugin{

@@ -84,7 +84,7 @@ func (e *Clinic) applyStagedUpdate() error {
 	}
 	if !e.Backups().BackupEncryptionOn() {
 		e.logln("A CARE update is ready, but this install cannot write encrypted backups, " +
-			"so it was not applied. Set a backup password to let updates install themselves.")
+			"so it was not applied. Recover the backup encryption certificate before applying updates.")
 		return nil
 	}
 	if waiting.Backend != "" {
@@ -100,7 +100,7 @@ func (e *Clinic) applyStagedUpdate() error {
 func (e *Clinic) backupBeforeUpdate() error {
 	if !e.Backups().BackupEncryptionOn() {
 		return errors.New("this install cannot write encrypted backups, so the update was not applied - " +
-			"run setup again and set a backup password first")
+			"recover the backup encryption certificate first")
 	}
 	ts := time.Now().Format("20060102-150405")
 	e.logln("Taking a safety backup before the update changes the database...")

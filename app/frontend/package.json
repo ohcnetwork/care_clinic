@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-seed-page.mjs && node scripts/stage-install.mjs && node scripts/check-bindings.mjs && tsc && vite build && node scripts/prune-fonts.mjs"
+    "build": "node scripts/stage-install.mjs && node scripts/check-bindings.mjs && tsc && vite build && node scripts/prune-fonts.mjs"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

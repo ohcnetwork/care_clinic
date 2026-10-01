@@ -11,6 +11,7 @@ import {
   Unplug,
 } from "lucide-react";
 
+import { AppUpdateCard } from "@/components/app-update-card";
 import { Screen, ScreenBody, ScreenHead } from "@/components/screen";
 import { Spinner } from "@/components/spinner";
 import {
@@ -37,7 +38,7 @@ function displayHost(url: string): string {
 }
 
 export function ClientScreen() {
-  const { clientURL, clearRole } = useCare();
+  const { clientURL, clearRole, busy: updating } = useCare();
   const [address, setAddress] = useState(displayHost(clientURL));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<FriendlyError | null>(null);
@@ -89,7 +90,7 @@ export function ClientScreen() {
 
   const connect = async (event?: FormEvent) => {
     event?.preventDefault();
-    if (busy || !host) return;
+    if (busy || updating || !host) return;
     setBusy(true);
     setError(null);
     setConnected(false);
@@ -117,12 +118,12 @@ export function ClientScreen() {
           ? "This computer is set up to open CARE from your clinic."
           : "Link this computer to your clinic so you can open CARE here."}
         onBack={saved ? undefined : () => void goBack()}
-        backDisabled={busy || leaving}
+        backDisabled={busy || leaving || updating}
       />
       <ScreenBody className="mx-auto flex w-full max-w-2xl flex-col gap-4">
         <Card className="p-6">
           {saved ? (
-            <SavedClinic host={host} busy={busy} connected={connected} onOpen={() => void connect()} />
+            <SavedClinic host={host} busy={busy} disabled={updating} connected={connected} onOpen={() => void connect()} />
           ) : (
             <form onSubmit={(event) => void connect(event)} className="flex flex-col gap-5">
               <div className="flex flex-col gap-2">
@@ -147,7 +148,7 @@ export function ClientScreen() {
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck={false}
-                    disabled={busy || leaving}
+                    disabled={busy || leaving || updating}
                     required
                   />
                 </div>
@@ -162,7 +163,7 @@ export function ClientScreen() {
               {busy ? (
                 <Waiting host={host} />
               ) : (
-                <Button type="submit" variant="primary" size="lg" disabled={leaving || !host}>
+                <Button type="submit" variant="primary" size="lg" disabled={leaving || updating || !host}>
                   Connect
                 </Button>
               )}
@@ -185,7 +186,7 @@ export function ClientScreen() {
             <Button
               size="lg"
               className="border-danger-line text-danger-ink hover:border-danger hover:bg-danger-bg hover:text-danger-ink"
-              disabled={busy || leaving}
+              disabled={busy || leaving || updating}
               onClick={() => {
                 setRemoveError(null);
                 setRemoving(true);
@@ -196,6 +197,8 @@ export function ClientScreen() {
             </Button>
           </Card>
         ) : null}
+
+        <AppUpdateCard disabled={busy || leaving || removing} />
 
         <AlertDialog open={removing} onOpenChange={(open) => {
           if (!busy) setRemoving(open);
@@ -242,11 +245,13 @@ export function ClientScreen() {
 function SavedClinic({
   host,
   busy,
+  disabled,
   connected,
   onOpen,
 }: {
   host: string;
   busy: boolean;
+  disabled: boolean;
   connected: boolean;
   onOpen: () => void;
 }) {
@@ -273,7 +278,7 @@ function SavedClinic({
       {busy ? (
         <Waiting host={host} />
       ) : (
-        <Button variant="primary" size="lg" onClick={onOpen}>
+        <Button variant="primary" size="lg" disabled={disabled} onClick={onOpen}>
           <ExternalLink className="size-[18px]" />
           Open CARE
         </Button>

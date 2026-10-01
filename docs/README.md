@@ -23,7 +23,7 @@ This documentation explains the current implementation, from operating-system pr
 | [Native integrations](native-integrations.md) | Process execution, file persistence, logs, prerequisites, elevation, TLS trust, mDNS, and OS differences. |
 | [Development and release](development-and-release.md) | Local builds, embedded assets, release pins, CI, packaging, and changing the backend safely. |
 | [Releasing CARE Desktop](releases.md) | Preparing a version, how merging a version bump starts the release, reviewing and publishing the draft, signing limitations, and retrying safely. |
-| [Facility setup page](seed-data.md) | The browser wizard at `/seed-data` that loads a new clinic's first data through CARE's API, and the master-sheet converter behind it. |
+| [Facility setup](onboarding.md) | The CARE Onboarding frontend plugin, enabled by default for new installations, and its CARE startup requirements. |
 
 For a first reading, follow the table from top to bottom. If you are fixing one behavior, use the task map below instead.
 
@@ -44,7 +44,7 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | "This client previously hosted CARE and now cannot reach another server." | [Client recovery and earlier-install cleanup](client-recovery.md). |
 | "How do I reproduce the installed version?" | [Release identity](development-and-release.md#release-identity-and-pins). |
 | "How do I release a new version?" | [Release runbook](releases.md). |
-| "How does a new clinic get its facility, staff and master data?" | [Facility setup page](seed-data.md). |
+| "How does a new clinic get its facility, staff and master data?" | [Facility setup](onboarding.md). |
 | "Which file should I change?" | [Repository map](repository-map.md). |
 
 ## Vocabulary
@@ -78,7 +78,7 @@ An arrow in an architecture diagram means "calls or depends on" unless stated ot
 
 These guides describe the code in this checkout, including the shared read lock for environment/plugin reads, staged restore recovery, recovery-key-safe cleanup, and the Silo-backed storage service.
 
-The root [design notes](../design.md) explain the original intent, but include historical file counts, signatures, and flows. The code and these current guides take precedence where they differ. For example, settings reads are no longer exclusive jobs, backup passwords are saved after the engine's setup succeeds, and restore is no longer a direct drop-and-reload of the live database.
+The root [design notes](../design.md) explain the original intent, but include historical file counts, signatures, and flows. The code and these current guides take precedence where they differ. For example, settings reads are no longer exclusive jobs, backups use an exported recovery file instead of a password, and restore is no longer a direct drop-and-reload of the live database.
 
 File links lead to the implementation rather than fixed line numbers. When changing a component, update its guide, affected flowcharts, and the API or file map if the contract changed. Do not treat a diagram as a substitute for error handling in the code.
 

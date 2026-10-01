@@ -29,7 +29,7 @@ flowchart LR
 | Installed kit | Application | Runtime files used by Docker Compose. |
 | Installed `backend.env` / `frontend.env` | Clinic operator and application-managed fields | Clinic-specific settings preserved during kit refresh. |
 | `config.json` | `App` | Local setup/removal state, name, backup path, and desktop administrator hash. |
-| OS keyring | Backup package | Saved backup password; separate from `config.json`. |
+| Exported recovery materials | Clinic manager | Private backup recovery file and printable Desktop admin recovery codes, kept outside the installation and backup folder. |
 
 ## Local paths
 
@@ -64,8 +64,7 @@ install/
 |-- minio/
 |   `-- entrypoint.sh
 `-- keys/
-    |-- backup-cert.pem
-    `-- backup-key.pem.enc
+    `-- backup-cert.pem
 ```
 
 Image building and restore add their own working material. See the relevant guides for source-checkout and restore-staging paths. Patient database and object-storage data live in Docker volumes, not in this source/configuration tree. Keys and configuration are nevertheless sensitive and must not be treated as disposable cache.
@@ -108,8 +107,12 @@ See [client removal](native-integrations.md#removing-client-access).
 | `mdns_name` | `MDNSName` | Saved clinic name, normally such as `care.local`. |
 | `backup_dir` | `BackupDir` | Effective selected backup directory, not just the picker parent. Empty means use the engine default. |
 | `admin_pw_hash` | `AdminPwHash` | Bcrypt hash for local desktop administrative authorization. |
+| `admin_recovery_hashes` | `AdminRecoveryHashes` | Six SHA-256 code-hash slots; a used slot is cleared. No plaintext codes. |
+| `recovery_failures` / `recovery_retry_after` | `RecoveryFailures` / `RecoveryRetryAfter` | Persisted failed-attempt count and Unix timestamp for offline recovery throttling. |
+| `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
+| `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
 
-The plaintext administrator and backup passwords are not fields in this object. Setup passes the administrator password into CARE administrator creation, but subsequent desktop authorization compares against this local hash. The code does not continuously synchronize that hash with later password changes inside the clinical web application.
+The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent Desktop changes and recovery affect only the local bcrypt hash, not the CARE web login.
 
 ### Load rules
 
@@ -121,8 +124,8 @@ Existing server settings or a partial installation infer the Server role.
 `SelectRole(role string) error` persists the first-run choice and rejects a
 different choice once the role is set. `ClearRole() error` is the escape hatch
 for a misclick: it writes an empty `Config` and returns to the role choice, but
-only while the file holds nothing beyond `role` and `mdns_name` and the install
-directory is empty. The `mdns_name` allowance exists because the setup form
+only while the file holds nothing beyond `role`, `mdns_name` and preparatory
+recovery-kit fields and the install directory is empty. The `mdns_name` allowance exists because the setup form
 pushes the default clinic address as soon as it opens, so a server choice that
 was never installed still carries one. Any other field — an admin hash, backup
 directory, `setup_done`, `removing`, a client URL, pinned certificate or
@@ -145,15 +148,15 @@ configuration. Client connection/certificate cleanup belongs to
 role. Retained backups do not re-infer a server role. Cleanup must not discard
 state needed to retry incomplete resource removal.
 
-Atomic replacement protects a single file. It is not a transaction across Docker resources, the keyring, two environment files, and `config.json`.
+Atomic replacement protects a single file. It is not a transaction across Docker resources, exported recovery files, two environment files, and `config.json`.
 
 ## Setup configuration order
 
-[`RunSetup()`](../app/app_actions.go) validates the two passwords before accepting the asynchronous job. It normalizes the name, defaults an empty name to `care`, and validates the label.
+[`RunSetup()`](../app/app_actions.go) validates the admin password before accepting the asynchronous job. It normalizes the name, defaults an empty name to `care`, and validates the label. Setup first requires a saved and verified backup recovery file and six saved Desktop recovery codes. It then checks live mDNS responses for a conflicting server before saving the admin hash or changing installation files. The wizard checks the entered name without advertising it, and advertising performs another conflict check after setup. Keep other clinic servers awake during setup: an offline or multicast-isolated device cannot be detected.
 
 Inside the protected job, it rejects an installed or removing clinic, creates the administrator's bcrypt hash, computes and validates the backup destination, and persists the initial configuration. `SetupDone` is still false at this point.
 
-It then unpacks the kit, checks port availability, runs `Clinic.Setup()`, saves the backup password in the OS keyring, restarts name advertising, and runs `Clinic.Start()`. Only the job runner's successful completion path persists `SetupDone=true`.
+It then unpacks the kit, checks port availability, runs `Clinic.Setup()` with the public backup certificate, restarts name advertising, and runs `Clinic.Start()`. Only the job runner's successful completion path persists `SetupDone=true`.
 
 A failure after configuration or files were created is therefore a partial setup, not proof that nothing was installed. The retry path is [failed-install cleanup](cleanup-and-uninstall.md).
 
@@ -167,7 +170,7 @@ This is why the commit a clinic currently runs is kept in `channel.lock` rather 
 
 Writes go through a process-wide mutex and a temporary file renamed into place, because the background check and an operator pressing "Install now" can reach the lock at the same time, and a half-written lock would lose the record of what the clinic is running.
 
-Generated directories listed in `installGeneratedDirs` (currently `seed-data/`, the [facility setup page](seed-data.md)) are deleted before the walk and copied fresh, because their contents are hashed build assets whose names change every release and would otherwise pile up.
+Facility setup lives in the [CARE Onboarding frontend plugin](onboarding.md); its assets are not bundled into the kit. Existing `plugins.json` choices are preserved and catalog defaults are initialized only during new-clinic setup.
 
 Refresh copies the current kit but is not a general recursive deletion or a migration framework for all generated files. Similarly, preserving environments means a new template key is not automatically merged into an existing environment.
 
@@ -267,14 +270,14 @@ Treat both environment files as sensitive. The backend file contains service cre
 
 ## Updates
 
-Advanced -> Updates is the one place both update mechanisms are visible. Like the rest of the Advanced tab it is behind the desktop administrator password, but applying a CARE update is not separately re-authenticated: the update is one the app already built from the configured branch, and prompting again would only teach operators to postpone it.
+The **Updates** tab shows both update mechanisms without a Desktop admin password prompt. The **Plugins** tab also allows viewing, saving and applying plugins without that prompt. Advanced retains password-protected environment settings and administration; its red rebuild card sits immediately above uninstall at the bottom.
 
 | Card | Shows | Actions |
 | --- | --- | --- |
 | CARE | The tracked branch, the backend and frontend commits in use, and one of three states: checking, up to date, or a staged update waiting. | Check now; install a staged update now. |
 | CARE Desktop | The installed version against the newest published GitHub release, with its notes. | Download the verified installer for this platform and launch it. |
 
-The panel also raises a banner when a CARE update finishes building, because the Advanced tab is not somewhere an operator looks. Declining the banner is not declining the update: it stops the prompt for that commit, and the staged build is applied at the next start, when no clinic is running and applying it costs a retag instead of a restart.
+The panel also raises a banner when a CARE update finishes building, so operators need not keep the Updates tab open. Declining the banner is not declining the update: it stops the prompt for that commit, and the staged build is applied at the next start, when no clinic is running and applying it costs a retag instead of a restart.
 
 The app checks hourly, but only while the clinic is actually serving. Until then it re-examines every thirty seconds and checks nothing, because a check competing with the start it is racing helps nobody. A clinic that later stops serving drops back to that thirty-second wait, so a check is never made against a clinic that is down. The loop ends only when the app closes, the desktop is switched to a client, or the clinic is being removed. These desktops stay on for weeks, so a check that only ran at launch would leave a verified fix unreachable until somebody restarted the app.
 
@@ -288,7 +291,7 @@ The plugin list is stored in `plugins.json` beside `backend.env`. Its backend pa
 
 `SetBackupDir` takes a selected parent and appends `care-db-backups`. It validates placement and writability, checks for another installation's recovery data, and inspects whether the backup sidecar is running.
 
-Before saving the new path it copies the installation's recovery key to the destination without overwriting a different key. After saving, it recreates the backup sidecar only if it was running. If that restart fails, it attempts to restore the previous configuration and sidecar, reporting rollback errors as well.
+Before saving the new path it copies the public backup certificate to the destination without overwriting a different certificate. The private recovery file is never copied into the backup folder. After saving, it recreates the backup sidecar only if it was running. If that restart fails, it attempts to restore the previous configuration and sidecar, reporting rollback errors as well.
 
 Earlier backups and their key are left in the previous directory; changing the destination is not a file migration. This ordering prevents a seemingly successful folder change from leaving the new backups without their decryption material.
 

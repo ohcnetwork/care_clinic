@@ -70,7 +70,8 @@ export type CareEvent =
   | "care-update"
   | "care-check"
   | "care-storage"
-  | "app-update-progress";
+  | "app-update-progress"
+  | "prereq-download-progress";
 
 /** Subscribe to a Wails event, waiting out a runtime that isn't injected yet. */
 export function onCareEvent(

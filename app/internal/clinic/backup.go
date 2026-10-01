@@ -15,7 +15,7 @@ import (
 func (e *Clinic) BackupNow() error {
 	if !e.Backups().BackupEncryptionOn() {
 		return errors.New("backup encryption is not set up on this install, so a backup " +
-			"would be written unencrypted - run setup again and set a backup password")
+			"would be written unencrypted - the backup encryption certificate must be recovered first")
 	}
 	need := e.manualBackupNeed()
 	if err := e.backupRoomFor(need); err != nil {

@@ -1,3 +1,15 @@
+- description: Set up a new clinic's geography, facility, departments, staff, numbering, questionnaires and report templates. Requires internet access.
+  default: true
+  plugin:
+    id: care_onboarding_fe
+    label: CARE Onboarding
+    frontend:
+      slug: care_onboarding_fe
+      url: https://ohcnetwork.github.io/care_onboarding_fe/assets/remoteEntry.js
+      meta:
+        config:
+          auto_onboarding: true
+
 - description: Appointment confirmations, reminders, cancellations and reschedule notices by SMS and web push.
   plugin:
     id: care_notifications

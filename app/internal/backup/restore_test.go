@@ -107,7 +107,6 @@ func newRestoreFixture(t *testing.T) (*Store, func() restoreDockerState, func(re
 		"care-20260101-010101.dump.enc":    "synthetic-encrypted-dump",
 		"files-20260101-010101.tar.gz":     "synthetic-archive",
 		"files-20260101-010101.tar.gz.enc": "synthetic-encrypted-archive",
-		"backup-key.pem.enc":               "synthetic-key",
 	} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
@@ -533,32 +532,39 @@ func TestRestoreSecretsAndManualScope(t *testing.T) {
 	state := load()
 	state.Fail = "activation"
 	save(state)
-	secret := "SyntheticRestoreSecret123"
-	if err := s.Restore("care-manual-20260101-010101.dump.enc", "", secret); err == nil {
+	_, key, err := GenerateRecoveryFile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(t.TempDir(), "recovery.pem")
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restore("care-manual-20260101-010101.dump.enc", "", keyPath); err == nil {
 		t.Fatal("expected activation failure")
 	}
-	foundSecret := false
+	foundKeyMount := false
 	for _, call := range load().Calls {
 		for _, arg := range call.Args {
-			if strings.Contains(arg, secret) || strings.Contains(arg, "SyntheticDatabaseSecret") {
+			if strings.Contains(arg, "PRIVATE KEY") || strings.Contains(arg, "SyntheticDatabaseSecret") {
 				t.Fatal("credential value appeared in Docker arguments")
 			}
 			if strings.Contains(arg, "_minio-data") {
 				t.Fatal("database-only restore touched uploaded files")
 			}
-		}
-		if call.Env["BACKUP_PASS"] == secret {
-			foundSecret = true
-			if !slices.Contains(call.Args, "BACKUP_PASS") {
-				t.Fatal("restore password was not forwarded by environment name")
+			if strings.Contains(arg, "source="+keyPath) && strings.Contains(arg, "readonly") {
+				foundKeyMount = true
 			}
+		}
+		if call.Env["BACKUP_PASS"] != "" || slices.Contains(call.Args, "BACKUP_PASS") {
+			t.Fatal("restore still expects a backup password")
 		}
 		if call.Args[0] == "compose" && slices.Contains(call.Args, "up") &&
 			slices.Contains(call.Args, "backup") {
 			t.Fatal("restore started the backup scheduler as a readiness probe")
 		}
 	}
-	if !foundSecret || load().Files != "original-files" {
+	if !foundKeyMount || load().Files != "original-files" {
 		t.Fatal("database-only restore lost its credential or changed files")
 	}
 }

@@ -1,7 +1,10 @@
 package prereq
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"runtime"
 	"strings"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
@@ -18,6 +21,43 @@ type Download struct {
 	Name   string
 	URL    string
 	SHA256 string
+}
+
+type DownloadInfo struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+func (pr *Provisioner) RancherDownloadInfo() (DownloadInfo, error) {
+	d, err := rancherDownload(pr.pins, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return DownloadInfo{}, err
+	}
+	return inspectDownload(d)
+}
+
+// Only retrieve headers: the installer body is not requested before consent.
+func inspectDownload(d Download) (DownloadInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), downloadHeaderTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, d.URL, nil)
+	if err != nil {
+		return DownloadInfo{}, err
+	}
+	client := downloadClient()
+	defer client.CloseIdleConnections()
+	resp, err := client.Do(req)
+	if err != nil {
+		return DownloadInfo{}, fmt.Errorf("could not check the download size: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return DownloadInfo{}, fmt.Errorf("could not check the download size: the server said %s", resp.Status)
+	}
+	if resp.ContentLength <= 0 {
+		return DownloadInfo{}, fmt.Errorf("the server did not provide the size of %s; try again before downloading", d.Name)
+	}
+	return DownloadInfo{Name: d.Name, Size: resp.ContentLength}, nil
 }
 
 func rancherDownload(p *release.Pins, goos, goarch string) (Download, error) {

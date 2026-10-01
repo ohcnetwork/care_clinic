@@ -42,9 +42,9 @@ settings may be forgotten.
 | [Architecture](architecture.md) | Layer boundaries and installation/removal states. |
 | [Repository map](repository-map.md) | Complete repository navigation. |
 | [Wails application](wails-application.md) | Bound method authorization, mutation gate, native confirmation, and UI events. |
-| [Configuration and settings](configuration-and-settings.md) | `Config.Removing`, atomic persistence, installed paths, and keychain/config separation. |
+| [Configuration and settings](configuration-and-settings.md) | `Config.Removing`, atomic persistence, installed paths, and recovery material separation. |
 | [Clinic lifecycle](clinic-lifecycle.md) | What setup/start create and why Stop preserves data. |
-| [Backups and restore](backups-and-restore.md) | Recovery-key preservation, backup-file ownership, deletion rules, and pending restores. |
+| [Backups and restore](backups-and-restore.md) | Public certificate preservation, backup-file ownership, deletion rules, and pending restores. |
 | [Native integrations](native-integrations.md) | Hosts, certificate trust, networking, autostart, logs, and their verification. |
 | [Development and release](development-and-release.md) | Pinned image identity and safe validation of source changes. |
 
@@ -71,8 +71,8 @@ settings may be forgotten.
 | --- | --- | --- | --- |
 | Pause the clinic | `ClinicAction("stop", ...)` delegates to `Clinic.Stop()`. | Compose stops services. | Containers, all volumes, images/cache, installed files, backups, keys, saved settings, and native configuration. |
 | Remove an installed clinic | `RunUninstall(...)` delegates to `Clinic.Uninstall(options)`. | Live project containers, volumes, and networks; native changes; installed files. Optional known images/cache and owned backup files. Optional Rancher Desktop removal (see below). App also handles autostart and saved state. | Backups when not selected for removal; images/cache when not selected; Rancher Desktop when not selected; normal diagnostic logs. |
-| Recover from failed first setup | `CleanupFailedInstall()` delegates to a specific `Clinic.Uninstall` option set. | Partial project resources, native changes, installed files, saved secret/config. A matching exported key is removed only if it is unused and the final file-deletion phase is reached. | Downloaded images/cache and backup data. Required recovery keys remain. |
-| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue()`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their recovery key. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
+| Recover from failed first setup | `CleanupFailedInstall()` delegates to a specific `Clinic.Uninstall` option set. | Partial project resources, native changes, installed files, saved secret/config. A matching exported certificate is removed only if it is unused and the final file-deletion phase is reached. | Downloaded images/cache and backup data. Required backup certificates remain. |
+| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue()`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
 
 ### Removing the desktop app
 
@@ -180,7 +180,7 @@ of CARE-related data everywhere."
 
 `TeardownProject()` is a lower-level engine helper, not the safe equivalent of
 any complete App flow. It has no password prompt, installation-state guard,
-recovery-key export, native cleanup, or configuration deletion.
+public certificate export, native cleanup, or configuration deletion.
 
 ## 2. Source file roles
 
@@ -219,11 +219,11 @@ A successful removal cannot be inferred from just an absent container.
 | Known images | Exact repository/tag strings derived from the current release pins. | A matching tag is not proof of exclusive ownership; another project may use it. Older or differently named images are not exhaustively discovered. |
 | Docker build cache | Docker builder's eligible unused cache, not a clinic-labeled inventory. | Removing it affects build performance for other projects using that builder. |
 | Installed kit | App-selected absolute directory ending in `care-desktop/install`, with additional deletion guards. | Contains runtime files, source checkouts, keys, and potentially restore working material. It is not interchangeable with a repository checkout. |
-| Local backup key | `keys/backup-key.pem.enc` in the installed kit. | Deleting the kit can otherwise remove the key needed to decrypt retained or offsite backups. |
-| Exported recovery key | `backup-key.pem.enc` in the effective backup directory. | This is durable recovery material, not a stray cache file just because no local dump is visible. |
+| Local backup certificate | `keys/backup-cert.pem` in the installed kit. | Public encryption material only; it cannot decrypt backups. |
+| Exported backup certificate | `backup-cert.pem` in the effective backup directory. | Public ownership marker for recognizing this clinic's backup directory. |
 | Backup files | The backup package's validated inventory in the configured backup location. | Selecting backup removal must not mean recursively deleting arbitrary neighboring files. |
 | Saved configuration | App-provided config path, when it represents installation state rather than only a selected wizard name. | Keeps enough state, including `Removing`, to prevent an unsafe fresh start after partial deletion. |
-| Saved backup password | Presence reported through the backup keychain API and passed into residue options. | Forgetting a password is separate from removing the encrypted recovery key. The operator still needs the passphrase for retained backups. |
+| User-exported recovery materials | Private backup recovery file and printable Desktop recovery-code sheet in user-chosen locations. | Never deleted by uninstall. The matching private file is required for retained backups; Desktop codes become invalid when config is removed. |
 | Hosts mapping | CARE's owned hosts-file marker, `# care-desktop`. | Native cleanup must avoid unrelated host mappings. |
 | Trusted certificate | CARE certificate fingerprints and the stable `CARE Desktop Local CA` identity. | Reinstalling generates new certificates; cleanup must also recognize an older trusted CARE root. |
 | Windows network changes | Firewall rules with owned `CARE Desktop ` display-name prefix, recognized by `netfix`. | Shared network profiles are not owned cleanup artifacts; removal does not restore them to Public. |
@@ -253,9 +253,9 @@ remove certificates from other devices, or prove that no clinical data
 exists elsewhere. It also does not own arbitrary volumes/networks merely
 because their names contain `care`.
 
-Purge retaining a recovery key while removing the saved password is deliberate:
-the encrypted key remains usable with the correct passphrase. A retained
-encrypted key without a known passphrase is not a recovery plan.
+Purge retains backup data and its public ownership certificate. The manager
+must retain the separately exported private recovery file; there is no backup
+password or password-store item to preserve or remove.
 
 ## 4. The durable `Removing` checkpoint belongs to the App
 
@@ -281,8 +281,8 @@ and persistence. Through the App, normal start/configuration mutations reject
 removing state, and ordinary kit refresh does not silently recreate an
 installation halfway through deletion.
 
-Recovery-key preservation is attempted before `beginRemoval` in the public
-flows that retain backups. Preservation can create an exported key, but
+Public certificate preservation is attempted before `beginRemoval` in the public
+flows that retain backups. Preservation can create an exported certificate, but
 destructive teardown has not yet begun. The engine repeats the relevant
 preservation check before it removes Docker state. That repetition is
 intentional protection at two boundaries.
@@ -394,14 +394,14 @@ is one reason purge does not depend on having a complete kit.
 | `RemoveImages` | False. When true, remove recognized current image tags and prune eligible shared build cache. |
 | `RemoveInstallDir` | False. When true, delete the guarded installed-kit path at the end of successful teardown. The public normal App uninstall sets it true. |
 | `RemoveBackups` | False. When true, call the backup package's `DeleteBackups` after Docker/native phases succeed and before deleting the installed kit. |
-| `RemoveUnusedRecoveryKey` | False. Only meaningful at the final install-file deletion step. The App sets it true only for failed-install cleanup, never normal uninstall or purge. |
+| `RemoveUnusedCertificate` | False. Only meaningful at the final install-file deletion step. The App sets it true only for failed-install cleanup, never normal uninstall or purge. |
 
 ### Engine sequence
 
 ```mermaid
 flowchart TD
     Inspect["Inspect all project resource kinds"] --> Key{"Delete kit and retain backups?"}
-    Key -->|yes| Preserve["Preserve recovery key"]
+    Key -->|yes| Preserve["Preserve backup certificate"]
     Key -->|no| Compose
     Preserve --> Compose{"Usable installed Compose file?"}
     Compose -->|yes| Root["Read Caddy root before its volume is removed"]
@@ -423,7 +423,7 @@ Detailed ordering in [`Uninstall`](../app/internal/clinic/uninstall.go):
 
 1. Inspect the project. Any inspection error stops the engine.
 2. If the kit will be deleted and backups retained, call
-   `PreserveRecoveryKey`. A preservation error stops before Docker teardown.
+   `PreserveBackupCertificate`. A preservation error stops before Docker teardown.
 3. Check the Compose anchor. When present and regular, obtain Caddy's root
    certificate **before** deleting its data volume.
 4. Attempt Compose down with volume and orphan removal. If it reports an
@@ -436,7 +436,7 @@ Detailed ordering in [`Uninstall`](../app/internal/clinic/uninstall.go):
 8. If any accumulated error remains, return it **before** deleting backups or
    installed files.
 9. If requested, call `Backups().DeleteBackups()`. Propagate any error.
-10. If requested, call `removeInstallFiles(RemoveUnusedRecoveryKey)`.
+10. If requested, call `removeInstallFiles(RemoveUnusedCertificate)`.
 11. On success, log the engine's intentional leftovers.
 
 `DeleteBackups` is delegated to the backup package; this engine path does not
@@ -500,14 +500,13 @@ responsibilities around the engine:
 
 1. Enter the protected App job and check administrator authorization.
 2. Run a residue preflight; inspection errors block removal.
-3. Preserve the recovery key when backups are being retained.
+3. Preserve the backup certificate when backups are being retained.
 4. Persist `Removing`.
 5. Invoke engine Uninstall with `RemoveInstallDir=true` and the user's
    image/backup choices.
 6. Disable autostart if enabled.
 7. Re-scan through `reportUninstall(removeImages)`.
-8. Only after required resource checks succeed, forget the saved backup
-   password and remove saved configuration.
+8. Only after required resource checks succeed, remove saved configuration.
 9. Log completion and emit the `uninstalled` event.
 
 The intermediate report intentionally excludes config and saved-secret
@@ -530,7 +529,7 @@ Its engine option set is:
 
 ```text
 RemoveInstallDir        = true
-RemoveUnusedRecoveryKey = true
+RemoveUnusedCertificate = true
 RemoveImages            = false
 RemoveBackups           = false
 ```
@@ -539,16 +538,15 @@ This keeps expensive downloaded images/cache for another setup attempt and
 does not erase backup data. It still removes the partial live project and
 native changes through the normal engine sequence.
 
-### Why the unused-key handling must be last
+### Why the unused-certificate handling must be last
 
-Key generation can succeed before a later image build or startup fails. At
-that point there may be a protected local key but no encrypted backup that
-uses it. Cleanup initially preserves that key, because it must not assume
-there are no recoverable backups.
+Public certificate installation can succeed before a later build or startup
+fails, without any encrypted backups being created. Cleanup initially
+preserves the certificate rather than assuming no backups exist.
 
-However, blindly keeping an unused exported key after deleting its incomplete
+However, blindly keeping an unused exported certificate after deleting its incomplete
 installation can make the next setup recognize foreign recovery material.
-The narrowly scoped exception discards a **matching, unused exported key**,
+The narrowly scoped exception discards a **matching, unused exported certificate**,
 not arbitrary key files or actual backups.
 
 ```mermaid
@@ -558,18 +556,18 @@ sequenceDiagram
     participant Engine as Clinic.Uninstall
     participant Backup as backup.Store
     participant Files as Installed files
-    App->>Backup: PreserveRecoveryKey
+    App->>Backup: PreserveBackupCertificate
     App->>Config: Persist Removing
     App->>Engine: Uninstall with failed-setup options
-    Engine->>Backup: PreserveRecoveryKey again
+    Engine->>Backup: PreserveBackupCertificate again
     Engine->>Engine: Remove and verify Docker resources
     Engine->>Engine: Revert native changes
     Engine->>Files: Validate install deletion path
-    Engine->>Backup: DiscardUnusedRecoveryKey
+    Engine->>Backup: DiscardUnusedCertificate
     Note over Engine,Backup: Only after the final preservation and required earlier phases
     Engine->>Files: Remove install directory
     Engine-->>App: Success
-    App->>App: Forget saved backup password and configuration
+    App->>App: Forget saved configuration
     App->>App: Restore only an eligible prior wizard name
 ```
 
@@ -579,19 +577,19 @@ is the important contract:
 
 1. Reject a source checkout or unrecognized install path.
 2. If this is the failed-setup exception, call
-   `Backups().DiscardUnusedRecoveryKey()`.
+   `Backups().DiscardUnusedCertificate()`.
 3. Only then delete the installed directory.
 
-It runs **after the engine's last `PreserveRecoveryKey` call**, immediately
+It runs **after the engine's last `PreserveBackupCertificate` call**, immediately
 before directory deletion. Discarding earlier would allow a later
-preservation call to recreate the exported key that cleanup intended to
+preservation call to recreate the exported certificate that cleanup intended to
 remove.
 
-The backup package checks whether encrypted backups require the key and
-whether the exported key is the matching unused one. Required recovery
+The backup package checks whether encrypted backups exist and
+whether the exported certificate is the matching unused one. Required recovery
 material is retained. Inspection or deletion failure returns an error rather
 than authorizing directory deletion. See the backup guide for the exact
-regular-file and key-matching guards.
+regular-file and certificate-matching guards.
 
 If installed-directory deletion subsequently fails, cleanup can be partial.
 A retry still goes through preservation and validation again; there is no
@@ -599,9 +597,9 @@ promise that every filesystem operation happened atomically together.
 
 ### Why normal uninstall and purge pass false
 
-No local encrypted dump does **not** prove a recovery key is unused. Backups
+No local encrypted dump does **not** prove a backup certificate is unused. Backups
 may have been copied offsite. Normal removal of an established installation
-must therefore retain the key even when the selected local backup directory
+retains the public ownership certificate even when the selected local backup directory
 contains no encrypted dumps.
 
 The current option wiring is deliberate:
@@ -612,10 +610,10 @@ The current option wiring is deliberate:
 | Normal App uninstall | `false`, through the zero value. |
 | Engine Purge | Explicit `false`. |
 
-Do not generalize this exception into "remove the recovery key whenever no
+Do not generalize this exception into "remove the backup certificate whenever no
 local backup is listed."
 
-After engine success, failed-install cleanup forgets the password/config and
+After engine success, failed-install cleanup forgets the config and
 may keep a previously chosen wizard name. Unlike normal uninstall and purge,
 this App path does **not** call the same final `reportUninstall` residue
 verification or separately disable autostart. Its engine-level checks remain
@@ -637,8 +635,8 @@ The two layers have different scopes:
 | Remove known images/cache | Always attempts it. | Treats retained known images as a required leftover during the post-engine removal report. |
 | Revert native changes and autostart | Yes. | Verifies afterward. |
 | Delete installed kit | Yes, with path guards and `removeUnusedKey=false`. | Delegates. |
-| Delete backup data or its retained recovery key | No. | No. Checks backup/log location safety before purging logs. |
-| Remove old logs and saved password/config | No. | Yes, after the required engine/resource phases. |
+| Delete backup data or its retained backup certificate | No. | No. Checks backup/log location safety before purging logs. |
+| Remove old logs and saved config | No. | Yes, after the required engine/resource phases. |
 | Final residue report | No complete App scan. | Re-scans and reports success or incomplete cleanup. |
 
 ### Engine Purge sequence
@@ -646,7 +644,7 @@ The two layers have different scopes:
 [`purge.go`](../app/internal/clinic/purge.go) runs:
 
 1. A complete project inspection. Fail closed on errors.
-2. `PreserveRecoveryKey`, unconditionally for this backup-retaining path.
+2. `PreserveBackupCertificate`, unconditionally for this backup-retaining path.
 3. If the installed Compose file exists and is regular, capture Caddy's root
    and attempt Compose down. Log a down error and continue toward verified
    fallback cleanup. Other stat/non-regular errors still fail.
@@ -658,8 +656,8 @@ The two layers have different scopes:
    any remain.
 9. `removeInstallFiles(false)`.
 
-It never calls `DeleteBackups`, and it does not delete saved configuration,
-the password-store item, or logs by itself.
+It never calls `DeleteBackups`, and it does not delete saved configuration
+or logs by itself.
 
 ### App Purge sequence and important early returns
 
@@ -678,12 +676,11 @@ The public [`PurgeResidue`](../app/app_residue.go) flow:
    [native dialog answers](wails-application.md#native-dialog-answers-are-not-the-button-labels).
 5. Discover the earlier install directory. Check that the retained backup
    location is safe relative to the log folder that will be deleted.
-6. Preserve the recovery key and persist `Removing`.
+6. Preserve the backup certificate and persist `Removing`.
 7. Call engine Purge.
 8. Run `reportUninstall(true)`, requiring removal of reported non-config,
    non-secret resources, including the known image tags.
-9. Purge the old log folder, forget the saved backup password, and forget
-   saved configuration.
+9. Purge the old log folder and forget saved configuration.
 10. Preserve only an eligible previously chosen wizard name, then scan again
     and display the final report. A non-clean or failed scan is not success.
 
@@ -693,8 +690,8 @@ destructive purge is actually selected for other residue, the chosen image
 removal must complete.
 
 The confirmation's broad wording must be understood with its explicit
-retention promise: backups and their recovery key remain. Users must know the
-backup password before its saved copy is forgotten.
+retention promise: backups and their public certificate remain. Users must
+keep the separate private recovery file to restore these backups.
 
 ## 9. File deletion guards and their limits
 
@@ -726,8 +723,8 @@ These checks are intentionally conservative but should not be overstated:
 The intended caller supplies the App's known install directory. Do not treat
 these guards as permission to aim the engine at arbitrary user folders.
 
-The ordinary installed-key deletion is part of removing the kit. Exporting
-the recovery key first protects retained backups. Backup-directory validation
+The installed public certificate is removed with the kit; its backup-folder
+copy identifies retained backups but cannot decrypt them. Backup-directory validation
 and recognized-backup deletion use separate backup-package guards; see
 [backups and restore](backups-and-restore.md).
 
@@ -799,7 +796,6 @@ not complete.
 | `certificate` | Native trust inspection finds a CARE root. | Yes. |
 | `firewall` | Native networking inspection finds owned firewall rules. | **No**; network repair creates these before setup. They remain in `Traces`. |
 | `autostart` | Platform autostart reports enabled. | Yes. |
-| `secret` | The caller reports a saved backup password. | Yes. |
 
 Conceptually:
 
@@ -817,8 +813,7 @@ A failed Docker query, inaccessible install/config path, or failed native
 inspection makes `Clean=false` even when no positive trace could be produced.
 An empty list plus an error is **unknown**, not clean.
 
-The App obtains password-store presence before calling this package; keychain
-inspection errors propagate at that boundary. It also decides whether saved
+The App decides whether saved
 configuration represents installation state. A config containing only an
 eligible chosen wizard name is intentionally not treated like an old
 installed clinic.
@@ -881,7 +876,7 @@ cleanup has the narrower completion path described above.
 | Failure point | What may already have happened | Safe interpretation and next step |
 | --- | --- | --- |
 | Initial Docker/system inspection | Reads and perhaps earlier App preparation, but no destructive engine phase. | Make the required inspector available and retry through the desktop. Do not equate an unavailable daemon with no resources. |
-| Recovery-key preservation | A backup directory or export may have been prepared; Docker teardown has not started in the engine. | Resolve file/location/key conflicts before trying again. Do not discard the key to get past the guard. |
+| Public certificate preservation | A backup directory or export may have been prepared; Docker teardown has not started in the engine. | Resolve file/location/key conflicts before trying again. Do not discard the key to get past the guard. |
 | Missing Compose file with labeled resources in normal uninstall | A key may have been exported and `Removing` saved. | The engine intentionally refused unanchored normal teardown. Use the App's appropriate authorized recovery/residue path. |
 | Compose down reports an error | Some containers or volumes may already be removed. | The verified label fallback still runs. The warning alone is not the final result. |
 | Label removal or re-inspection fails | Some resource kinds may be gone and others may remain. | Fix the reported dependency/daemon issue; retry performs new inventories. |
@@ -890,7 +885,7 @@ cleanup has the narrower completion path described above.
 | Install path rejected | Earlier destructive phases can already have succeeded. | The file guard protected that path only. Correct the ownership/path issue; never bypass it with a generic recursive deletion. |
 | Backup or installed-file deletion fails | Earlier phases succeeded; file deletion may be partial. | Preserve remaining recovery material and retry after resolving permissions or ownership issues. |
 | Normal App autostart removal or post-scan fails | Engine removal, including installed files, can already be complete. | Saved removal state remains available for required cleanup, not restoration of deleted data. |
-| Saved-password/config removal fails | Required resource cleanup may already be complete. | Retry local-state cleanup rather than setting up a second clinic over uncertain state. |
+| Config removal fails | Required resource cleanup may already be complete. | Retry local-state cleanup rather than setting up a second clinic over uncertain state. |
 | Final purge scan fails after state removal | Earlier deletion and local-state cleanup can already be complete. | Re-inspect the reported unknown/remaining state. Cleanup is not transactional and cannot roll back. |
 
 Absent resources are generally tolerated on retry because the code
@@ -919,7 +914,7 @@ The existing tests protect several easily lost safety properties:
 | --- | --- |
 | [`teardown_test.go`](../app/internal/clinic/teardown_test.go) | A fake Docker volume-inspection failure prevents any removal call, even if container/network inspections returned IDs. |
 | [`teardown_test.go`](../app/internal/clinic/teardown_test.go) | An unowned directory and its unrelated file survive rejected install deletion. |
-| [`teardown_test.go`](../app/internal/clinic/teardown_test.go) | A failed setup with no encrypted backups removes a matching unused exported key only at final file deletion; an encrypted backup keeps the key; normal uninstall retains it even without a local encrypted backup. |
+| [`teardown_test.go`](../app/internal/clinic/teardown_test.go) | A failed setup with no encrypted backups removes a matching unused exported certificate only at final file deletion; an encrypted backup keeps the key; normal uninstall retains it even without a local encrypted backup. |
 | [`residue_test.go`](../app/internal/residue/residue_test.go) | Unavailable Docker cannot become a clean report or successful install discovery. |
 | [`residue_test.go`](../app/internal/residue/residue_test.go) | Images alone are visible but nonblocking; installed files still block. |
 | [`residue_test.go`](../app/internal/residue/residue_test.go) | The `.Label` working-directory template matches Docker's listing context. |
@@ -949,7 +944,7 @@ clinic, a teardown run, dependency installation, or a broad test suite.
    volumes.
 5. Scope unused-key removal to failed setup, after the final preservation and
    immediately before installed-directory deletion.
-6. Retain recovery keys for normal uninstall/purge even when backups may exist
+6. Retain backup certificates for normal uninstall/purge even when backups may exist
    only offsite.
 7. Persist removal intent before destructive App delegation, and do not
    confuse that checkpoint with rollback.
