@@ -1,460 +1,417 @@
-// The clinic's settings, drawn from backend.env and frontend.env as one page of
-// plain-language controls (see env-schema.ts), plus an "Other settings" list for
-// any key the page does not describe. Both files are round-tripped: only the
-// lines the operator changed are rewritten, everything else stays byte for byte.
+import {
+  Archive, ArrowLeft, CalendarDays, ChevronRight, FileText, Languages, LockKeyhole,
+  Mail, Palette, Receipt, Settings2, Smartphone, Trash2, UserPlus,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/spinner";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { bridge } from "@/lib/bridge";
-import {
-  applyChanges,
-  ENV_KEY_RE,
-  getValue,
-  parseEnv,
-  serializeEnv,
-  type EnvChange,
-  type EnvLine,
-} from "@/lib/env-file";
-import { errorText, firstLine } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { ENV_KEY_RE, getValue, type EnvChange, type EnvLine } from "@/lib/env-file";
 import { useCare } from "@/state/care-store";
 import type { Section } from "@/types";
-import { normaliseLogo, SettingControl, splitList } from "./env-controls";
 import {
-  fileForKey,
-  GROUPS,
-  isHiddenKey,
-  MANAGED_NOTES,
-  SETTING_BY_KEY,
-  SETTINGS,
-  type Setting,
-} from "./env-schema";
+  editableEnvLines, effectiveSetting, groupSummary, mergeEnvChanges, validateSetting, type EnvDraft,
+} from "./advanced-env";
+import {
+  AdvancedError, AdvancedNotice, AdvancedSecretInput, advancedProblem, useAdvancedLock, type AdvancedProblem,
+} from "./advanced-ui";
+import { SettingControl, splitList } from "./env-controls";
+import { fileForKey, GROUPS, isHiddenKey, MANAGED_NOTES, SETTING_BY_KEY, SETTINGS, type Setting } from "./env-schema";
 
 const SECTIONS: Section[] = ["backend", "frontend"];
-
+const ICONS = [Archive, LockKeyhole, Smartphone, Mail, Palette, Languages, CalendarDays, UserPlus, Receipt, FileText];
 type Files = Record<Section, { text: string; lines: EnvLine[] }>;
+type CustomRow = { uid: number; key: string; value: string; file: Section; isNew: boolean };
 
-/** Raw value per described key; undefined means the key is not in the file. */
-type Draft = Record<string, string | undefined>;
-
-type CustomRow = {
-  uid: number;
-  key: string;
-  value: string;
-  file: Section;
-  /** Typed in this session, so the name is still editable. */
-  isNew: boolean;
-};
-
-// What the file means, as the controls should show it: a shipped placeholder
-// like EMAIL_HOST=123 reads as "not set".
-function initialDraft(files: Files): Draft {
-  const draft: Draft = {};
-  for (const s of SETTINGS) {
-    const v = getValue(files[s.file].lines, s.key);
-    draft[s.key] = v !== undefined && "blank" in s && s.blank?.includes(v) ? undefined : v;
-  }
-  return draft;
+function initialDraft(files: Files): EnvDraft {
+  return Object.fromEntries(SETTINGS.map((setting) => {
+    const value = getValue(files[setting.file].lines, setting.key);
+    return [setting.key, value !== undefined && "blank" in setting && setting.blank?.includes(value) ? undefined : value];
+  }));
 }
 
 function customRows(files: Files, take: () => number): CustomRow[] {
   const rows: CustomRow[] = [];
   for (const file of SECTIONS) {
     const seen = new Set<string>();
-    for (const l of files[file].lines) {
-      if (l.kind !== "kv" || SETTING_BY_KEY.has(l.key) || isHiddenKey(l.key) || seen.has(l.key)) continue;
-      seen.add(l.key);
-      rows.push({ uid: take(), key: l.key, value: getValue(files[file].lines, l.key) ?? "", file, isNew: false });
+    for (const line of files[file].lines) {
+      if (line.kind !== "kv" || SETTING_BY_KEY.has(line.key) || isHiddenKey(line.key) || seen.has(line.key)) continue;
+      seen.add(line.key);
+      rows.push({ uid: take(), key: line.key, value: getValue(files[file].lines, line.key) ?? "", file, isNew: false });
     }
   }
   return rows;
 }
 
-// "Same as before" has to account for what CARE does when a key is absent: an
-// untouched radio shows its fallback, and picking that fallback for a key that
-// was never in the file is not a change worth writing.
-function effective(s: Setting, v: string | undefined): string {
-  switch (s.kind) {
-    case "radio":
-    case "select":
-      return v ?? s.fallback;
-    case "multi":
-      return v === undefined ? s.fallback.join(",") : splitList(v).join(",");
-    case "logo":
-      return v === undefined ? "" : normaliseLogo(v);
-    default:
-      return (v ?? "").trim();
-  }
-}
-
-function isDirty(s: Setting, draft: Draft, initial: Draft): boolean {
-  return effective(s, draft[s.key]) !== effective(s, initial[s.key]);
-}
-
-function validate(s: Setting, v: string | undefined): string | null {
-  switch (s.kind) {
-    case "int": {
-      const t = (v ?? "").trim();
-      if (t === "") return s.required ? "Enter a number." : null;
-      if (!/^-?\d+$/.test(t)) return "Enter a whole number.";
-      const n = Number(t);
-      if (s.min !== undefined && n < s.min) return `Must be at least ${s.min}.`;
-      if (s.max !== undefined && n > s.max) return `Must be at most ${s.max}.`;
-      return null;
-    }
-    case "multi":
-      return v !== undefined && splitList(v).length === 0 ? "Choose at least one." : null;
-    default:
-      return null;
-  }
-}
-
-export function EnvEditor({ adminPassword }: { adminPassword: string }) {
-  const { busy, runAction, log } = useCare();
+export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChange, pendingFiles, onPendingFilesChange, onApplicationAccepted }: {
+  adminPassword: string;
+  groupId?: string | null;
+  onGroupChange?: (group: string | null) => void;
+  onWorkingChange?: (working: boolean) => void;
+  pendingFiles?: Section[];
+  onPendingFilesChange?: (files: Section[]) => void;
+  onApplicationAccepted?: () => void;
+}) {
+  const { busy, restorePending, runAction, operationError } = useCare();
+  const lock = useAdvancedLock();
+  const [localGroup, setLocalGroup] = useState<string | null>(null);
+  const selected = groupId === undefined ? localGroup : groupId;
+  const group = GROUPS.find((entry) => entry.id === selected);
   const [files, setFiles] = useState<Files | null>(null);
-  const [initial, setInitial] = useState<Draft>({});
-  const [draft, setDraft] = useState<Draft>({});
+  const [initial, setInitial] = useState<EnvDraft>({});
+  const [draft, setDraft] = useState<EnvDraft>({});
   const [customInitial, setCustomInitial] = useState<CustomRow[]>([]);
   const [custom, setCustom] = useState<CustomRow[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [loadProblem, setLoadProblem] = useState<AdvancedProblem | null>(null);
+  const [saveProblem, setSaveProblem] = useState<AdvancedProblem | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [needsApply, setNeedsApply] = useState<Section[]>(pendingFiles ?? []);
+  const [notice, setNotice] = useState("");
+  const [discarding, setDiscarding] = useState(false);
   const nextUid = useRef(0);
+  const pending = useRef(false);
+  const loadVersion = useRef(0);
+  const loadingRequest = useRef<{ password: string; promise: Promise<Files> } | null>(null);
+  const savedFiles = useRef(new Set<Section>(pendingFiles ?? []));
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
+  const previousGroup = useRef<string | null>(null);
   const take = () => nextUid.current++;
+  const editing = selected !== null;
+  const working = busy || saving || applying || restorePending;
+  const locked = working || lock.disabled;
 
+  const changePage = (next: string | null) => {
+    setLocalGroup(next);
+    onGroupChange?.(next);
+  };
   const readFiles = useCallback(async (): Promise<Files> => {
-    const [backend, frontend] = await Promise.all(
-      SECTIONS.map((s) => bridge.ReadEnv(s, adminPassword)),
-    );
+    const [backend, frontend] = await Promise.all(SECTIONS.map((file) => bridge.ReadEnv(file, adminPassword)));
     return {
-      backend: { text: backend, lines: parseEnv(backend) },
-      frontend: { text: frontend, lines: parseEnv(frontend) },
+      backend: { text: backend, lines: editableEnvLines(backend) },
+      frontend: { text: frontend, lines: editableEnvLines(frontend) },
     };
   }, [adminPassword]);
-
   const load = useCallback(async () => {
-    setProblem(null);
+    const version = ++loadVersion.current;
+    setLoading(true);
+    setLoadProblem(null);
+    const request = loadingRequest.current?.password === adminPassword ? loadingRequest.current
+      : { password: adminPassword, promise: readFiles() };
+    loadingRequest.current = request;
     try {
-      const next = await readFiles();
-      const d = initialDraft(next);
+      const next = await request.promise;
+      if (version !== loadVersion.current) return;
+      const values = initialDraft(next);
       const rows = customRows(next, take);
       setFiles(next);
-      setInitial(d);
-      setDraft(d);
+      setInitial(values);
+      setDraft(values);
       setCustomInitial(rows);
       setCustom(rows);
-      setProblem("");
-    } catch (e) {
+    } catch (cause) {
+      if (version !== loadVersion.current) return;
       setFiles(null);
-      setProblem(errorText(e));
+      setLoadProblem(advancedProblem(cause, "The clinic settings couldn't be read",
+        "Try again when CARE Desktop is idle. No settings have been changed."));
+    } finally {
+      if (loadingRequest.current === request) loadingRequest.current = null;
+      if (version === loadVersion.current) setLoading(false);
     }
-  }, [readFiles]);
-
+  }, [readFiles, adminPassword]);
   useEffect(() => {
     void load();
+    return () => { loadVersion.current++; };
   }, [load]);
+  useEffect(() => { onWorkingChange?.(saving || applying); }, [saving, applying, onWorkingChange]);
+  useEffect(() => {
+    if (!pendingFiles || pending.current || applying) return;
+    savedFiles.current = new Set(pendingFiles);
+    setNeedsApply(pendingFiles);
+  }, [pendingFiles, applying]);
+  useEffect(() => {
+    if (!applying || busy) return;
+    setApplying(false);
+    if (operationError) {
+      setSaveProblem({ title: "Settings were saved, but applying them didn't finish",
+        message: "Your changes are still saved. Check the log, then retry applying them." });
+    } else {
+      savedFiles.current.clear();
+      setNeedsApply([]);
+      onPendingFilesChange?.([]);
+      setNotice("Settings applied.");
+    }
+  }, [applying, busy, operationError, onPendingFilesChange]);
 
+  const dirtyKeys = useMemo(() => SETTINGS.filter((setting) =>
+    effectiveSetting(setting, draft[setting.key]) !== effectiveSetting(setting, initial[setting.key]))
+    .map((setting) => setting.key), [draft, initial]);
+  const customDelta = useMemo(() => {
+    const before = new Map(customInitial.map((row) => [row.uid, row]));
+    return {
+      removed: customInitial.filter((row) => !custom.some((current) => current.uid === row.uid)),
+      changed: custom.filter((row) => row.isNew ? row.key.trim() !== "" || row.value !== "" : before.get(row.uid)?.value !== row.value),
+    };
+  }, [custom, customInitial]);
   const errors = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const s of SETTINGS) {
-      const err = validate(s, draft[s.key]);
-      if (err) out[s.key] = err;
+    for (const setting of group?.settings ?? []) {
+      if (!dirtyKeys.includes(setting.key)) continue;
+      const error = validateSetting(setting, draft[setting.key]);
+      if (error) out[setting.key] = error;
+    }
+    if (group?.id === "visits" && dirtyKeys.some((key) => key === "REACT_DEFAULT_ENCOUNTER_TYPE" || key === "REACT_ALLOWED_ENCOUNTER_CLASSES")) {
+      const selectedVisit = draft.REACT_DEFAULT_ENCOUNTER_TYPE ?? "";
+      const allowed = effectiveSetting(SETTING_BY_KEY.get("REACT_ALLOWED_ENCOUNTER_CLASSES")!, draft.REACT_ALLOWED_ENCOUNTER_CLASSES);
+      if (selectedVisit && !splitList(allowed).includes(selectedVisit)) out.REACT_DEFAULT_ENCOUNTER_TYPE = "Choose a kind of visit that is allowed above.";
     }
     const names = new Map<string, number>();
-    for (const r of custom) {
-      const k = r.key.trim();
-      if (k === "" && r.value === "") continue;
-      names.set(`${r.file}:${k}`, (names.get(`${r.file}:${k}`) ?? 0) + 1);
+    for (const row of custom) {
+      const key = row.key.trim();
+      if (key || row.value) names.set(`${row.file}:${key}`, (names.get(`${row.file}:${key}`) ?? 0) + 1);
     }
-    for (const r of custom) {
-      const k = r.key.trim();
-      if (k === "" && r.value === "") continue;
-      if (k === "") out[`custom:${r.uid}`] = "Give the setting a name.";
-      else if (!ENV_KEY_RE.test(k)) out[`custom:${r.uid}`] = "Letters, digits and _ only; no spaces.";
-      else if ((names.get(`${r.file}:${k}`) ?? 0) > 1) out[`custom:${r.uid}`] = "Listed twice.";
+    for (const row of custom) {
+      const key = row.key.trim();
+      if (!key && !row.value) continue;
+      const id = `custom:${row.uid}`;
+      if (!key) out[id] = "Give the setting a name.";
+      else if (!ENV_KEY_RE.test(key)) out[id] = "Start with a letter or _. Use only letters, digits and _.";
+      else if (isHiddenKey(key)) out[id] = MANAGED_NOTES[key] ?? "This setting is protected by CARE Desktop.";
+      else if (SETTING_BY_KEY.has(key)) out[id] = `Change “${SETTING_BY_KEY.get(key)!.label}” in its settings group instead.`;
+      else if ((names.get(`${row.file}:${key}`) ?? 0) > 1) out[id] = "This setting is listed twice.";
+      else if (customDelta.changed.some((changed) => changed.uid === row.uid) && /[\r\n\0]/.test(row.value)) out[id] = "Keep this value on one line.";
     }
     return out;
-  }, [draft, custom]);
+  }, [group, draft, custom, dirtyKeys, customDelta]);
+  const changeCount = dirtyKeys.length + customDelta.changed.length + customDelta.removed.length;
+  const hasErrors = Object.keys(errors).some((key) => selected === "other" ? key.startsWith("custom:") : !key.startsWith("custom:"));
+  const disabled = locked || loading || !files;
+  const canSave = !disabled && (changeCount > 0 || needsApply.length > 0) && !hasErrors;
+  const touched = new Set([...dirtyKeys.map((key) => SETTING_BY_KEY.get(key)!.file),
+    ...customDelta.changed.map((row) => row.file), ...customDelta.removed.map((row) => row.file), ...needsApply]);
+  const frontendOnly = touched.size > 0 ? !touched.has("backend") : !!group && group.settings.every((setting) => setting.file === "frontend");
+  const applyLabel = frontendOnly ? "Save and rebuild" : "Save and restart";
 
-  const dirtyKeys = useMemo(
-    () => SETTINGS.filter((s) => isDirty(s, draft, initial)).map((s) => s.key),
-    [draft, initial],
-  );
-  // Rows dropped since load, and rows (new or existing) whose text differs.
-  const customDelta = useMemo(() => {
-    const before = new Map(customInitial.map((r) => [r.uid, r]));
-    const removed = customInitial.filter((r) => !custom.some((c) => c.uid === r.uid));
-    const changed = custom.filter((r) =>
-      r.isNew ? r.key.trim() !== "" || r.value !== "" : before.get(r.uid)?.value !== r.value,
-    );
-    return { removed, changed };
-  }, [custom, customInitial]);
-
-  const changeCount = dirtyKeys.length + customDelta.removed.length + customDelta.changed.length;
-  const touched = (file: Section) =>
-    dirtyKeys.some((k) => SETTING_BY_KEY.get(k)?.file === file) ||
-    [...customDelta.removed, ...customDelta.changed].some((r) => r.file === file);
-
-  const canSave =
-    !busy && problem === "" && files !== null && changeCount > 0 && Object.keys(errors).length === 0;
-
-  const save = async () => {
-    if (!canSave || !files) return;
-    const written: Section[] = [];
-    try {
-      // Re-read rather than trust the copy loaded earlier: the Plugins table
-      // writes backend.env too, and a stale copy would silently undo it.
-      const fresh = await readFiles();
-      for (const file of SECTIONS) {
-        const changes: EnvChange[] = [];
-        for (const s of SETTINGS) {
-          if (s.file !== file || !isDirty(s, draft, initial)) continue;
-          const v = effective(s, draft[s.key]);
-          changes.push({ key: s.key, value: v === "" ? undefined : v });
-        }
-        // Other settings go last so a name typed there wins over the page above.
-        for (const r of customDelta.removed) {
-          if (r.file === file) changes.push({ key: r.key, value: undefined });
-        }
-        for (const r of customDelta.changed) {
-          if (r.file === file && r.key.trim() !== "") changes.push({ key: r.key.trim(), value: r.value });
-        }
-        const text = serializeEnv(applyChanges(fresh[file].lines, changes, file));
-        if (text === fresh[file].text) continue;
-        await bridge.WriteEnv(file, text, adminPassword);
-        written.push(file);
-      }
-    } catch (e) {
-      log(`error saving settings: ${errorText(e)}`);
-      toast(firstLine(errorText(e)));
-      return;
-    }
-    await load();
-    if (written.length === 0) {
-      toast("Nothing to apply");
-      return;
-    }
-    // Start rebuilds the app too when frontend.env changed (the image is keyed
-    // on it), so it covers both files; only an app-only change takes the
-    // shorter rebuild path.
-    const action = written.includes("backend") ? "start" : "rebuild-frontend";
-    toast(action === "start" ? "Applying settings" : "Rebuilding the app with new settings");
-    await runAction(action, adminPassword);
+  const commitFile = (file: Section, text: string) => {
+    const next = { text, lines: editableEnvLines(text) };
+    setFiles((current) => current ? { ...current, [file]: next } : current);
+    const values = initialDraft({ ...files!, [file]: next });
+    const committed = Object.fromEntries(SETTINGS.filter((setting) => setting.file === file).map((setting) => [setting.key, values[setting.key]]));
+    setInitial((current) => ({ ...current, ...committed }));
+    setDraft((current) => ({ ...current, ...committed }));
+    const rows = customRows({ ...files!, [file]: next }, take).filter((row) => row.file === file)
+      .map((row) => ({ ...row, uid: custom.find((before) => before.file === file && before.key.trim() === row.key)?.uid ?? row.uid }));
+    setCustomInitial((current) => [...current.filter((row) => row.file !== file), ...rows]);
+    setCustom((current) => [...current.filter((row) => row.file !== file), ...rows]);
   };
-
+  const save = async () => {
+    if (!canSave || lock.isLocked() || pending.current || !files) return;
+    const requireUnlocked = () => {
+      if (lock.isLocked()) throw new Error("Advanced changes are locked while another task finishes.");
+    };
+    pending.current = true;
+    setSaving(true);
+    setSaveProblem(null);
+    setNotice("");
+    try {
+      if (changeCount) {
+        const fresh = await readFiles();
+        for (const file of SECTIONS) {
+          const changes: EnvChange[] = [];
+          for (const key of dirtyKeys) {
+            const setting = SETTING_BY_KEY.get(key)!;
+            if (setting.file !== file) continue;
+            const value = effectiveSetting(setting, draft[key]);
+            changes.push({ key, value: value === "" ? undefined : value });
+          }
+          for (const row of customDelta.removed) if (row.file === file) changes.push({ key: row.key, value: undefined });
+          for (const row of customDelta.changed) {
+            if (row.file === file && row.key.trim()) changes.push({ key: row.key.trim(), value: row.value });
+          }
+          if (!changes.length) continue;
+          const text = mergeEnvChanges(fresh[file].text, changes, file);
+          if (text !== fresh[file].text) {
+            requireUnlocked();
+            await bridge.WriteEnv(file, text, adminPassword);
+            savedFiles.current.add(file);
+            setNeedsApply([...savedFiles.current]);
+            onPendingFilesChange?.([...savedFiles.current]);
+          }
+          commitFile(file, text);
+        }
+      }
+      if (!savedFiles.current.size) {
+        setNotice("The saved settings already match these values.");
+        return;
+      }
+      const action = savedFiles.current.has("backend") ? "start" : "rebuild-frontend";
+      requireUnlocked();
+      const accepted: unknown = await runAction(action, adminPassword);
+      if (accepted !== true) {
+        setSaveProblem({ title: "Settings were saved, but applying them didn't start",
+          message: "Your changes are still saved. Wait for any other task to finish, then retry applying them." });
+        return;
+      }
+      setApplying(true);
+      onApplicationAccepted?.();
+      toast(action === "start" ? "Settings saved — restarting CARE." : "Settings saved — rebuilding CARE.");
+    } catch (cause) {
+      const partial = savedFiles.current.size > 0;
+      const problem = advancedProblem(cause, partial ? "Some settings were saved" : "The settings couldn't be saved",
+        partial ? "CARE hasn't applied these changes. Retry saving the remaining changes, or discard them and apply the settings already saved."
+          : "No changes were confirmed. Review your settings and try again.");
+      setSaveProblem(problem);
+      toast(problem.title + ". " + problem.message);
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
+  };
   const discard = () => {
+    if (locked || lock.isLocked()) return;
     setDraft(initial);
     setCustom(customInitial);
+    setSaveProblem(null);
+    setNotice("");
+  };
+  const back = () => {
+    if (working) return;
+    if (changeCount) { previousGroup.current = selected; setDiscarding(true); }
+    else changePage(null);
+  };
+  const patchCustom = (uid: number, patch: Partial<CustomRow>) => {
+    if (disabled || lock.isLocked()) return;
+    setCustom((current) => current.map((row) => row.uid === uid ? { ...row, ...patch } : row));
   };
 
-  const patchCustom = (uid: number, values: Partial<CustomRow>) =>
-    setCustom((prev) => prev.map((r) => (r.uid === uid ? { ...r, ...values } : r)));
+  return <div className="advanced-env" data-editing={editing}>
+    {restorePending ? <AdvancedNotice title="Finish the earlier restore first">
+      Start CARE from Overview to recover the unfinished restore. Settings can be read, but not saved or applied yet.
+    </AdvancedNotice> : null}
+    {loading ? <div className="advanced-busy" role="status"><Spinner />Reading clinic settings…</div> : null}
+    <AdvancedError problem={loadProblem} />
+    {loadProblem ? <Button type="button" className="self-start" disabled={busy || loading} onClick={() => void load()}>Try reading settings again</Button> : null}
+    <AdvancedError problem={saveProblem} />
+    {notice ? <AdvancedNotice title={notice} tone="success" /> : null}
+    {needsApply.length > 0 && !applying && !saveProblem ? <AdvancedNotice title="Saved changes still need to be applied" tone="neutral">
+      {changeCount ? "Save the remaining changes when you're ready." : "Apply the saved settings when staff are ready for a short interruption."}
+    </AdvancedNotice> : null}
 
-  const disabled = busy || problem !== "" || files === null;
-  const willRestart = touched("backend");
-  const willRebuild = touched("frontend");
+    {!editing ? <section className="advanced-card" aria-labelledby="advanced-settings-title">
+      <header className="advanced-groups-head">
+        <h2 className="advanced-card-title" id="advanced-settings-title">Clinic settings</h2>
+        <p className="advanced-card-description">Settings for how CARE behaves. Saving restarts or rebuilds CARE; staff may need to wait a few minutes.</p>
+      </header>
+      {GROUPS.map((entry, index) => {
+        const Icon = ICONS[index];
+        return <button type="button" className="advanced-group" data-advanced-group={entry.id} key={entry.id} disabled={!files || loading || saving || applying}
+          onClick={() => changePage(entry.id)}>
+          <span className="advanced-icon"><Icon aria-hidden="true" /></span>
+          <div className="advanced-grow"><strong>{entry.title}</strong><p>{files ? groupSummary(entry, initial) : "Settings haven't been read"}</p></div>
+          <ChevronRight aria-hidden="true" />
+        </button>;
+      })}
+      <button type="button" className="advanced-group" data-advanced-group="other" disabled={!files || loading || saving || applying} onClick={() => changePage("other")}>
+        <span className="advanced-icon"><Settings2 aria-hidden="true" /></span>
+        <div className="advanced-grow"><strong>Other settings</strong><p>For the person who supports your clinic</p></div>
+        <ChevronRight aria-hidden="true" />
+      </button>
+    </section> : group ? <section className="advanced-card advanced-settings-card" aria-label={group.title}>
+      {group.settings.map((setting) => <SettingRow key={setting.key} setting={setting} changed={dirtyKeys.includes(setting.key)} error={errors[setting.key]}>
+        <SettingControl setting={setting} value={draft[setting.key]} disabled={disabled} invalid={!!errors[setting.key]}
+          onChange={(value) => {
+            if (disabled || lock.isLocked()) return;
+            setNotice(""); setDraft((current) => ({ ...current, [setting.key]: value }));
+          }} />
+      </SettingRow>)}
+    </section> : <section className="advanced-card advanced-custom-list" aria-label="Other settings">
+      <p className="advanced-card-description">Only add settings supplied by the person who supports CARE. Connection, security and plugin settings managed elsewhere are protected.</p>
+      {custom.length === 0 ? <p className="advanced-field-hint">No other settings added.</p> : null}
+      {custom.map((row) => <CustomRowView key={row.uid} row={row} error={errors[`custom:${row.uid}`]} disabled={disabled}
+        onKeyChange={(key) => patchCustom(row.uid, { key, file: fileForKey(key.trim()) })}
+        onValueChange={(value) => patchCustom(row.uid, { value })}
+        onRemove={() => { if (!disabled && !lock.isLocked()) setCustom((current) => current.filter((entry) => entry.uid !== row.uid)); }} />)}
+      <Button type="button" className="self-start" disabled={disabled} onClick={() => {
+        if (!disabled && !lock.isLocked()) setCustom((current) =>
+          [...current, { uid: take(), key: "", value: "", file: "backend", isNew: true }]);
+      }}>Add setting</Button>
+    </section>}
 
-  return (
-    <div className="@container flex flex-col gap-4">
-      {problem ? (
-        <Alert variant="danger">
-          <span>{problem}</span>
-          <Button disabled={busy} onClick={() => void load()}>Retry</Button>
-        </Alert>
-      ) : null}
-
-      {GROUPS.map((g) => (
-        <section key={g.id} className="rounded-lg border border-line">
-          <header className="border-b border-hair px-4 py-3">
-            <div className="text-[14px] font-semibold text-ink">{g.title}</div>
-            <div className="mt-0.5 text-[12.5px] text-muted-foreground">{g.summary}</div>
-          </header>
-          <div className="px-4">
-            {g.settings.map((s) => (
-              <SettingRow
-                key={s.key}
-                setting={s}
-                changed={dirtyKeys.includes(s.key)}
-                error={errors[s.key]}
-              >
-                <SettingControl
-                  setting={s}
-                  value={draft[s.key]}
-                  onChange={(v) => setDraft((prev) => ({ ...prev, [s.key]: v }))}
-                  disabled={disabled}
-                  invalid={errors[s.key] !== undefined}
-                />
-              </SettingRow>
-            ))}
-          </div>
-        </section>
-      ))}
-
-      <section className="rounded-lg border border-line">
-        <header className="border-b border-hair px-4 py-3">
-          <div className="text-[14px] font-semibold text-ink">Other settings</div>
-          <div className="mt-0.5 text-[12.5px] text-muted-foreground">
-            For anything not listed above. Ask whoever supports your CARE before changing these.
-          </div>
-        </header>
-        <div className="flex flex-col gap-[7px] p-4">
-          {custom.length === 0 ? (
-            <div className="py-1 text-[13px] text-faint">Nothing added yet.</div>
-          ) : null}
-          {custom.map((r) => (
-            <CustomRowView
-              key={r.uid}
-              row={r}
-              error={errors[`custom:${r.uid}`]}
-              disabled={disabled}
-              onKeyChange={(key) => patchCustom(r.uid, { key, file: fileForKey(key) })}
-              onValueChange={(value) => patchCustom(r.uid, { value })}
-              onRemove={() => setCustom((prev) => prev.filter((c) => c.uid !== r.uid))}
-              existing={r.isNew && r.key.trim() !== "" && files ? getValue(files[r.file].lines, r.key.trim()) : undefined}
-            />
-          ))}
-          <Button
-            className="self-start"
-            disabled={disabled}
-            onClick={() =>
-              setCustom((prev) => [...prev, { uid: take(), key: "", value: "", file: "backend", isNew: true }])
-            }
-          >
-            Add setting
-          </Button>
-        </div>
-      </section>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="min-w-[220px] flex-1 text-[13px] text-muted-foreground">
-          {changeCount === 0
-            ? "No unsaved changes."
-            : `${changeCount} unsaved ${changeCount === 1 ? "change" : "changes"}. ` +
-              (willRebuild && willRestart
-                ? "Saving rebuilds the app and restarts the clinic; a few minutes."
-                : willRebuild
-                  ? "Saving rebuilds the app; a few minutes."
-                  : "Saving restarts the clinic; about a minute.")}
-        </span>
-        <Button disabled={disabled || changeCount === 0} onClick={discard}>
-          Discard
-        </Button>
-        <Button variant="primary" disabled={!canSave} onClick={() => void save()}>
-          Save and apply
+    {editing ? <footer className="advanced-settings-foot">
+      <Button type="button" ref={backRef} variant="ghost" disabled={working} onClick={back}><ArrowLeft aria-hidden="true" />Back to settings</Button>
+      <p role="status">{saving ? "Saving settings…" : applying ? "Applying settings — staff may need to wait." :
+        needsApply.length > 0 && !changeCount ? "Saved changes still need to be applied." :
+          frontendOnly ? "Saving rebuilds CARE — a few minutes." : "Saving restarts the clinic — about a minute."}</p>
+      <div className="advanced-actions">
+        <Button type="button" disabled={disabled || changeCount === 0} onClick={discard}>Discard</Button>
+        <Button type="button" variant="primary" disabled={!canSave} onClick={() => void save()}>
+          {saving || applying ? <Spinner /> : null}{needsApply.length > 0 && !changeCount ? "Apply saved changes" : applyLabel}
         </Button>
       </div>
-    </div>
-  );
+    </footer> : needsApply.length > 0 ? <Button type="button" className="self-start" disabled={!canSave} onClick={() => void save()}>Apply saved changes</Button> : null}
+
+    <AlertDialog open={discarding} onOpenChange={setDiscarding}>
+      <AlertDialogContent className="advanced-dialog advanced-dialog-narrow"
+        onOpenAutoFocus={(event) => { event.preventDefault(); cancelRef.current?.focus(); }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (backRef.current) backRef.current.focus();
+          else document.querySelector<HTMLButtonElement>(`[data-advanced-group="${previousGroup.current}"]`)?.focus();
+        }}>
+        <AlertDialogTitle>Discard unsaved settings?</AlertDialogTitle>
+        <AlertDialogDescription>Your unsaved edits will be lost. Settings already saved to this computer aren't undone.</AlertDialogDescription>
+        <div className="advanced-dialog-foot">
+          <Button type="button" ref={cancelRef} onClick={() => setDiscarding(false)}>Keep editing</Button>
+          <Button type="button" disabled={locked} onClick={() => {
+            if (locked || lock.isLocked()) return;
+            discard(); setDiscarding(false); changePage(null);
+          }}>Discard changes</Button>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
+  </div>;
 }
 
-function SettingRow({
-  setting,
-  changed,
-  error,
-  children,
-}: {
-  setting: Setting;
-  changed: boolean;
-  error?: string;
-  children: ReactNode;
+function SettingRow({ setting, changed, error, children }: {
+  setting: Setting; changed: boolean; error?: string; children: ReactNode;
 }) {
-  return (
-    <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 border-t border-hair py-3.5 first:border-t-0 @lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] @lg:items-center">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 text-[13.5px] font-semibold text-ink">
-          <span>{setting.label}</span>
-          {changed ? <Badge variant="plainOk" size="sm">changed</Badge> : null}
-        </div>
-        {setting.help ? (
-          <div className="mt-0.5 text-[12.5px] leading-[1.5] text-muted-foreground">{setting.help}</div>
-        ) : null}
-        <div className="mt-1 font-mono text-[11px] text-faint">{setting.key}</div>
-      </div>
-      <div className="flex min-w-0 flex-col gap-1.5 @lg:items-end">
-        {children}
-        {error ? <div className="text-[12.5px] text-danger-ink">{error}</div> : null}
-      </div>
+  return <div className="advanced-setting">
+    <div>
+      <div className="advanced-setting-label">{setting.label}{changed ? <span className="advanced-setting-changed" aria-label="Unsaved change" /> : null}</div>
+      {setting.help ? <p className="advanced-setting-help">{setting.help}</p> : null}
     </div>
-  );
+    <div className="advanced-setting-control">
+      {children}
+      {error ? <p className="advanced-field-error" role="alert">{error}</p> : null}
+    </div>
+  </div>;
 }
 
-const CELL = "h-9 rounded-[8px] px-[11px] text-[13px]";
-
-function CustomRowView({
-  row,
-  error,
-  disabled,
-  existing,
-  onKeyChange,
-  onValueChange,
-  onRemove,
-}: {
-  row: CustomRow;
-  error?: string;
-  disabled: boolean;
-  /** For a name being typed: the value the file already holds for it. */
-  existing?: string;
-  onKeyChange: (key: string) => void;
-  onValueChange: (value: string) => void;
-  onRemove: () => void;
+function CustomRowView({ row, error, disabled, onKeyChange, onValueChange, onRemove }: {
+  row: CustomRow; error?: string; disabled: boolean;
+  onKeyChange: (key: string) => void; onValueChange: (value: string) => void; onRemove: () => void;
 }) {
-  const key = row.key.trim();
-  const described = SETTING_BY_KEY.get(key);
-  const note = !row.isNew
-    ? null
-    : MANAGED_NOTES[key]
-      ? MANAGED_NOTES[key]
-      : described
-        ? `Already on this page as “${described.label}”. This value wins.`
-        : existing !== undefined
-          ? `Replaces the built-in value${existing ? ` (${existing})` : ""}.`
-          : null;
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-2.5">
-        {row.isNew ? (
-          <Input
-            className={cn(CELL, "w-[250px] max-w-full flex-none font-mono")}
-            placeholder="SETTING_NAME"
-            spellCheck={false}
-            autoCapitalize="characters"
-            value={row.key}
-            onChange={(e) => onKeyChange(e.target.value)}
-            disabled={disabled}
-            aria-invalid={error !== undefined || undefined}
-          />
-        ) : (
-          <label className="w-[250px] max-w-full flex-none truncate font-mono text-[12.5px] font-medium text-muted-foreground">
-            {row.key}
-          </label>
-        )}
-        <Input
-          className={cn(CELL, "min-w-[160px] flex-1")}
-          spellCheck={false}
-          value={row.value}
-          onChange={(e) => onValueChange(e.target.value)}
-          disabled={disabled}
-        />
-        <Badge variant="plain" size="sm" className="w-[52px] justify-center font-mono">
-          {row.file === "frontend" ? "app" : "server"}
-        </Badge>
-        <Button
-          size="icon"
-          title="remove"
-          disabled={disabled}
-          onClick={onRemove}
-          className="border-danger-line text-danger-ink hover:border-danger-line hover:bg-danger-bg hover:text-danger-ink"
-        >
-          ×
-        </Button>
-      </div>
-      {error ? (
-        <div className="text-[12.5px] text-danger-ink">{error}</div>
-      ) : note ? (
-        <div className="text-[12.5px] text-muted-foreground">{note}</div>
-      ) : null}
+  const nameId = `advanced-custom-name-${row.uid}`;
+  return <div className="advanced-custom-row">
+    <div>
+      <label htmlFor={nameId}>Setting name</label>
+      <Input id={nameId} placeholder="SETTING_NAME" value={row.key} spellCheck={false} autoComplete="off"
+        readOnly={!row.isNew} onChange={(event) => onKeyChange(event.target.value)} disabled={disabled}
+        aria-invalid={!!error} className="font-mono" />
+      <span className="advanced-custom-file">{row.file === "frontend" ? "CARE app setting" : "CARE server setting"}</span>
     </div>
-  );
+    <AdvancedSecretInput label={`Value${row.key.trim() ? ` for ${row.key.trim()}` : ""}`} value={row.value}
+      onChange={onValueChange} disabled={disabled} invalid={!!error} />
+    <Button type="button" size="icon" className="advanced-outline-danger" disabled={disabled}
+      aria-label={`Remove ${row.key.trim() || "new setting"}`} onClick={onRemove}><Trash2 aria-hidden="true" className="size-4" /></Button>
+    {error ? <p className="advanced-field-error" role="alert">{error}</p> : null}
+  </div>;
 }

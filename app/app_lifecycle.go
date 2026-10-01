@@ -113,6 +113,7 @@ func (a *App) syncInstallKit() error {
 }
 
 func (a *App) shutdown(context.Context) {
+	a.closeConfirmations()
 	if a.advStop != nil {
 		close(a.advStop)
 	}
@@ -175,7 +176,7 @@ func (a *App) beforeClose(context.Context) (prevent bool) {
 		case quitStopClinic:
 			if err := a.stopForQuit(); err != nil {
 				a.logln("error: " + err.Error())
-				a.notifyActionFailed("stop", err.Error())
+				a.alertDialog(failureTitle("stop"), err.Error())
 				return true
 			}
 		}
@@ -194,6 +195,10 @@ func (a *App) runningJob() string {
 
 func (a *App) askToQuitDuringJob(label string) {
 	if a.ctx == nil || !a.busyShown.CompareAndSwap(false, true) {
+		return
+	}
+	if request, ready := a.queueQuitDialog(label); ready {
+		a.emit("quit-requested", request)
 		return
 	}
 	go func() {

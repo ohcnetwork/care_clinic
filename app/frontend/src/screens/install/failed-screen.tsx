@@ -1,70 +1,139 @@
-import { useState } from "react";
+import { AlertTriangle, ArrowLeft, Download, RotateCcw } from "lucide-react";
+import { useRef, useState } from "react";
 
-import { AppUpdateCard } from "@/components/app-update-card";
-import { Screen } from "@/components/screen";
-import { SectionTitle } from "@/components/section-header";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Callout, LogButton } from "@/components/onboarding";
+import { Spinner } from "@/components/spinner";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { useAppUpdate, type AppUpdateController } from "@/hooks/use-app-update";
+import { errorText, megabytes } from "@/lib/format";
 import { useCare } from "@/state/care-store";
 
+import { InstallLayout } from "./install-layout";
+
+function FailedInstallUpdate({ controller }: { controller: AppUpdateController }) {
+  const { update, checking, problem, progress, active, disabled, check, install } = controller;
+
+  if (checking) {
+    return <p className="install-update-checking" role="status"><span aria-hidden="true"><Spinner /></span>Checking for a CARE Desktop update…</p>;
+  }
+  if (active) {
+    const phase = progress?.phase;
+    const title = phase === "downloading" ? `Downloading CARE Desktop ${update?.version || ""}…`
+      : phase === "verifying" ? "Checking the CARE Desktop download…"
+      : phase === "installing" ? "Updating the CARE Desktop application…"
+      : phase === "restarting" ? "CARE Desktop is restarting…"
+      : phase === "installer" ? "The CARE Desktop installer has opened"
+      : "Preparing the CARE Desktop update…";
+    const detail = phase === "installer" ? "Finish updating in the installer, then reopen CARE Desktop before trying setup again."
+      : phase === "installing" ? "Your computer may ask for permission to replace the app."
+      : phase === "restarting" ? "Reopen CARE Desktop after the update to try setup again."
+      : "Keep this window open until the update finishes.";
+    return (
+      <section className="on-card install-update" aria-label="CARE Desktop update">
+        <div role="status" aria-atomic="true"><h2>{title}</h2><p>{detail}</p></div>
+        {phase !== "restarting" && phase !== "installer" ? <Progress className="install-progress" aria-label="CARE Desktop update progress" /> : null}
+        {progress?.phase === "downloading" && progress.done > 0 ? <div className="install-update-meta">
+          {megabytes(progress.done)}{progress.total > 0 ? ` of ${megabytes(progress.total)}` : " downloaded"}
+        </div> : null}
+      </section>
+    );
+  }
+  if (problem) {
+    const updateFailed = problem.kind === "download" || problem.kind === "install";
+    const canRetryUpdate = updateFailed && update?.available;
+    const title = updateFailed ? "The CARE Desktop update didn't finish"
+      : problem.kind === "unavailable" ? `CARE Desktop ${problem.version} isn't available for this computer yet`
+      : "Couldn't check for a CARE Desktop update";
+    return (
+      <section className="on-card install-update" aria-label="CARE Desktop update">
+        <div role="alert">
+          <h2>{title}</h2>
+          <p>{updateFailed ? "Try updating again, or retry setup with your current version. The log file has the details."
+            : "You can try setup again with your current version, or check for an update later."}</p>
+        </div>
+        <div className="on-actions">
+          <Button disabled={disabled} onClick={() => void (canRetryUpdate ? install() : check())}>
+            {canRetryUpdate ? "Retry update" : "Check again"}
+          </Button>
+        </div>
+      </section>
+    );
+  }
+  if (!update?.available) return null;
+  return (
+    <section className="on-card install-update" aria-label="CARE Desktop update">
+      <div className="install-update-row">
+        <span className="on-tile" aria-hidden="true"><Download /></span>
+        <div className="on-grow">
+          <h2>CARE Desktop {update.version} is available</h2>
+          <p>Worth installing before you try again — it may be the fix.</p>
+        </div>
+        <Button className="install-update-primary" disabled={disabled} onClick={() => void install()}>Update now</Button>
+      </div>
+    </section>
+  );
+}
+
 export function FailedScreen() {
-  const { run, retryInstall, restartSetup, busy } = useCare();
+  const { retryInstall, restartSetup, busy } = useCare();
+  const pending = useRef(false);
   const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState("");
+  const update = useAppUpdate(retrying, true, () => pending.current);
+  const disabled = retrying || busy || update.active;
+
+  const retry = async () => {
+    if (pending.current || busy || update.isActive()) return;
+    pending.current = true;
+    setRetrying(true);
+    setRetryError("");
+    try {
+      await retryInstall();
+    } catch (error) {
+      setRetryError(/\b(cancelled|canceled|declined)\b/i.test(errorText(error))
+        ? "Cleanup was cancelled. Setup hasn't restarted and some unfinished installation may remain. Try again when you're ready."
+        : "The unfinished installation couldn't be cleared. Setup hasn't restarted. Try again, or share the log file with your support contact.");
+    } finally {
+      pending.current = false;
+      setRetrying(false);
+    }
+  };
 
   return (
-    <Screen className="px-[42px] pt-[44px] pb-[30px]">
-      <div className="flex items-start gap-3.5">
-        <span className="flex size-[34px] flex-none items-center justify-center rounded-full border border-danger-line bg-danger-bg font-mono text-base leading-none font-bold text-danger-ink">
-          !
-        </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-[-0.015em] text-ink">
-            Installation failed
-          </h1>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            Nothing was saved. Fix the issue below and try again.
-          </p>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-auto pt-5">
-        <Accordion type="single" collapsible>
-          <AccordionItem value="details">
-            <AccordionTrigger>
-              <SectionTitle title="Technical details" summary="For support only" />
-            </AccordionTrigger>
-            <AccordionContent>
-              <pre className="m-0 max-h-[260px] overflow-auto rounded-lg bg-[#0b1f17] px-4 py-3.5 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-[#d7f7e6]">
-                {run.failMessage}
-              </pre>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-        <div className="mt-4">
-          <AppUpdateCard disabled={retrying} />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3.5">
-        <Button
-          variant="primary"
-          size="lg"
-          className="shadow-lift disabled:shadow-none"
-          disabled={retrying || busy}
-          onClick={() => {
-            setRetrying(true);
-            void retryInstall().finally(() => setRetrying(false));
-          }}
-        >
-          Try again
+    <InstallLayout
+      failed
+      title="Something went wrong during installation"
+      subtitle="Installation stopped. Your clinic isn't ready to use yet."
+      footer={<>
+        <Button className="on-back" variant="ghost" disabled={disabled} onClick={() => {
+          if (!pending.current && !busy && !update.isActive()) restartSetup();
+        }}><ArrowLeft aria-hidden="true" />Back to setup</Button>
+        <p className="on-foot-note" role="status">{retrying ? "Clearing the unfinished installation…"
+          : update.active ? "Finish the CARE Desktop update before trying again."
+          : "Trying again clears the unfinished install first."}</p>
+        <Button variant="destructive" className="install-retry-action" disabled={disabled}
+          aria-describedby="install-retry-consequences" onClick={() => void retry()}>
+          {retrying ? <span aria-hidden="true"><Spinner /></span> : <RotateCcw aria-hidden="true" />}
+          {retrying ? "Clearing installation…" : "Try again"}
         </Button>
-        <Button disabled={retrying || busy} onClick={restartSetup}>Back to setup</Button>
+      </>}
+    >
+      <section className="on-card install-failure-card" aria-labelledby="install-failure-heading">
+        <div className="on-card-head">
+          <span className="on-tile on-large" aria-hidden="true"><AlertTriangle /></span>
+          <div className="on-grow"><h2 id="install-failure-heading">CARE couldn't finish setting up the clinic</h2><p>It stopped partway through. The details are in the log file.</p></div>
+        </div>
+        <LogButton />
+      </section>
+      <FailedInstallUpdate controller={update} />
+      <div className="install-retry-consequences" id="install-retry-consequences">
+        <Callout tone="danger" title="Trying again starts the backup and password steps over">
+          <p>The unfinished installation is cleared. Your clinic address and existing backups are kept. Choose the backup folder and admin password again, and save fresh recovery materials.</p>
+          <p>The old Desktop admin codes stop working. Keep your old backup recovery files — you may still need them to open earlier backups.</p>
+        </Callout>
       </div>
-    </Screen>
+      {retryError ? <Callout tone="danger" title="Setup hasn't restarted">{retryError}</Callout> : null}
+    </InstallLayout>
   );
 }

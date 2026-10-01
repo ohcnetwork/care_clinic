@@ -19,6 +19,8 @@ synthetic. Do not experiment against the only copy of a clinic.
 
 Related guides:
 
+- [Desktop workflows](desktop-workflows.md): the operator-facing Backups page,
+  restore dialog and Advanced unlock behavior.
 - [Architecture](architecture.md) and [repository map](repository-map.md):
   where this subsystem fits.
 - [Wails application](wails-application.md): desktop calls, authorization, jobs,
@@ -438,6 +440,46 @@ intermediates. A later successful scheduled cycle attempts abandoned-file
 cleanup, but that is not a guarantee of immediate removal or secure erasure.
 
 ## 5. Discovering and selecting a restore
+
+### Desktop backup summaries and restore consent
+
+Overview presents the newest backup's status, size and encryption without
+printing its filesystem location. Backups retains the effective destination
+and folder-management controls; hiding the summary path does not move files or
+change the backup policy.
+
+The policy card calls `GetBackupPolicy()` for the 86,400-second interval and
+installed retention value. Missing or invalid settings produce a retryable
+policy error, not a hard-coded default. The interval is not a fixed nightly
+time. Current backup activity and completion come from native state and events;
+request acceptance alone cannot mark a backup successful.
+
+There is one visible **Restore from a backup file** route for local and imported
+files. It calls `ChooseBackupFile`, then `InspectBackupFile`, and presents the
+database-only or database-plus-files scope. Before `RestoreFromFile` it
+re-inspects the selected metadata, checks the Desktop password, requires the
+selected recovery file for encryption and requires explicit replacement
+acknowledgement. The protected native job performs the deeper checks described
+below; the UI does not replace them.
+
+Cancel and Forgot Desktop password remain usable before native submission,
+including while a read-only picker or preflight result is pending. Cancellation
+invalidates that operation, clears the password and acknowledgement, and keeps
+the last accepted file selection. A late picker cannot replace it or reopen the
+dialog. After submission, cancellation is disabled because the native job may
+already be modifying data.
+
+Desktop updates block backup mutations with both rendered disabled controls
+and a live guard. Update progress invalidates earlier folder picks, backup and
+recovery picks, and restore preflight. Even if the installer handoff is
+acknowledged before an old promise returns, that old work cannot write a new
+destination or start a restore. The user must repeat the interrupted action.
+
+See [`backups-tab.tsx`](../app/frontend/src/screens/panel/backups-tab.tsx),
+[`restore-backup-dialog.tsx`](../app/frontend/src/screens/panel/restore-backup-dialog.tsx),
+and their [UI regressions](../app/frontend/tests/backups.spec.ts).
+
+### Native backup inventory
 
 [`ListBackups()`](../app/internal/backup/restore.go) reads only the configured
 backup folder. A missing folder returns no entries without an error.
@@ -1140,11 +1182,7 @@ The two runtime deployment sources in scope are:
 | [`storage/backup.go`](../app/internal/storage/backup.go) | Newest-set sizing, `BackupNeed`, days-left estimate, and `backup-status` parsing. |
 | [`deployments/backup.Dockerfile`](../deployments/backup.Dockerfile) | PostgreSQL-image-derived tool image with OpenSSL added. |
 
-### Older design notes versus current implementation
-
-The backup sections of [`design.md`](../design.md) explain the original
-dependency direction and certificate-based unattended encryption, but their
-restore file map and drop/create/load flow predate staged restore.
+### Current restore architecture
 
 The current implementation has `restore_data.go` and `restore_journal.go`,
 `BackendImage` and `EnsureRestoreImages` dependencies, and a
@@ -1153,6 +1191,6 @@ database, retains originals, records the four phases, and finalizes after
 successful startup. There is no current `restoreDB`/`restoreFiles` live
 drop-and-load path or old `waitForDB` helper in this package.
 
-Where those older diagrams or MinIO terminology differ, follow the current
-sources and this guide's staged protocol. Silo continues to use the existing
+Follow the current sources and this guide's staged protocol rather than
+historical direct-replacement diagrams. Silo continues to use the existing
 `minio` service and volume names; no migration or renaming is implied.

@@ -20,7 +20,7 @@ The control panel's "rebuild frontend" action builds the **CARE web application*
 
 ## Source layout and tools
 
-The Go module is [`app/go.mod`](../app/go.mod), not the repository root. It currently declares Go 1.26 and Wails v2.12.0. The desktop frontend uses npm and its checked-in [`package-lock.json`](../app/frontend/package-lock.json).
+The Go module is [`app/go.mod`](../app/go.mod), not the repository root. It currently declares Go 1.26 and Wails v2.16.0. The desktop frontend uses npm and its checked-in [`package-lock.json`](../app/frontend/package-lock.json).
 
 Use Node 22 for local development, matching CI and release packaging.
 
@@ -41,7 +41,7 @@ The desktop's build prerequisites are Go, Node/npm, the Wails CLI, and the nativ
 For a CLI version matching the current Go dependency:
 
 ```sh
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
 ```
 
 Use the version in `go.mod` when that dependency changes. Both CI and release
@@ -80,6 +80,59 @@ Wails invokes the configured frontend install/build commands as part of its buil
 `wails dev` is not a fake bridge. It can find the current user's saved clinic configuration, refresh installed files, advertise the name, and ask the backend to start the stack. Use an isolated machine/user and Docker environment for destructive end-to-end work.
 
 Changing the repository directory does not create a separate clinic: installation paths and the Compose project identity are deliberately stable. Do not experiment with restore or uninstall against a production clinic just because the desktop executable is a development build.
+
+### Safe desktop UI tests
+
+The Playwright tests render the real React components with a simulated Wails
+host, not a second implementation of the UI:
+
+```sh
+cd app/frontend
+npm run test:ui
+```
+
+If Playwright reports that Chromium is missing, install its browser with
+`npx playwright install chromium`. Dependencies belong in the checked-in
+manifest/lockfile; do not add a separate preview framework.
+
+[`playwright.config.ts`](../app/frontend/playwright.config.ts) owns a loopback
+Vite server at `127.0.0.1:41783`, starts it with `--mode test --strictPort`, and
+does not reuse an existing server. Its entry is
+`tests/fixtures/index.html`; the fixture throws unless both Vite development
+mode and the explicit test mode are active. Ordinary `npm run dev` does not
+install a fake bridge, and the production entry does not import the fixture.
+There is no public preview page or design-board server to launch.
+
+[`host.ts`](../app/frontend/tests/fixtures/host.ts) provides explicit test
+scenarios, bridge-call recording, held/rejected requests and emitted native
+events through `window.careTest`. It never runs installers, alters trust or
+networking, restores records, or removes a clinic. Keep it test-only; never add
+production fallbacks that report simulated native success.
+
+Use the smallest related group while changing a feature:
+
+```sh
+cd app/frontend
+npm run test:ui -- tests/lifecycle.spec.ts tests/install.spec.ts
+npm run test:ui -- tests/backups.spec.ts -g 'handoff|restore'
+```
+
+| Test file | Main coverage |
+| --- | --- |
+| `start-screen.spec.ts` | No premature role persistence, update phases, navigation, keyboard focus and window sizes. |
+| `onboarding.spec.ts` | Client discovery/connection, setup prerequisites, recovery exports, Review and native acceptance gates. |
+| `install.spec.ts` | Actual log milestones, indeterminate progress, no-log warning and failure/retry behavior. |
+| `lifecycle.spec.ts` | Permission/quit requests, stale IDs, single-flight answers, paired setup/uninstall completion and global update guards. |
+| `panel.spec.ts` | Overview, Storage, requirements, mobile QR and truthful status/error handling. |
+| `backups.spec.ts` | Policy/destination, restore consent, cancellation and stale selections across updates. |
+| `advanced.spec.ts` | Fixed 15-minute unlock, tab-leave clearing, passwords/recovery and safe environment editing. |
+| `plugins.spec.ts` | Catalog/custom validation, typed settings, save/apply outcomes and update/job exclusion. |
+
+The suite checks layouts at 1100 by 700 and 720 by 560. Failure traces go to the
+ignored `app/frontend/test-results/` directory. Browser tests are evidence of UI
+and bridge-contract behavior, not proof that native elevation, an external
+installer or a real clinic restore succeeded. Use an isolated native environment
+for those checks and state that distinction in review notes.
 
 ## Embedding pipeline
 
@@ -156,6 +209,22 @@ node scripts/check-bindings.mjs
 ```
 
 These checks do not stage the kit or build a release.
+
+For changed native consent or setup contracts, the existing focused suite can
+run without real elevation:
+
+```sh
+cd app
+go test -race . -run 'Test(Confirmation|Onboarding|.*Recovery)'
+golangci-lint run --timeout=5m
+```
+
+The repository's [pre-commit configuration](../.pre-commit-config.yaml) also
+checks YAML, file endings and whitespace, formats changed Go files, and runs
+package-wide `golangci-lint --fix`. Inspect any hook edits and rerun affected
+checks before committing; do not bypass a failed hook to claim completion.
+Changes to the root store, global dialogs or update controller warrant the full
+UI suite because all screens share them.
 
 ## Release identity and pins
 

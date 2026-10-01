@@ -78,15 +78,16 @@ func (e *Clinic) minioCreds() (accessKey, secretKey string) {
 }
 
 func (e *Clinic) backendEnv() map[string]string {
+	env, _ := e.readBackendEnv()
+	return env
+}
+
+func (e *Clinic) readBackendEnv() (map[string]string, error) {
 	b, err := os.ReadFile(filepath.Join(e.InstallDir, "backend.env"))
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	env, err := dotenv.Parse(bytes.NewReader(b))
-	if err != nil {
-		return nil
-	}
-	return env
+	return dotenv.Parse(bytes.NewReader(b))
 }
 
 func (e *Clinic) corazaMode() string {

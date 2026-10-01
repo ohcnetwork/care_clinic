@@ -179,6 +179,29 @@ func TestInspectDistinguishesAbsentFromUnreadable(t *testing.T) {
 	}
 }
 
+func TestWithoutHostOrMarker(t *testing.T) {
+	const other = "127.0.0.1 old-clinic.local " + marker + "\n"
+	const target = "10.0.0.5 care.local\n"
+	const keep = "127.0.0.1 localhost\n"
+	for _, c := range []struct {
+		name, in, want string
+		changed        bool
+	}{
+		{"target host without marker", keep + target, keep, true},
+		{"other marked host", keep + other, keep, true},
+		{"both", keep + target + other, keep, true},
+		{"none", keep + "127.0.0.1 mycare.local # someone else\n",
+			keep + "127.0.0.1 mycare.local # someone else\n", false},
+		{"marked line naming the clinic counts once",
+			keep + "127.0.0.1 care.local other.local " + marker + "\n", keep, true},
+	} {
+		got, changed := withoutHostOrMarker(c.in, "care.local")
+		if got != c.want || changed != c.changed {
+			t.Errorf("%s: got %q (%v), want %q (%v)", c.name, got, changed, c.want, c.changed)
+		}
+	}
+}
+
 func TestWithoutHost(t *testing.T) {
 	cases := []struct {
 		name, in, want string

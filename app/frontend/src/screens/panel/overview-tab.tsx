@@ -1,307 +1,177 @@
-import { Database, HardDrive, Server } from "lucide-react";
+import { Archive, Copy, ExternalLink, Play, RefreshCw, RotateCcw, Smartphone, Square, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { Spinner } from "@/components/spinner";
-import { StorageRow } from "@/components/storage-meter";
-import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { bridge } from "@/lib/bridge";
-import { shortDate } from "@/lib/format";
-import { cn } from "@/lib/utils";
-import { RESTORE_PENDING_NOTICE, useCare, type SystemState } from "@/state/care-store";
+import { diskSize } from "@/lib/format";
+import { RESTORE_PENDING_NOTICE, useCare } from "@/state/care-store";
+import { PhoneDialog } from "./phone-dialog";
+import { RequirementsCard, usePanelRequirements } from "./panel-requirements";
+import { panelStatus } from "./panel-status";
+import { PanelBadge, PanelLogButton, PanelNotice, PanelPageHeader, usePanelTask } from "./panel-ui";
+import { usePanelUpdateLock } from "./panel-update-lock";
 
-const SYSTEM: Record<
-  Exclude<SystemState, "unknown">,
-  { label: string; sub: string; glyph: string; tone: string }
-> = {
-  running: {
-    label: "Running",
-    sub: "Live and reachable on the clinic WiFi.",
-    glyph: "●",
-    tone: "bg-brand-bg text-brand-ink",
-  },
-  stopped: {
-    label: "Stopped",
-    sub: "The clinic system is not running.",
-    glyph: "■",
-    tone: "bg-hair text-muted-foreground",
-  },
-  partial: {
-    label: "Starting…",
-    sub: "Some services are still coming up.",
-    glyph: "■",
-    tone: "bg-warn-bg text-warn-ink",
-  },
-};
-
-export function OverviewTab() {
-  const {
-    system,
-    systemDetail,
-    restorePending,
-    busy,
-    busyLabel,
-    autostart,
-    setAutostart,
-    runAction,
-    backups,
-    mdnsName,
-    setTab,
-    storage,
-  } = useCare();
-
-  const view = SYSTEM[system === "unknown" ? "stopped" : system];
-  const running = system === "running";
-  const partial = system === "partial";
-  const stopped = !running && !partial;
-  const unreachable = system === "unknown" && systemDetail !== "";
-  const latest = backups[0];
-  const lastRun = storage?.last_run;
-  const backupFailed = lastRun?.state === "failed";
-  const backupStale = storage?.stale ?? false;
-  const backupTitle = backupFailed
-    ? "Last backup failed"
-    : backupStale
-      ? "Backups have stopped"
-      : latest
-        ? "Up to date"
-        : "No backups yet";
-  const backupSub = backupFailed
-    ? lastRun?.reason === "disk_full"
-      ? "The backup drive is full."
-      : lastRun?.message
-        ? `Cause: ${lastRun.message}.`
-        : "See the Backups tab."
-    : latest
-      ? `Last ${shortDate(latest.label)}${latest.encrypted ? ", encrypted" : ""}`
-      : "Run one now or wait for the daily backup";
-
-  const copyAddress = () =>
-    void navigator.clipboard.writeText(mdnsName).then(
-      () => toast("Address copied"),
-      () => toast(mdnsName),
-    );
-
-  return (
-    <div className="flex flex-col gap-3">
-      {restorePending ? (
-        <Alert variant="danger">
-          {RESTORE_PENDING_NOTICE} Recovery data is kept until CARE starts successfully.
-        </Alert>
-      ) : null}
-      <Card className="flex items-center gap-4 p-5">
-        <span
-          className={cn(
-            "flex size-10 flex-none items-center justify-center rounded-full text-base font-bold",
-            busy ? "bg-warn-bg text-warn-ink" : unreachable ? "bg-danger-bg text-danger-ink" : view.tone,
-          )}
-        >
-          {busy ? <Spinner /> : unreachable ? "!" : view.glyph}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[17px] font-bold text-ink">
-            {busy
-              ? `${busyLabel}…`
-              : system === "unknown"
-                ? unreachable
-                  ? "Can't check the clinic"
-                  : "checking…"
-                : view.label}
-          </div>
-          <div className="mt-0.5 text-[13.5px] text-muted-foreground">
-            {busy ? "Please wait a moment." : system === "unknown" ? systemDetail : view.sub}
-          </div>
-        </div>
-        <div className="flex flex-none items-center gap-2">
-          <Button
-            variant={stopped && !busy ? "primary" : "default"}
-            disabled={busy || running || partial}
-            onClick={() => void runAction("start")}
-          >
-            Start
-          </Button>
-          <Button disabled={busy || stopped} onClick={() => void runAction("stop")}>
-            Stop
-          </Button>
-          <Button
-            disabled={busy || stopped || restorePending}
-            onClick={() => void runAction("restart")}
-          >
-            Restart
-          </Button>
-          <label className="ml-1.5 flex cursor-pointer items-center gap-[9px] text-[13px] font-semibold text-ink2 select-none">
-            <Switch
-              checked={autostart}
-              onCheckedChange={(on) => void setAutostart(on)}
-              aria-label="Start at login"
-            />
-            <span>Start at login</span>
-          </label>
-        </div>
-      </Card>
-
-      <div className="grid grid-cols-[1.15fr_1fr] gap-3">
-        <div className="flex flex-col rounded-xl bg-brand-deep p-5 text-brand-bg">
-          <div className="text-[11.5px] font-bold tracking-[0.06em] text-brand-line uppercase">
-            Clinic address
-          </div>
-          <div className="mt-1.5 font-mono text-[26px] font-bold text-white">{mdnsName}</div>
-          <div className="mt-1.5 text-[13px] text-brand-pale">
-            Open on any device on the clinic WiFi.
-          </div>
-          <div className="min-h-3.5 flex-1" />
-          <div className="flex flex-wrap gap-2">
-            <Button variant="white" onClick={() => void bridge.OpenURL(`https://${mdnsName}/`)}>
-              Open
-            </Button>
-            <Button variant="glass" onClick={copyAddress}>
-              Copy
-            </Button>
-            <Button
-              variant="glass"
-              onClick={() => void bridge.OpenURL("https://docs.ohc.network/")}
-            >
-              Open docs
-            </Button>
-            <Button
-              variant="glass"
-              disabled={busy || !running}
-              onClick={() => void bridge.OpenURL(`http://${mdnsName}/setup`)}
-            >
-              Connect phone or tablet
-            </Button>
-          </div>
-        </div>
-
-        <Card className="flex flex-col p-5">
-          <div className="text-[11.5px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
-            Backups
-          </div>
-          <div
-            className={cn(
-              "mt-[7px] text-base font-bold",
-              backupFailed || backupStale ? "text-danger-ink" : "text-ink",
-            )}
-          >
-            {backupTitle}
-          </div>
-          <div className="mt-1 text-[13px] text-muted-foreground">{backupSub}</div>
-          <div className="min-h-3.5 flex-1" />
-          <div className="flex gap-2">
-            <Button onClick={() => setTab("backups")}>View backups</Button>
-            <Button
-              variant="soft"
-              disabled={busy || restorePending}
-              onClick={() => void runAction("backup-now")}
-            >
-              Back up now
-            </Button>
-          </div>
-        </Card>
-      </div>
-
-      <StorageCard />
-    </div>
-  );
+function backupTime(label: string) {
+  const compact = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})/.exec(label);
+  const match = compact
+    ? ["", `${compact[1]}-${compact[2]}-${compact[3]}`, `${compact[4]}:${compact[5]}`]
+    : /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/.exec(label);
+  if (!match) return "Last backup saved";
+  const date = new Date(`${match[1]}T${match[2]}:00`);
+  if (Number.isNaN(date.getTime())) return "Last backup saved";
+  return date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-const SHARED_DRIVE_NOTE =
-  "Same drive as the clinic's data. A USB drive keeps the backups safe if this computer's drive fails.";
-
-function StorageCard() {
-  const { storage, recheckStorage, setTab, runAction, busy, restorePending } = useCare();
-  const [checking, setChecking] = useState(false);
-
-  const recheck = async () => {
-    setChecking(true);
-    try {
-      await recheckStorage();
-    } finally {
-      setChecking(false);
-    }
+export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
+  const care = useCare();
+  const requirements = usePanelRequirements();
+  const updateLock = usePanelUpdateLock();
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  const action = usePanelTask();
+  const address = usePanelTask();
+  const autostart = usePanelTask();
+  const status = panelStatus(care);
+  const startupError = care.autostartError;
+  const locked = care.busy || requirements.working || action.working;
+  const mutationLocked = locked || updateLock.active;
+  const run = (name: string) => {
+    if (locked || updateLock.isActive()) return;
+    void action.run(() => care.runAction(name),
+      "That didn't start. Try again, or open the log file for support.");
+  };
+  const canStart = care.system === "stopped" && !care.trouble;
+  const copy = async () => {
+    if (await address.run(() => navigator.clipboard.writeText(care.mdnsName),
+      "Couldn't copy the address. Select the address above and copy it instead.")) toast("Address copied");
   };
 
-  const drives = storage?.drives ?? [];
-  const hasVM = drives.some((d) => d.id === "vm");
-  const backup = storage?.backup;
-  const checkedAt = storage?.checked_at
-    ? new Date(storage.checked_at * 1000).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "";
-
-  return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center gap-3 px-5 pt-4 pb-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-[11.5px] font-bold tracking-[0.06em] text-muted-foreground uppercase">
-            Storage
-          </div>
-          <div className="mt-0.5 text-[12.5px] text-faint">
-            {checkedAt ? `Checked at ${checkedAt} · every 5 minutes` : "Checking…"}
-          </div>
-        </div>
-        <Button disabled={checking} onClick={() => void recheck()}>
-          {checking ? <Spinner className="size-3.5" /> : null}
-          {checking ? "Checking…" : "Check now"}
-        </Button>
+  return <div className="panel-page" aria-label="Overview">
+    <PanelPageHeader title="Overview" subtitle="Your clinic at a glance." />
+    {care.restorePending ? <PanelNotice title="An earlier restore needs to finish">
+      {RESTORE_PENDING_NOTICE} Recovery data is kept until CARE starts successfully.
+    </PanelNotice> : null}
+    <section className={`panel-card panel-hero ${status.tone === "danger" ? "panel-hero-danger" : ""}`} aria-label="Clinic status">
+      <div className={`panel-orb panel-tone-${status.tone}`} aria-hidden="true">
+        {status.working ? <Spinner /> : status.tone === "danger" ? <TriangleAlert />
+          : <span className={`panel-orb-dot ${care.system === "stopped" ? "panel-orb-stop" : ""}`} />}
       </div>
-      {drives.map((drive) => (
-        <StorageRow
-          key={drive.id}
-          className="border-t border-hair"
-          icon={drive.id === "vm" ? Server : HardDrive}
-          label={drive.label}
-          path={drive.id === "vm" ? undefined : drive.path}
-          free={drive.free}
-          total={drive.total}
-          level={drive.level}
-          message={drive.message}
-          note={
-            drive.id === "vm"
-              ? "The virtual disk Rancher Desktop keeps the clinic's database and uploads in."
-              : hasVM
-                ? "Rancher Desktop's virtual disk is a file on this drive and grows into it as the clinic fills it."
-                : undefined
-          }
-          action={
-            drive.cleanable ? (
-              <Button
-                size="sm"
-                disabled={busy || restorePending}
-                title="Removes old CARE images and Docker's build cache. Clinic data is not touched."
-                onClick={() => void runAction("free-space")}
-              >
-                Free up space
-              </Button>
-            ) : undefined
-          }
-        />
-      ))}
-      {backup && backup.dir ? (
-        <StorageRow
-          className="border-t border-hair"
-          icon={Database}
-          label="Backups"
-          path={backup.dir}
-          free={backup.free}
-          total={backup.total}
-          level={backup.level}
-          message={backup.message}
-          note={backup.shares_docker_drive ? SHARED_DRIVE_NOTE : undefined}
-          action={
-            backup.level !== "ok" ? (
-              <Button size="sm" onClick={() => setTab("backups")}>
-                Change folder
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : null}
-    </Card>
-  );
+      <div className="panel-hero-copy" role="status" aria-live="polite">
+        <h2 className={`panel-state-${status.tone}`}>{status.label}</h2>
+        <p>{status.detail}</p>
+        {care.busy && status.available ? <p>{care.busyLabel}…</p> : null}
+      </div>
+      <div className="panel-hero-actions">
+        {care.system === "unknown" ? <>
+          <Button disabled={locked} onClick={() => void action.run(care.refresh,
+            "Couldn't check the clinic. Try again, or open the log file for support.")}>
+            <RefreshCw aria-hidden="true" />Check again
+          </Button>
+          <Button disabled={requirements.working} onClick={onDiagnose}>See what&apos;s wrong</Button>
+        </> : care.trouble ? <>
+          <Button variant="primary" disabled={mutationLocked} onClick={() => run(care.restorePending ? "start" : "restart")}>
+            <RotateCcw aria-hidden="true" />{care.restorePending ? "Start clinic" : "Restart clinic"}
+          </Button>
+          <Button disabled={requirements.working} onClick={onDiagnose}>See what&apos;s wrong</Button>
+        </> : <>
+          {canStart ? <Button variant="primary" disabled={mutationLocked} onClick={() => run("start")}>
+            <Play aria-hidden="true" />Start clinic
+          </Button> : <>
+            <Button disabled={mutationLocked} onClick={() => run("stop")}><Square aria-hidden="true" />Stop</Button>
+            <Button disabled={mutationLocked || care.restorePending} onClick={() => run("restart")}><RotateCcw aria-hidden="true" />Restart</Button>
+          </>}
+          <label className="panel-autostart">
+            <Switch checked={care.autostart} disabled={mutationLocked || autostart.working || !care.autostartReady || care.autostartSaving}
+              aria-label="Start when this computer starts"
+              onCheckedChange={(on) => {
+                if (locked || updateLock.isActive() || autostart.working || !care.autostartReady || care.autostartSaving) return;
+                void autostart.run(() => care.setAutostart(on),
+                  "Couldn't save the start preference. Try again, or open the log file for support.");
+              }} />
+            <span>Start when this computer starts</span>
+          </label>
+        </>}
+      </div>
+      {action.error || autostart.error || startupError ? <div className="panel-hero-error">
+        <p className="panel-inline-error" role="alert">{action.error || autostart.error || startupError}</p>
+        <div className="panel-actions">
+          {startupError ? <Button disabled={locked || autostart.working} onClick={() => void autostart.run(care.recheckAutostart,
+            "Couldn't check the start preference. Try again, or open the log file for support.")}>
+            Check start preference
+          </Button> : null}
+          <PanelLogButton />
+        </div>
+      </div> : null}
+    </section>
+    <RequirementsCard />
+    <div className="panel-overview-grid">
+      <section className="panel-address-card" aria-label="Clinic address">
+        <h2 className="panel-eyebrow">Clinic address</h2>
+        <div className="panel-address">{care.mdnsName}</div>
+        <p>{status.available ? "Open on any computer, phone or tablet on the clinic Wi-Fi."
+          : care.system === "stopped" && !care.trouble ? "Works again as soon as the clinic is started."
+            : "Not reachable right now."}</p>
+        <div className="panel-card-spacer" />
+        <div className="panel-actions">
+          <Button variant="white" disabled={!status.available || locked || address.working}
+            onClick={() => void address.run(() => bridge.OpenURL(`https://${care.mdnsName}/`),
+              "Couldn't open CARE. Try again, or type the clinic address into your browser.")}>
+            <ExternalLink aria-hidden="true" />Open CARE
+          </Button>
+          <Button variant="glass" disabled={locked || address.working} onClick={() => void copy()}>
+            <Copy aria-hidden="true" />Copy
+          </Button>
+          <Button variant="glass" disabled={!status.available || locked} onClick={() => setPhoneOpen(true)}>
+            <Smartphone aria-hidden="true" />Connect a phone or tablet
+          </Button>
+        </div>
+        {address.error ? <p className="panel-inline-error" role="alert">{address.error}</p> : null}
+      </section>
+      <BackupSummary locked={locked} available={status.available} onBackup={() => run("backup-now")} />
+    </div>
+    {phoneOpen ? <PhoneDialog onClose={() => setPhoneOpen(false)} /> : null}
+  </div>;
+}
+
+function BackupSummary({ locked, available, onBackup }: { locked: boolean; available: boolean; onBackup: () => void }) {
+  const { backups, backupsError, storage, storageError, busy, busyLabel, restorePending, setTab } = useCare();
+  const updateLock = usePanelUpdateLock();
+  const latest = backups[0];
+  const failed = !storageError && storage?.last_run.state === "failed";
+  const stale = !storageError && storage?.stale;
+  const automaticRunning = !storageError && storage?.last_run.state === "running" && storage.last_run.at > 0 &&
+    Date.now() - storage.last_run.at * 1000 < 6 * 60 * 60 * 1000;
+  const working = (busy && busyLabel === "Backing up") || automaticRunning;
+  const needsAttention = failed || stale;
+  const badge = backupsError ? "Couldn't check" : working ? "Working" : failed ? "Last backup failed"
+    : stale ? "Needs attention" : latest ? storage?.newest_backup_at && !storageError ? "Up to date" : "Saved" : "No backups yet";
+  const title = backupsError ? "Couldn't read the backups" : working ? "A backup is running"
+    : failed ? "The last backup didn't finish" : stale ? "No recent backup"
+      : latest ? backupTime(latest.label) : "Your first backup is still to come";
+  const details = [
+    latest?.size_bytes > 0 ? diskSize(latest.size_bytes) : "",
+    latest?.encrypted ? "encrypted" : "",
+  ].filter(Boolean).join(" · ");
+  return <section className="panel-card panel-backup-summary" aria-label="Backup summary">
+    <div className="panel-row panel-between">
+      <h2 className="panel-eyebrow">Backups</h2>
+      <PanelBadge tone={backupsError || needsAttention ? "danger" : latest ? "ok" : "neutral"} working={working}>{badge}</PanelBadge>
+    </div>
+    <h2>{title}</h2>
+    <p className="panel-small">{backupsError ? "Check the backup folder, then try again from Backups."
+      : failed ? storage?.last_run.reason === "disk_full"
+        ? "Make room in the backup folder or choose another location."
+        : "Check the backup folder, then try Back up now."
+        : stale ? "Leave CARE running and check that the backup folder is available."
+          : latest ? details : working ? "Keep CARE running while it finishes."
+            : "Backups run automatically while CARE is running. You can also start one now."}</p>
+    <div className="panel-card-spacer" />
+    <div className="panel-actions">
+      <Button disabled={locked} onClick={() => setTab("backups")}>{needsAttention ? "Fix this" : "View backups"}</Button>
+      <Button variant="soft" disabled={locked || updateLock.active || !available || restorePending || working}
+        onClick={onBackup}><Archive aria-hidden="true" />Back up now</Button>
+    </div>
+  </section>;
 }

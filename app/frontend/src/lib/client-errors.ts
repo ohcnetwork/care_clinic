@@ -4,6 +4,7 @@ export type FriendlyError = {
   title: string;
   message: string;
   tips?: string[];
+  action?: "setup" | "disconnect" | "repair";
 };
 
 type Rule = { match: RegExp; error: FriendlyError };
@@ -15,6 +16,30 @@ const sameNetworkTips = [
 ];
 
 const rules: Rule[] = [
+  {
+    match: /^this computer has an unfinished clinic setup/i,
+    error: {
+      title: "This computer has an unfinished clinic setup",
+      message: "It was set up as a clinic computer before. Remove that in Setup first, then come back and connect.",
+      action: "setup",
+    },
+  },
+  {
+    match: /^this computer is sending the clinic address to itself/i,
+    error: {
+      title: "This computer is pointing the clinic address at itself",
+      message: "An old setting sends the clinic address to this computer instead of the clinic's server. Connecting removes it.",
+      tips: ["Click Connect and fix, and approve the request when your computer asks."],
+      action: "repair",
+    },
+  },
+  {
+    match: /^could not save the clinic connection/i,
+    error: {
+      title: "The connection couldn't be saved",
+      message: "No certificate was installed. Try again. If it keeps happening, restart this computer.",
+    },
+  },
   {
     match: /^could not (install|remove) the clinic certificate[\s\S]*(cancel|-128)/i,
     error: {
@@ -32,7 +57,7 @@ const rules: Rule[] = [
     match: /^(enter the clinic address|enter a clinic address|enter just the clinic address|use the clinic's local address)/i,
     error: {
       title: "That address doesn't look right",
-      message: "Type only the clinic's name, for example care.local, with nothing else before or after it.",
+      message: "Type only the clinic's name, for example care, with nothing else before or after it.",
       tips: ["You can find the address on the clinic's main computer, in CARE Desktop."],
     },
   },
@@ -104,8 +129,9 @@ const rules: Rule[] = [
   {
     match: /^remove this computer's current clinic access/i,
     error: {
-      title: "Already connected to another clinic",
+      title: "This computer is set up for another clinic",
       message: "This computer is set up for a different clinic. Disconnect it first, then connect to the new one.",
+      action: "disconnect",
     },
   },
   {
@@ -117,7 +143,7 @@ const rules: Rule[] = [
     },
   },
   {
-    match: /^something else is still running/i,
+    match: /^(something else is still running|CARE Desktop is closing)/i,
     error: {
       title: "Please wait a moment",
       message: "CARE Desktop is still finishing another task. Try again in a few seconds.",

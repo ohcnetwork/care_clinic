@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,7 +34,23 @@ type App struct {
 	activeJob atomic.Value
 	busyShown atomic.Bool
 
+	// The clinic root FindClinic validated, held only in memory until Connect
+	// pins it, so looking for a clinic writes nothing.
+	pendingMu   sync.Mutex
+	pendingURL  string
+	pendingRoot string
+
 	quitConfirmed atomic.Bool
+	quitDialogMu  sync.Mutex
+	quitUIReady   bool
+	quitSequence  uint64
+	quitRequest   *QuitRequest
+
+	confirmationMu       sync.Mutex
+	confirmationUIReady  bool
+	confirmationClosed   bool
+	confirmationSequence uint64
+	confirmation         *pendingConfirmation
 
 	advMu    sync.Mutex
 	adv      *mdns.Advertiser
@@ -91,6 +109,62 @@ func (a *App) emit(event string, data ...any) {
 	}
 }
 
+// logError writes the error a bound method is about to hand back to the
+// interface into the log file, naming the method, so a friendly message on
+// screen always has a technical counterpart the operator can send to support.
+// It is deferred with a pointer to the named return value:
+//
+//	func (a *App) Something() (err error) {
+//		defer a.logError(&err)
+//
+// The job helpers do this for everything that runs through them, so only bound
+// methods that do their own locking need the line - and nothing needs it twice.
+func (a *App) logError(err *error) {
+	if err != nil {
+		*err = a.logged(*err)
+	}
+}
+
+// loggedError marks an error that is already in the log file, so a bound method
+// and the helper it ran through do not each write the same line.
+type loggedError struct{ error }
+
+func (a *App) logged(err error) error {
+	var already loggedError
+	if err == nil || errors.As(err, &already) {
+		return err
+	}
+	a.logln(boundMethod() + ": " + err.Error())
+	return loggedError{err}
+}
+
+// boundMethod walks out to the exported App method the interface actually
+// called, so the log names ConnectClient rather than the helper that happened
+// to produce the error.
+func boundMethod() string {
+	pcs := make([]uintptr, 12)
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(2, pcs)])
+	for {
+		frame, more := frames.Next()
+		if _, method, ok := strings.Cut(frame.Function, "(*App)."); ok {
+			name, _, _ := strings.Cut(method, ".")
+			if name != "" && name[0] >= 'A' && name[0] <= 'Z' {
+				return name
+			}
+		}
+		if !more {
+			return "CARE Desktop"
+		}
+	}
+}
+
+// reportError puts a failure on the interface. It replaces the native error
+// dialogs that used to interrupt whatever the operator was doing; the desktop
+// decides how to show it. The caller has already written the line to the log.
+func (a *App) reportError(label, detail string) {
+	a.emit("care-error", label, detail)
+}
+
 // Failures are logged and conflicts are shown here; background callers retry.
 func (a *App) startAdvertise() error {
 	a.advMu.Lock()
@@ -138,7 +212,7 @@ func (a *App) reportAdvertiseError(err error) {
 	a.advError = err
 	a.logln("mDNS: " + err.Error())
 	if errors.As(err, &conflict) && !continuingConflict {
-		go a.notifyActionFailed("network-name", err.Error()+
+		a.reportError(failureTitle("network-name"), err.Error()+
 			"\n\nNetwork advertising is paused. Ask your clinic administrator to resolve the duplicate addresses. No clinic data has been changed.")
 	}
 }

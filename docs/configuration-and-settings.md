@@ -71,8 +71,9 @@ Image building and restore add their own working material. See the relevant guid
 
 ## Persisted `Config`
 
-First run persists the choice to host a clinic (**Server**) or connect to one
-(**Client**). Clients retain the clinic address and use native certificate
+Entering actual setup persists the choice to host a clinic (**Server**); attempting
+a connection persists the choice to use a clinic (**Client**). The Start screen
+itself only navigates and does not save a role. Clients retain the clinic address and use native certificate
 bootstrap, without provisioning Docker/Git or advertising mDNS. Role selection
 is not an ordinary settings toggle; it remains locked until successful uninstall.
 Failed-install cleanup/retry preserves it. The one exception is the **Back**
@@ -98,7 +99,7 @@ See [client removal](native-integrations.md#removing-client-access).
 
 | JSON field | Go field | Meaning |
 | --- | --- | --- |
-| `role` | `Role` (`string`) | Persisted `server` or `client`; empty before selection and after successful uninstall. Failed-install cleanup does not reset it. |
+| `role` | `Role` (`string`) | Persisted `server` or `client`; empty before setup/connection begins and after successful uninstall. Failed-install cleanup does not reset it. |
 | `client_url` | `ClientURL` (`string`) | Normalized HTTPS clinic address for a client, empty when disconnected. |
 | `client_certificate` | `ClientCertificate` (`string`) | Pinned public root PEM; omitted when empty. |
 | `client_certificate_owned` | `ClientCertificateOwned` (`bool`) | Whether this client owns certificate installation/cleanup; omitted when false. |
@@ -108,6 +109,7 @@ See [client removal](native-integrations.md#removing-client-access).
 | `backup_dir` | `BackupDir` | Effective selected backup directory, not just the picker parent. Empty means use the engine default. |
 | `admin_pw_hash` | `AdminPwHash` | Bcrypt hash for local desktop administrative authorization. |
 | `admin_recovery_hashes` | `AdminRecoveryHashes` | Six SHA-256 code-hash slots; a used slot is cleared. No plaintext codes. |
+| `admin_recovery_path` | `AdminRecoveryPath` | Exported Desktop recovery-code sheet location. Setup checks that a regular, readable file still contains the six distinct saved codes; symlinks and oversized sheets are rejected. |
 | `recovery_failures` / `recovery_retry_after` | `RecoveryFailures` / `RecoveryRetryAfter` | Persisted failed-attempt count and Unix timestamp for offline recovery throttling. |
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
@@ -121,8 +123,12 @@ A missing file is the only ordinary first-run fallback. Other read errors propag
 There is no versioned configuration migration framework. JSON decoding uses the current struct and tolerates unknown object fields; it does not make missing fields evidence that external clinic resources are absent.
 
 Existing server settings or a partial installation infer the Server role.
-`SelectRole(role string) error` persists the first-run choice and rejects a
-different choice once the role is set. `ClearRole() error` is the escape hatch
+The first-run question itself writes nothing: `BeginServerSetup() error`
+persists the Server role when the operator enters setup, and `ConnectClient`
+persists the Client role when a connection is attempted. `SelectRole(role
+string) error` remains for an interface that still announces the choice up
+front; it delegates to the same work. Either way the role is rejected once it is
+set and a different one is asked for. `ClearRole() error` is the escape hatch
 for a misclick: it writes an empty `Config` and returns to the role choice, but
 only while the file holds nothing beyond `role`, `mdns_name` and preparatory
 recovery-kit fields and the install directory is empty. The `mdns_name` allowance exists because the setup form
@@ -152,7 +158,18 @@ Atomic replacement protects a single file. It is not a transaction across Docker
 
 ## Setup configuration order
 
-[`RunSetup()`](../app/app_actions.go) validates the admin password before accepting the asynchronous job. It normalizes the name, defaults an empty name to `care`, and validates the label. Setup first requires a saved and verified backup recovery file and six saved Desktop recovery codes. It then checks live mDNS responses for a conflicting server before saving the admin hash or changing installation files. The wizard checks the entered name without advertising it, and advertising performs another conflict check after setup. Keep other clinic servers awake during setup: an offline or multicast-isolated device cannot be detected.
+[`ValidateSetup()`](../app/app_setup_check.go) returns actionable issues against
+their wizard steps. [`RunSetup()`](../app/app_actions.go) repeats the complete
+preflight under the exclusive job lock before accepting asynchronous work. It
+checks disk space, platform prerequisites, residue, the network profile, the
+clinic address, the backup destination, both recovery exports, and the Desktop
+password. Export paths must remain outside CARE's own folders. Validation
+rejection leaves the operator on Review rather than starting an installation
+that is already known to fail.
+
+The wizard checks the entered name without advertising it, and advertising
+performs another conflict check after setup. Keep other clinic servers awake
+during setup: an offline or multicast-isolated device cannot be detected.
 
 Inside the protected job, it rejects an installed or removing clinic, creates the administrator's bcrypt hash, computes and validates the backup destination, and persists the initial configuration. `SetupDone` is still false at this point.
 
@@ -176,6 +193,29 @@ Refresh copies the current kit but is not a general recursive deletion or a migr
 
 The startup refresh is skipped for incomplete setup, incomplete removal, and pending restore. A pending restore must keep the configuration its recovery metadata expects.
 
+## Advanced access and authorization
+
+[`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx) starts a
+fixed `15 * 60 * 1000` millisecond timer after a successful password unlock.
+Typing, navigation within settings groups and other activity do not extend it.
+Leaving Advanced, leaving the panel or using Lock clears the unlock sooner.
+A successful password change starts a fresh unlock with the new password.
+
+Expiry clears the retained password, selected settings group and mounted
+sensitive/unsaved form state. The page reports that Advanced has locked.
+Already written files and accepted native jobs are not rolled back; saved
+settings that still need applying remain distinguishable from an unsaved draft.
+
+This timer exists in React. Go does not issue a 15-minute session token or
+remember a globally unlocked administrator. `ReadEnv`, `WriteEnv`, protected
+rebuilds, recovery administration and uninstall validate the supplied Desktop
+password through their native guards. Ordinary clinic controls, Updates and
+Plugins have their own lifecycle rules and do not acquire this Advanced unlock.
+
+The Desktop password is distinct from the operating-system password used for
+privilege prompts and from the CARE web login after initial setup. See
+[recovery materials](backups-and-restore.md#3-backup-recovery-file-and-desktop-admin-recovery).
+
 ## Environment-file API
 
 [`envPath()`](../app/app_env.go) accepts only `backend` and `frontend`, mapping them to fixed filenames under the installed kit. It is not an arbitrary file-reading or file-writing API.
@@ -188,12 +228,13 @@ This syntax check is not full application-specific validation. The friendly edit
 
 ## Applying settings
 
-The desktop's settings integration consists of four files:
+The desktop's settings integration uses these modules:
 
 | File | Role |
 | --- | --- |
 | [`env-editor.tsx`](../app/frontend/src/screens/panel/env-editor.tsx) | Loads both files, tracks changed fields, validates the draft, writes changes, and requests apply/rebuild. |
 | [`env-file.ts`](../app/frontend/src/lib/env-file.ts) | Parses line records, reads values, quotes changes, and serializes the result. |
+| [`advanced-env.ts`](../app/frontend/src/screens/panel/advanced-env.ts) | Validates values, summarizes groups, and merges only changed keys into freshly read files while preserving unrelated bytes. |
 | [`env-schema.ts`](../app/frontend/src/screens/panel/env-schema.ts) | Maps user-facing fields to keys, files, control types, defaults, bounds, and managed-key notes. |
 | [`env-controls.tsx`](../app/frontend/src/screens/panel/env-controls.tsx) | Converts the raw string/undefined draft into a suitable control without replacing explicit zero with an empty value. |
 
@@ -248,15 +289,25 @@ Both files must load before the editor accepts a draft. A failed frontend read c
 
 The editor retains a list of comments, blank lines, and `KEY=value` records rather than regenerating a file from a plain object. Duplicate recognized keys use the last value when reading; changes update all recognized occurrences so an older duplicate cannot silently win.
 
-The line parser is deliberately smaller than a full dotenv implementation: recognized assignments use plain `KEY=value` syntax. Hand-edited `export KEY=value`, spacing around the key/equals sign, and complex multiline or quoted-inline-comment forms should not be assumed to have the same interpretation in the editor as in Compose. For friendly controls, use ordinary assignment lines.
-
-Serialization preserves line order and unrelated recognized values, but normalizes line endings to LF and blank-line whitespace. It is structure-preserving, not byte-for-byte preservation of every possible hand-formatted file.
+The Advanced merge layer recognizes ordinary and `export` assignments, spacing
+around the equals sign, and quoted multiline values. Unedited comments, blank
+lines, line endings and secret values remain byte-for-byte unchanged. Edited
+assignments are quoted and normalized individually; new values use the file's
+existing line-ending convention. Friendly controls and new custom edits require
+single-line values. This is still not a replacement for the native dotenv parser.
 
 The schema covers backups, staff sign-in, patient sign-in/SMS, email, branding, region, visits, registration, billing/pharmacy, and form behavior. Defaults are display/application defaults, not instructions to insert every absent key on save.
 
-Undescribed non-hidden keys appear in "Other settings." New `REACT_` keys are directed to the frontend; other new keys go to the backend. Explicit custom overrides are applied after the described controls, so they win for the same key.
+Undescribed non-hidden keys appear in "Other settings." New `REACT_` keys are
+directed to the frontend; other new keys go to the backend. The editor rejects
+duplicate names, names already owned by a described control, and protected keys.
 
-Hidden keys are an interface policy, not a security boundary. Some can be added manually, but fields owned by the engine may be rewritten later.
+Protected keys cannot be changed through this editor, including
+`ADDITIONAL_PLUGS`, service credentials and generated connection settings.
+The editor preserves their latest file contents when saving other changes.
+This is an interface policy, not a new native security boundary: authenticated
+`WriteEnv` still validates syntax rather than an application-specific key
+allow-list, and engine-owned values may be rewritten by the engine.
 
 ## Managed values
 
@@ -274,14 +325,29 @@ The **Updates** tab shows both update mechanisms without a Desktop admin passwor
 
 | Card | Shows | Actions |
 | --- | --- | --- |
-| CARE | The tracked branch, the backend and frontend commits in use, and one of three states: checking, up to date, or a staged update waiting. | Check now; install a staged update now. |
+| CARE | The tracked branch, the commits in use, and checking, up-to-date, staged-update or failed-check state. | Check now; retry a failed check; install a staged update now. |
 | CARE Desktop | The installed version against the newest published GitHub release, with its notes. | Download the verified installer for this platform and launch it. |
+
+CARE Desktop's shared controller remains guarded after native completion while
+an installer/restart handoff is unresolved. Only a completed external-installer
+handoff can be acknowledged with Done in Updates (OK before installation or on
+clients). A restarting phase waits for reopening. Acknowledgement does not
+update the running version or claim the external installer succeeded.
+Interrupted picker/preflight work is invalidated rather than resumed when the
+guard is released; see [the update protocol](wails-application.md).
 
 The panel also raises a banner when a CARE update finishes building, so operators need not keep the Updates tab open. Declining the banner is not declining the update: it stops the prompt for that commit, and the staged build is applied at the next start, when no clinic is running and applying it costs a retag instead of a restart.
 
 The app checks hourly, but only while the clinic is actually serving. Until then it re-examines every thirty seconds and checks nothing, because a check competing with the start it is racing helps nobody. A clinic that later stops serving drops back to that thirty-second wait, so a check is never made against a clinic that is down. The loop ends only when the app closes, the desktop is switched to a client, or the clinic is being removed. These desktops stay on for weeks, so a check that only ran at launch would leave a verified fix unreachable until somebody restarted the app.
 
-"Check now" does not start a second check when one is already running; it joins the one in flight. The card follows the `care-check` event, so it reports the automatic hourly check as well as one somebody pressed. "Checking" lasts until any found commit has finished building, not only until the branch head is resolved, because until the build finishes there is nothing to install. Checks are skipped without a working network, during setup and removal, and while another job holds the clinic. A failed check is logged, not surfaced: a clinic with no internet is a supported state, not an error.
+"Check now" does not start a second check when one is already running; it joins
+the one in flight. The card follows the `care-check` event, so it reports
+automatic and requested checks. "Checking" lasts until any found commit has
+finished building, not only until the branch head is resolved. Checks are
+skipped without a working network, during setup/removal, and while another job
+holds the clinic. Reported failures carry `care-check.error` and appear with a
+friendly retry action; they never become a false "Up to date" result. An offline
+clinic can continue working without updating.
 
 ## Plugins
 
@@ -293,10 +359,19 @@ The plugin list is stored in `plugins.json` beside `backend.env`. Its backend pa
 
 Before saving the new path it copies the public backup certificate to the destination without overwriting a different certificate. The private recovery file is never copied into the backup folder. After saving, it recreates the backup sidecar only if it was running. If that restart fails, it attempts to restore the previous configuration and sidecar, reporting rollback errors as well.
 
-Earlier backups and their key are left in the previous directory; changing the destination is not a file migration. This ordering prevents a seemingly successful folder change from leaving the new backups without their decryption material.
+Earlier backups and their public certificate are left in the previous directory;
+changing the destination is not a file migration. The private recovery file
+stays wherever the manager exported it. The ordering prevents a new backup
+destination from being activated without its matching public certificate.
 
 ## Relevant regression coverage
 
 [`app_env_test.go`](../app/app_env_test.go) covers concurrent environment/plugin reads, mutation exclusion, closing, administrator/lifecycle guards, and retention save/read values including zero. [`plugins_test.go`](../app/internal/plugins/plugins_test.go) covers literal plugin configuration round trips and duplicate removal.
 
 The underlying atomic-file behavior and the clinic's domain rewriting have their own tests, indexed in [the repository map](repository-map.md). Those layers matter independently of how a friendly control is rendered.
+
+[`advanced.spec.ts`](../app/frontend/tests/advanced.spec.ts) covers the exact
+15-minute unlock boundary, tab-leave clearing, recovery/password flows, sensitive
+field handling, latest-file merging and failed apply behavior.
+[`backups.spec.ts`](../app/frontend/tests/backups.spec.ts) covers destination
+changes, restore consent and stale async work across a Desktop update.

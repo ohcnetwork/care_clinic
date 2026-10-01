@@ -6,14 +6,17 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/backup"
 	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	"github.com/ohcnetwork/care_desktop/app/internal/residue"
-
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-func (a *App) ScanResidue() (residue.Report, error) {
-	if err := a.requireServer(); err != nil {
-		return residue.Report{}, err
-	}
+// ScanResidue is available before a role is chosen and on a client, because
+// both need to know what an earlier clinic left here. Only removal is
+// restricted to the computer that hosts the clinic.
+func (a *App) ScanResidue() (report residue.Report, err error) {
+	defer a.logError(&err)
+	return a.scanResidue()
+}
+
+func (a *App) scanResidue() (residue.Report, error) {
 	e := a.engine()
 	dir, err := a.residueInstallDir(e)
 	if err != nil {
@@ -42,36 +45,27 @@ func (a *App) keepChosenName(before Config) error {
 	return a.restartAdvertise()
 }
 
-func (a *App) PurgeResidue() error {
-	return a.withServerJob(func() error {
+// PurgeResidue removes what an earlier CARE Desktop left behind. The
+// destructive confirmation belongs to the interface, which can show the traces
+// in place; confirmed carries that answer. The returned report is the state
+// afterwards, so the caller can say "clean" or "still here" without a second
+// scan.
+func (a *App) PurgeResidue(confirmed bool) (after residue.Report, err error) {
+	err = a.withServerJob(func() error {
 		cfg := a.loadConfig()
 		if cfg.SetupDone && !cfg.Removing {
 			return errors.New("this computer already has a clinic set up - use Uninstall in the panel instead")
 		}
-		before, err := a.ScanResidue()
+		before, err := a.scanResidue()
 		if err != nil {
 			return err
 		}
+		after = before
 		if before.Clean {
 			return nil
 		}
-		if a.ctx == nil {
-			return errors.New("open CARE Desktop to confirm removal of the earlier installation")
-		}
-		items := ""
-		kept := "\n\nYour backups are kept. Keep the separate backup recovery file you saved during setup; it is needed to restore them."
-		for _, t := range before.Traces {
-			items += "\n  - " + t.Label + ": " + t.Detail
-		}
-		proceed, err := a.askToProceed("Remove the earlier CARE Desktop?",
-			"This computer still has these from an earlier CARE Desktop:\n"+items+
-				"\n\nClinic data, images, settings, installed files and old logs will be deleted. This cannot be undone."+kept,
-			"Remove everything")
-		if err != nil {
-			return err
-		}
-		if !proceed {
-			return nil
+		if !confirmed {
+			return errors.New("confirm the removal of the earlier CARE Desktop before it can be removed")
 		}
 		e := a.engine()
 		e.InstallDir, err = a.residueInstallDir(e)
@@ -105,42 +99,29 @@ func (a *App) PurgeResidue() error {
 		if err := a.keepChosenName(cfg); err != nil {
 			return err
 		}
-		after, err := a.ScanResidue()
+		after, err = a.scanResidue()
 		if err != nil {
 			return err
 		}
-		a.reportPurge(after)
+		a.logPurge(after)
 		if !after.Clean {
 			return errors.New("cleanup is incomplete; remove the reported leftovers before setting up another clinic")
 		}
 		return nil
 	})
+	return after, err
 }
 
 func (a *App) residueInstallDir(e *clinic.Clinic) (string, error) {
 	return residue.InstallDirFrom(e.Runner(), e.Project(), e.InstallDir)
 }
 
-func (a *App) reportPurge(after residue.Report) {
+func (a *App) logPurge(after residue.Report) {
 	if after.Clean {
-		_, _ = wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
-			Type:    wruntime.InfoDialog,
-			Title:   "This computer is clean",
-			Message: "Everything from the earlier CARE Desktop has been removed. You can go ahead and set up the clinic.",
-			Buttons: []string{"Continue"},
-		})
+		a.logln("Everything from the earlier CARE Desktop has been removed.")
 		return
 	}
-
-	left := ""
 	for _, t := range after.Traces {
-		left += "\n  • " + t.Label + " — " + t.Detail
+		a.logln("Still here after cleanup: " + t.Label + " - " + t.Detail)
 	}
-	_, _ = wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
-		Type:  wruntime.WarningDialog,
-		Title: "Some things are still here",
-		Message: "Most of the earlier CARE Desktop was removed, but not these:" + left +
-			"\n\nThey usually need an administrator. Try again, or ask your IT support to remove them.",
-		Buttons: []string{"OK"},
-	})
 }

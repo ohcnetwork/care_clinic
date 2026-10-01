@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Spinner } from "@/components/spinner";
 import {
@@ -13,6 +13,7 @@ import {
 import { bridge } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import type { RestartPlan } from "@/types";
+import { useCare } from "@/state/care-store";
 
 /**
  * Offered only when the host says a restart is genuinely outstanding, and only
@@ -22,16 +23,38 @@ import type { RestartPlan } from "@/types";
 export function RestartDialog({
   plan,
   onDismiss,
+  disabled = false,
+  isBlocked,
 }: {
   plan: RestartPlan | null;
   onDismiss: () => void;
+  disabled?: boolean;
+  isBlocked?: () => boolean;
 }) {
   const [restarting, setRestarting] = useState(false);
+  const restartingRef = useRef(false);
   const [failure, setFailure] = useState("");
+  const { log } = useCare();
+  const blocked = disabled || isBlocked?.() === true;
+
+  const restart = async () => {
+    if (restartingRef.current || disabled || isBlocked?.()) return;
+    restartingRef.current = true;
+    setRestarting(true);
+    setFailure("");
+    try {
+      await bridge.RestartNow();
+    } catch (err) {
+      log(`restart computer: ${errorText(err)}`);
+      setFailure("CARE couldn't restart this computer.");
+      restartingRef.current = false;
+      setRestarting(false);
+    }
+  };
 
   return (
     <AlertDialog open={plan !== null}>
-      <AlertDialogContent>
+      <AlertDialogContent className="onboarding onboarding-dialog">
         <AlertDialogTitle>{plan?.title}</AlertDialogTitle>
         <AlertDialogDescription>{plan?.detail}</AlertDialogDescription>
         {failure ? (
@@ -44,20 +67,15 @@ export function RestartDialog({
             I'll restart later
           </AlertDialogCancel>
           <AlertDialogAction
-            disabled={restarting}
+            disabled={restarting || blocked}
             onClick={(e) => {
               // Keep the dialog up: the machine is about to go down, and a
               // closing dialog would look like the restart was cancelled.
               e.preventDefault();
-              setRestarting(true);
-              setFailure("");
-              void bridge.RestartNow().catch((err) => {
-                setFailure(errorText(err));
-                setRestarting(false);
-              });
+              void restart();
             }}
           >
-            {restarting ? <Spinner className="size-3.5" /> : null}
+            {restarting ? <span aria-hidden="true"><Spinner className="size-3.5" /></span> : null}
             {restarting ? "Restarting…" : (plan?.label ?? "Restart now")}
           </AlertDialogAction>
         </AlertDialogFooter>

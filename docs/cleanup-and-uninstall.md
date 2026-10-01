@@ -22,8 +22,8 @@ removed only after its setup is gone; see
 
 For a former server now used as a browser client, see
 [client recovery](client-recovery.md): client setup removes the stale hosts entry
-automatically. That guide also covers the destructive standalone cleanup scripts
-used when the app is unavailable.
+automatically. That guide explains the supported cleanup path when the desktop
+application is missing or an earlier installation remains.
 
 This guide explains the current Wails backend and engine cleanup paths. It is
 not a collection of destructive terminal recipes. Resource and command names
@@ -72,7 +72,7 @@ settings may be forgotten.
 | Pause the clinic | `ClinicAction("stop", ...)` delegates to `Clinic.Stop()`. | Compose stops services. | Containers, all volumes, images/cache, installed files, backups, keys, saved settings, and native configuration. |
 | Remove an installed clinic | `RunUninstall(...)` delegates to `Clinic.Uninstall(options)`. | Live project containers, volumes, and networks; native changes; installed files. Optional known images/cache and owned backup files. Optional Rancher Desktop removal (see below). App also handles autostart and saved state. | Backups when not selected for removal; images/cache when not selected; Rancher Desktop when not selected; normal diagnostic logs. |
 | Recover from failed first setup | `CleanupFailedInstall()` delegates to a specific `Clinic.Uninstall` option set. | Partial project resources, native changes, installed files, saved secret/config. A matching exported certificate is removed only if it is unused and the final file-deletion phase is reached. | Downloaded images/cache and backup data. Required backup certificates remain. |
-| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue()`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
+| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue(confirmed)`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
 
 ### Removing the desktop app
 
@@ -94,9 +94,10 @@ the job to finish, quits, and then:
   below and finds nothing set up. Declining the prompt leaves the app installed
   and says so.
 
-Dragging the app to the Trash on macOS skips all of this;
-[`uninstall-macos.sh`](../uninstall-macos.sh) remains the cleanup for an app that
-was already deleted.
+Dragging the app to the Trash on macOS skips all of this. This checkout does not
+ship standalone uninstall scripts. Restore the desktop application under the
+same OS account to use its guarded cleanup flow, or ask support if it cannot
+start; do not delete configuration to hide an installation that still exists.
 
 **Windows uninstaller.** Before removing files, `un.onInit` in
 [`project.nsi`](../app/build/windows/installer/project.nsi) runs the installed app
@@ -471,6 +472,13 @@ or undo failures are also collected. A canceled privilege request is not
 automatically reported as successful cleanup. These native APIs and their
 verification limits are documented in [native integrations](native-integrations.md).
 
+When these helpers ask for CARE-owned confirmation, the registered root dialog
+shows a short certificate- or saved-address-removal message with Continue and
+Cancel. The job keeps its exclusive lock while waiting; it does not interpret
+closing or losing the dialog as approval. Actual OS password/security prompts
+remain native. Shorter wording changes neither the removal scope nor the
+verification requirement.
+
 That three-call sequence is the macOS and Linux path. On Windows each of those
 helpers would raise its own administrator prompt, and approving one while
 missing another silently leaves the unapproved item behind — after which the
@@ -518,6 +526,13 @@ This means an autostart or verification error can happen **after** the kit and
 live Docker data are already gone. The retained removal state supports a
 cleanup retry; it is not evidence that those deleted data are still present.
 Normal uninstall does not purge diagnostic logs.
+
+The desktop waits for both `uninstalled` and the matching successful
+`care-done(0, "uninstall")`, in either arrival order, before returning to Start or
+requesting optional executable removal. The initial `RunUninstall` response,
+an unrelated completion event, or just one of the two success signals is not
+sufficient. Failure keeps the removal state and retry path; it must not return
+to first-run setup over partially removed resources.
 
 ## 7. Failed-setup cleanup and the unused-key exception
 
@@ -668,12 +683,13 @@ The public [`PurgeResidue`](../app/app_residue.go) flow:
 3. If the report is already `Clean`, return without purging. Images and firewall
    rules alone are nonblocking: **this UI path does not remove cached images or
    undo network repair when no blocking residue exists**.
-4. Require a live desktop context and explicit destructive confirmation through
-   `askToProceed`. Canceling is a normal no-op, so this step must distinguish a
-   real refusal from an answer it merely failed to recognize: matching the
-   operator's approval against this path's own `Remove everything` label alone
-   turns every Windows confirmation into that silent no-op. See
+4. Require the `confirmed` argument. The destructive confirmation is asked in
+   the window, next to the list of traces the scan just produced, rather than in
+   a native message box: it is a long explanation with an itemized list, which a
+   two-button OS dialog renders badly and, on Windows, answers with labels it
+   was never given. See
    [native dialog answers](wails-application.md#native-dialog-answers-are-not-the-button-labels).
+   An unconfirmed call is refused rather than silently doing nothing.
 5. Discover the earlier install directory. Check that the retained backup
    location is safe relative to the log folder that will be deleted.
 6. Preserve the backup certificate and persist `Removing`.
@@ -681,8 +697,9 @@ The public [`PurgeResidue`](../app/app_residue.go) flow:
 8. Run `reportUninstall(true)`, requiring removal of reported non-config,
    non-secret resources, including the known image tags.
 9. Purge the old log folder and forget saved configuration.
-10. Preserve only an eligible previously chosen wizard name, then scan again
-    and display the final report. A non-clean or failed scan is not success.
+10. Preserve only an eligible previously chosen wizard name, then scan again and
+    return that report to the caller, which shows it. A non-clean or failed scan
+    is not success, and is also returned as an error.
 
 The early images-only return and the strict post-purge image check are not
 contradictory: cached images do not prevent a new installation, but once a

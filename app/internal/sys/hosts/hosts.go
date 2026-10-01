@@ -131,8 +131,8 @@ func removeUnix(confirm func(string, string) bool, host, p string, run func(stri
 	if leftover(host, p) == "" {
 		return ""
 	}
-	if confirm == nil || confirm("Remove the "+host+" hosts entry?",
-		"Remove the line CARE added to this computer's hosts file?\n\nThis needs administrator approval.") {
+	if confirm == nil || confirm("Remove CARE's saved address?",
+		"Remove "+host+" from this computer. Approve the system permission prompt to continue.") {
 		_ = run(step.Sh, true)
 	}
 	return leftover(host, p)
@@ -184,29 +184,61 @@ func inspect(p string) (bool, error) {
 }
 
 func RemoveHost(log func(string), host string) error {
-	p := path()
-	keep := func(data string) (string, bool) { return withoutHost(data, host) }
-	step, cleanup, need, err := replaceStep(p, keep, "remove "+host+" from this computer's hosts file")
+	step, cleanup, need, err := RemoveHostStep(host)
 	defer cleanup()
-	if err != nil {
-		return fmt.Errorf("could not check this computer's hosts file for %s: %w", host, err)
+	if err != nil || !need {
+		return err
 	}
-	if !need {
-		return nil
-	}
-	logln(log, "Removing "+host+" from this computer's hosts file so the clinic is found on the network...")
+	logln(log, "Removing "+host+" and any other CARE entries from this computer's hosts file "+
+		"so the clinic is found on the network...")
 	if err := elevate.Steps([]elevate.Step{step}); err != nil {
 		return fmt.Errorf("could not remove %s from this computer's hosts file: %w", host, err)
 	}
+	return VerifyHostRemoved(log, host)
+}
+
+// RemoveHostStep stages the clinic-connect hosts cleanup without running it, so
+// the caller can put it in the same elevated batch as the certificate work and
+// ask for administrator approval once.
+func RemoveHostStep(host string) (step elevate.Step, cleanup func(), need bool, err error) {
+	p := path()
+	step, cleanup, need, err = replaceStep(p, keepForClient(host), "remove old CARE entries from this computer's hosts file")
+	if err != nil {
+		return elevate.Step{}, cleanup, false, fmt.Errorf("could not check this computer's hosts file for %s: %w", host, err)
+	}
+	return step, cleanup, need, nil
+}
+
+// VerifyHostRemoved re-reads the file, because an approved prompt is not proof
+// that the write happened.
+func VerifyHostRemoved(log func(string), host string) error {
+	p := path()
 	after, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("could not check this computer's hosts file for %s: %w", host, err)
 	}
-	if _, still := keep(string(after)); still {
+	if _, still := keepForClient(host)(string(after)); still {
 		return fmt.Errorf("could not remove %s from this computer's hosts file: it is still listed in %s", host, p)
 	}
-	logln(log, "Removed "+host+" from the hosts file. A copy of the old file was saved as "+p+".care-backup.")
+	logln(log, "Removed "+host+" and CARE's own entries from the hosts file. "+
+		"A copy of the old file was saved as "+p+".care-backup.")
 	return nil
+}
+
+// A client connecting to a clinic wants both halves gone in one approval: the
+// name it is about to open, whoever added it, and every line CARE added for any
+// name, which an earlier server setup on this computer leaves behind.
+func keepForClient(host string) func(string) (string, bool) {
+	return func(data string) (string, bool) { return withoutHostOrMarker(data, host) }
+}
+
+func withoutHostOrMarker(data, host string) (string, bool) {
+	cleaned, removedHost := withoutHost(data, host)
+	cleaned, removedMarked := withoutMarker(cleaned)
+	return cleaned, removedHost || removedMarked
 }
 
 func replaceStep(p string, keep func(string) (string, bool), what string) (step elevate.Step, cleanup func(), need bool, err error) {

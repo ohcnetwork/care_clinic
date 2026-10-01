@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Rail } from "@/components/rail";
+import { QuitDialog } from "@/components/quit-dialog";
+import { ConfirmationDialog } from "@/components/confirmation-dialog";
 import { FailedScreen } from "@/screens/install/failed-screen";
 import { InstallingScreen } from "@/screens/install/installing-screen";
 import { PanelScreen } from "@/screens/panel/panel-screen";
@@ -13,10 +14,11 @@ import { EMPTY_SETUP_FORM, type SetupForm } from "@/state/forms";
 
 export function App() {
   const care = useCare();
-  // The form lives here rather than in its screen, so bouncing off a failed
-  // install keeps everything the operator already typed.
+  // Keep choices across step navigation, but discard them when retry cleanup
+  // invalidates the saved recovery material.
   const [setupForm, setSetupForm] = useState<SetupForm>(EMPTY_SETUP_FORM);
   const seeded = useRef(false);
+  const lastReset = useRef(0);
 
   // The host already has a name for this clinic; adopt it as the field's value.
   useEffect(() => {
@@ -28,6 +30,12 @@ export function App() {
     }));
   }, [care.ready, care.mdnsName]);
 
+  useEffect(() => {
+    if (care.setupReset === lastReset.current) return;
+    lastReset.current = care.setupReset;
+    setSetupForm({ ...EMPTY_SETUP_FORM, hostInput: care.mdnsName.replace(/\.local$/i, "") });
+  }, [care.setupReset, care.mdnsName]);
+
   const patchSetup = useCallback(
     (values: Partial<SetupForm>) => setSetupForm((form) => ({ ...form, ...values })),
     [],
@@ -35,9 +43,8 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      {care.ready && care.flow !== "role" && care.flow !== "client" && care.flow !== "remove" ? (
-        <Rail />
-      ) : null}
+      <ConfirmationDialog />
+      <QuitDialog />
       {care.ready ? (
         care.flow === "remove" ? (
           <RemoveScreen />

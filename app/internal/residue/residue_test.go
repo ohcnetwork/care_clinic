@@ -34,6 +34,56 @@ func TestUnavailableDockerIsNotClean(t *testing.T) {
 	}
 }
 
+func TestMissingDockerIsNotDockerResidue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX command fixtures")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("PATH", filepath.Join(root, "empty"))
+	run := proc.Runner{Env: os.Environ()}
+	report, err := scan(Options{
+		Runner: run, Project: "care-desktop", InstallDir: filepath.Join(root, "install"),
+		Images: []string{"care:clinic"},
+	}, noSystemTraces)
+	if err != nil || !report.Clean || len(report.Traces) != 0 {
+		t.Fatalf("a computer without Docker is not dirty: %+v, %v", report, err)
+	}
+	dir, err := InstallDirFrom(run, "care-desktop", filepath.Join(root, "missing"))
+	if err != nil || dir != filepath.Join(root, "missing") {
+		t.Fatalf("installation discovery needed Docker: %q, %v", dir, err)
+	}
+	// Files and native traces are still found without a container engine.
+	if err := os.MkdirAll(filepath.Join(root, "install"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	report, err = scan(Options{
+		Runner: run, Project: "care-desktop", InstallDir: filepath.Join(root, "install"),
+	}, func(proc.Runner) ([]Trace, error) { return []Trace{{ID: "hosts"}}, nil })
+	if err != nil || report.Clean || len(report.Traces) != 2 {
+		t.Fatalf("file and system traces were lost without Docker: %+v, %v", report, err)
+	}
+}
+
+func TestStoppedDockerIsDistinguishedFromAnAbsentOne(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX command fixtures")
+	}
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	if err := os.WriteFile(filepath.Join(root, "docker"), []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", root)
+	report, err := scan(Options{
+		Runner: proc.Runner{Env: os.Environ()}, Project: "care-desktop",
+		InstallDir: filepath.Join(root, "install"),
+	}, noSystemTraces)
+	if err == nil || report.Clean || !strings.Contains(err.Error(), "start Docker and try again") {
+		t.Fatalf("an installed but stopped Docker was treated as absent: %+v, %v", report, err)
+	}
+}
+
 type dockerPsRow struct{ labels map[string]string }
 
 func (r dockerPsRow) Labels() string {

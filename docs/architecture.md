@@ -6,11 +6,12 @@
 
 CARE Desktop runs a clinic's CARE installation on one computer without requiring the operator to administer a server. Staff use a browser to access the clinic on the local network. The desktop application is the installation and operations console, not the medical record server.
 
-The first-run Server/Client choice is persisted, not an ordinary role switch.
+The first-run Server/Client choice is persisted when the work behind it starts,
+not when the question is asked, and it is not an ordinary role switch.
 Server mode owns the stack and advertises the clinic's `.local` name. Client
-mode connects to the address shown on the server, installs certificate trust
-through native OS approval, verifies HTTPS, and opens the clinical browser
-application. It does not provision Docker/Git or advertise mDNS. See
+mode connects to the address shown on the server, removes what an earlier CARE
+left on the computer, installs certificate trust through native OS approval,
+verifies HTTPS, and opens the clinical browser application. It does not provision Docker/Git or advertise mDNS. See
 [native bootstrap and its trust-on-first-use limitation](native-integrations.md#native-client-setup-and-trust-on-first-use).
 Multiple separately named servers are valid; this is not a network-wide
 single-clinic enforcement system.
@@ -30,7 +31,10 @@ The application coordinates existing tools rather than replacing them:
 | Local name discovery | An mDNS advertiser in the server desktop process. |
 | Scheduled backups | A shell program in the backup container, not a Go timer. |
 
-Initial provisioning and image construction need external downloads. An already prepared clinic can operate locally, but missing images, uncached build dependencies, and optional services such as outbound email can still require internet access.
+Initial provisioning and image construction need external downloads. An already
+prepared core clinic can operate locally, but missing images, uncached build
+dependencies, hosted frontend plugins and configured services such as outbound
+email can still require internet access.
 
 ## System boundary
 
@@ -90,6 +94,11 @@ The `App.engine()` method constructs a `Clinic` from a configuration snapshot. T
 
 The UI seam is deliberately small: `Log func(string)` and `Confirm func(title, message string) bool`. Wails-specific behavior is supplied by `App`; the engine does not need to know how a dialog is displayed.
 
+`Confirm` now waits for an ID-scoped in-window request when the frontend is
+registered, with a native fallback otherwise. Its response channel is separate
+from the job lock, so the job keeps exclusive ownership while the operator
+decides. Actual OS privilege prompts still belong to the native integrations.
+
 ### Domain packages
 
 | Package | Question it answers |
@@ -119,6 +128,8 @@ The [`App`](../app/app.go) owns:
 | `ctx`, `installFS`, `pins`, `log` | Wails runtime context, embedded kit, parsed release identity, and diagnostic sink. |
 | `cfg`, `configFile`, `cfgMu` | Cached persisted configuration. Reads take a shared lock; writes take an exclusive lock. |
 | `jobMu`, `closing` | Coordination of conflicting operations and the closing transition. |
+| `confirmationMu`, pending confirmation and readiness | One permission request at a time, explicit answers, and cancellation on frontend loss or shutdown. |
+| Quit request state | ID-scoped running-job close confirmation, independent of the job it is asking about. |
 | `adv`, `advMu`, `advStop` | mDNS advertiser ownership and watcher shutdown. |
 
 These locks solve different problems. Protecting the `Config` struct does not make a Docker operation safe to overlap with uninstall. Conversely, serializing destructive jobs does not eliminate concurrent status checks or advertiser activity.
@@ -193,11 +204,35 @@ See [the job protocol](wails-application.md#concurrency-and-job-protocol) for co
 
 ## Error handling across boundaries
 
-A synchronous Go method returning an error rejects its Wails promise. An asynchronous job can fail after its initial promise has resolved, so its error is logged, may produce a native dialog, and ends with `care-done` code `1`.
+A synchronous Go method returning an error rejects its Wails promise. An
+asynchronous job can fail after its initial promise has resolved, so its error
+is logged, emitted through `care-error` for in-window presentation, and followed
+by `care-done` code `1`. Native error dialogs are reserved for paths such as
+shutdown where the normal interface cannot handle the failure.
 
 The backend generally prefers an explicit error to a success-shaped empty result. Deliberate exceptions are part of individual contracts: a missing configuration is first run; a canceled file picker returns an empty string; an absent installed compose file makes the backup list empty.
 
 A successful subprocess exit is only one observation. Native changes and destructive cleanup also inspect the resulting state. Likewise, a healthy HTTP response is not a certificate-trust test, and a local hosts entry is not proof of LAN mDNS resolution.
+
+### Desktop state complements native state
+
+[`care-store.tsx`](../app/frontend/src/state/care-store.tsx) owns navigation,
+matching job completion, role-aware startup and stale status-result suppression.
+Setup and uninstall require both their persisted-success event and matching
+successful `care-done`, in either order. The installation display derives
+milestones from real log lines rather than inventing a measured percentage.
+
+[`use-app-update.ts`](../app/frontend/src/hooks/use-app-update.ts) keeps the
+Desktop update handoff guarded after its native job finishes. Only a completed
+external-installer handoff has an explicit acknowledgement; a restarting app
+stays guarded until reopening. The panel's live update guard also invalidates
+older file-selection and restore-preflight work, so acknowledging an update
+cannot revive an abandoned action.
+
+Advanced's fixed 15-minute unlock is another UI policy, not a native session
+lease. Its password must still accompany protected Go calls. The
+[workflow guide](desktop-workflows.md) describes the visible behavior without
+treating any of these frontend checks as backend authorization.
 
 ## Where to go deeper
 

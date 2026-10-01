@@ -50,9 +50,9 @@ func TestConfirmPromptSaysHowEachSystemAsks(t *testing.T) {
 		steps []elevate.Step
 		want  string
 	}{
-		{"darwin", one, "approve this with your password or Touch ID"},
-		{"darwin", two, "administrator password, then ask you to confirm trusting the certificate"},
-		{"windows", two, "Windows will ask for permission."},
+		{"darwin", one, "computer's password or Touch ID"},
+		{"darwin", two, "computer's administrator password and approve the security prompt"},
+		{"windows", two, "Approve the Windows permission prompt"},
 		{"linux", two, "administrator password"},
 	} {
 		title, message := confirmPrompt(tc.goos, "care.local", tc.steps)
@@ -62,9 +62,12 @@ func TestConfirmPromptSaysHowEachSystemAsks(t *testing.T) {
 		if !strings.Contains(message, tc.want) || strings.Contains(message, "password once") {
 			t.Fatalf("%s with %d steps: unexpected message %q", tc.goos, len(tc.steps), message)
 		}
-		for _, s := range tc.steps {
-			if !strings.Contains(message, s.What) {
-				t.Fatalf("message does not list %q: %q", s.What, message)
+		if len(strings.Fields(message)) > 35 {
+			t.Fatalf("permission prompt is too wordy: %q", message)
+		}
+		for _, technical := range []string{"hosts file", "keychain", "•", "needs to:"} {
+			if strings.Contains(message, technical) {
+				t.Fatalf("permission prompt exposes technical setup details: %q", message)
 			}
 		}
 	}

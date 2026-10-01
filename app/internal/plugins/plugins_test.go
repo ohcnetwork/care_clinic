@@ -83,7 +83,7 @@ func TestNewInstallDefaultsRegisterOnboarding(t *testing.T) {
 		"care_onboarding_fe": {
 			"name":     "care_onboarding_fe",
 			"url":      "https://ohcnetwork.github.io/care_onboarding_fe/assets/remoteEntry.js",
-			"config":   map[string]any{"auto_onboarding": true},
+			"config":   map[string]any{"redirect_after_login": true},
 			ManagedKey: ManagedValue,
 		},
 	}
@@ -103,7 +103,7 @@ func TestNewInstallDefaultsRegisterOnboarding(t *testing.T) {
 
 func TestDefaultsDoNotChangeExistingPluginChoices(t *testing.T) {
 	for _, content := range []string{"[]\n", "null\n",
-		`[{"id":"care_onboarding_fe","label":"My Onboarding","frontend":{"slug":"care_onboarding_fe","url":"http://localhost:4178/assets/remoteEntry.js","meta":{"config":{"auto_onboarding":false}}}}]`,
+		`[{"id":"care_onboarding_fe","label":"My Onboarding","frontend":{"slug":"care_onboarding_fe","url":"http://localhost:4178/assets/remoteEntry.js","meta":{"config":{"redirect_after_login":false}}}}]`,
 	} {
 		t.Run(content, func(t *testing.T) {
 			m := withEnv(t, "OTHER=kept\n")

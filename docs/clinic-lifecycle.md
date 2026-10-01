@@ -16,8 +16,8 @@ continuation after a failed check.
 
 This describes the current implementation, including verified worker stops,
 staged-restore recovery hooks, atomic domain-file replacement, and the Silo
-storage replacement. Historical descriptions in `design.md` are not an
-alternative specification.
+storage replacement. Historical design descriptions are not an alternative
+specification.
 
 ## Reading map
 
@@ -245,6 +245,15 @@ calls `Setup`, starts advertising, and calls
 `SetupDone=true`. See [configuration and settings](configuration-and-settings.md)
 for that boundary.
 
+The redesigned wizard calls `ValidateSetup` for Review and `RunSetup` repeats
+preflight under the exclusive native lock. A rejected request stays on Review;
+an accepted request enters Installing. The UI follows the
+[eight real log milestones](../app/frontend/src/lib/run-steps.ts) with an
+indeterminate indicator, not their internal ordering weights as percentages.
+It enters Overview only after both saved setup success and matching successful
+job completion. Fifteen minutes without a new log line produces a last-reported
+stage warning, not invented progress or automatic failure.
+
 ```mermaid
 sequenceDiagram
     participant UI as Desktop wizard
@@ -290,8 +299,11 @@ error. There is no implicit rollback of earlier successful steps.
 
 Default plugins are not initialized by ordinary reads, startup, rebuilds or upgrades.
 CARE Onboarding is loaded from its hosted remote, not bundled into Desktop.
-Its automatic pre-login flow also requires compatible CARE frontend/backend
-builds; see [facility setup](onboarding.md#care-compatibility-and-startup).
+Its post-login redirect uses CARE's existing dashboard override, enabled by
+`REACT_MFE_REGISTERED_COMPONENTS=UserDashboard` in the bundled frontend environment.
+Existing installations preserve their frontend environment and need to add that
+registration before rebuilding the frontend. No CARE source patches are required;
+see [facility setup](onboarding.md#care-compatibility-and-startup).
 
 Recovery-file generation uses Go's standard cryptographic library before
 installation. OpenSSL inside the backup image encrypts and decrypts backups;
@@ -824,8 +836,9 @@ turning an otherwise healthy stack into a failed Start.
 
 Device-script refresh needs an extractable Caddy public root and an existing
 setup directory. If those are unavailable it can skip writing; older scripts
-are not automatically removed. This-computer setup explains its changes in one
-confirmation before any system prompt appears. During first-time setup it has
+are not automatically removed. This-computer setup gives a short purpose and
+password/approval instruction in one CARE confirmation before the system
+prompt. Its technical operation list is not shown in that dialog. During first-time setup it has
 usually already run from `Setup()`, and `Start()` skips it for the same engine.
 Positive local-browser readiness requires both a rechecked hosts mapping and
 a verified TLS handshake. Declining that optional work leaves the clinic

@@ -42,10 +42,27 @@ export type AppState = {
   role: "" | "server" | "client";
   client_url: string;
   version: string;
+  platform: string;
   setup_done: boolean;
   mdns_name: string;
   docker: DockerStatus;
   restore_pending: boolean;
+};
+
+export type ClientConnectPhase = "finding" | "connecting" | "checking" | "opening";
+
+export type SetupPage =
+  | "space" | "windows" | "software" | "cleanup" | "network"
+  | "address" | "backup" | "admin" | "review" | "install";
+export type SetupIssue = { step: SetupPage; message: string };
+export type SetupRecoveryStatus = {
+  backup_saved: boolean;
+  backup_verified: boolean;
+  codes_saved: boolean;
+  backup_path: string;
+  codes_path: string;
+  backup_problem: string;
+  codes_problem: string;
 };
 
 /** One thing an earlier CARE Desktop left on this computer. */
@@ -53,6 +70,35 @@ export type ResidueTrace = { id: string; label: string; detail: string };
 
 /** What ScanResidue found. `clean` is what the wizard gates on. */
 export type ResidueReport = { clean: boolean; traces: ResidueTrace[] };
+
+/**
+ * What FindClinic found. Reading this changes nothing on the computer;
+ * `already_trusted` means connecting needs no certificate installation.
+ */
+export type ClinicInfo = {
+  url: string;
+  host: string;
+  fingerprint: string;
+  already_trusted: boolean;
+};
+
+/**
+ * Whether the clinic is answering. A clinic that is switched off is
+ * `reachable: false` with a `detail`, not an error.
+ */
+export type ClientReachability = {
+  reachable: boolean;
+  checked_at: number;
+  detail: string;
+};
+
+/** What connecting would clean up. Read-only; no administrator approval. */
+export type ClientPreflight = {
+  hosts_entry: boolean;
+  old_certificate: boolean;
+  unfinished_server_setup: boolean;
+  engine_leftovers: string;
+};
 
 export type Backup = {
   db_dump: string;
@@ -114,7 +160,11 @@ export type ChannelStatus = {
 
 export type CareUpdate = { backend: string; frontend: string };
 
-export type CareCheck = { running: boolean; found: boolean };
+export type CareCheck = { running: boolean; found: boolean; error?: string };
+
+export type BackupPolicy = { interval_seconds: number; retention_days: number };
+export type QuitRequest = { id: number; title: string; message: string };
+export type ConfirmationRequest = { id: number; title: string; message: string };
 
 export type StorageLevel = "ok" | "low" | "critical" | "unknown";
 

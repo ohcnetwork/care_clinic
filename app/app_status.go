@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -22,16 +23,18 @@ type AppState struct {
 	Role           string        `json:"role"`
 	ClientURL      string        `json:"client_url"`
 	Version        string        `json:"version"`
+	Platform       string        `json:"platform"`
 	SetupDone      bool          `json:"setup_done"`
 	MDNSName       string        `json:"mdns_name"`
 	Docker         prereq.Status `json:"docker"`
 	RestorePending bool          `json:"restore_pending"`
 }
 
-func (a *App) GetState() (AppState, error) {
+func (a *App) GetState() (state AppState, err error) {
+	defer a.logError(&err)
 	cfg := a.loadConfig()
 	if cfg.Role != roleServer {
-		return AppState{Version: a.pins.AppVersion, Role: cfg.Role, ClientURL: cfg.ClientURL}, nil
+		return AppState{Version: a.pins.AppVersion, Platform: runtime.GOOS, Role: cfg.Role, ClientURL: cfg.ClientURL}, nil
 	}
 	pending, err := a.engine().Backups().PendingRestore()
 	if err != nil {
@@ -41,6 +44,7 @@ func (a *App) GetState() (AppState, error) {
 		Role:           cfg.Role,
 		ClientURL:      cfg.ClientURL,
 		Version:        a.pins.AppVersion,
+		Platform:       runtime.GOOS,
 		SetupDone:      cfg.SetupDone && !cfg.Removing,
 		MDNSName:       cfg.MDNSName,
 		Docker:         prereq.DockerCheck(a.engine().Runner()),
@@ -74,7 +78,8 @@ func (a *App) InstallWSL() (string, error) {
 func (a *App) DockerPlan() prereq.ToolPlan { return a.provisioner().DockerPlan() }
 func (a *App) GitPlan() prereq.ToolPlan    { return a.provisioner().GitPlan() }
 
-func (a *App) RancherDownloadInfo() (prereq.DownloadInfo, error) {
+func (a *App) RancherDownloadInfo() (info prereq.DownloadInfo, err error) {
+	defer a.logError(&err)
 	if err := a.requireServer(); err != nil {
 		return prereq.DownloadInfo{}, err
 	}
@@ -202,7 +207,8 @@ func (a *App) ValidateBackupDir(dir string) string {
 	return a.backupSpaceProblem(target)
 }
 
-func (a *App) SetMDNSName(name string) error {
+func (a *App) SetMDNSName(name string) (err error) {
+	defer a.logError(&err)
 	if err := mdns.ValidateLabel(name); err != nil {
 		return err
 	}

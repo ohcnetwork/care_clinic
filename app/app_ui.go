@@ -34,16 +34,43 @@ func (a *App) askToProceed(title, message, yes string) (bool, error) {
 	return affirmative(sel, yes), nil
 }
 
-func (a *App) ChooseFolder(title string) string {
+// alertDialog is for failures the interface cannot show, because the window is
+// already closing. Everything else uses the care-error event.
+func (a *App) alertDialog(title, message string) {
+	if a.ctx == nil {
+		return
+	}
+	_, _ = wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
+		Type:    wruntime.ErrorDialog,
+		Title:   title,
+		Message: message,
+		Buttons: []string{"OK"},
+	})
+}
+
+func (a *App) ChooseFolder(title string) (dir string, err error) {
+	defer a.logError(&err)
 	opts := wruntime.OpenDialogOptions{Title: title}
 	if home, err := os.UserHomeDir(); err == nil {
 		opts.DefaultDirectory = home
 	}
-	dir, err := wruntime.OpenDirectoryDialog(a.ctx, opts)
-	if err != nil {
-		return ""
+	return wruntime.OpenDirectoryDialog(a.ctx, opts)
+}
+
+func openDocument(path string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = proc.Command("open", path)
+	case "windows":
+		cmd = proc.Command("rundll32.exe", "url.dll,FileProtocolHandler", path)
+	default:
+		cmd = proc.Command("xdg-open", path)
 	}
-	return dir
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("couldn't open the saved document: %w", err)
+	}
+	return nil
 }
 
 func (a *App) WasAutostartLaunched() bool {
@@ -52,7 +79,8 @@ func (a *App) WasAutostartLaunched() bool {
 
 func (a *App) LogPath() string { return a.log.Path() }
 
-func (a *App) OpenLogFolder() error {
+func (a *App) OpenLogFolder() (err error) {
+	defer a.logError(&err)
 	path := a.log.Path()
 	if path == "" {
 		return errors.New("this run isn't writing a log file - the log folder couldn't be opened for writing")

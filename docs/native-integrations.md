@@ -22,8 +22,7 @@ Read [Architecture](architecture.md) for the overall boundaries and
 events, and application lifetime. See [Clinic lifecycle](clinic-lifecycle.md)
 for when installation and start operations call these helpers, and
 [Cleanup and uninstall](cleanup-and-uninstall.md) for teardown orchestration.
-This guide describes the current source, not the older behavior recorded in
-`design.md`.
+This guide describes the current source rather than historical design boards.
 
 ## Contents
 
@@ -100,6 +99,7 @@ environment, browser, or architecture is supported or has been integration-teste
 | Batched administrator approval | AppleScript `do shell script ... with administrator privileges`. | One elevated PowerShell child through `Start-Process -Verb RunAs`. | `pkexec sh -c`; requires the relevant policy/desktop support. |
 | Server hosts file | `/etc/hosts`. | `%WINDIR%\System32\drivers\etc\hosts`; path helper falls back to `C:\Windows`. | `/etc/hosts`. |
 | Local certificate installation | After the confirmation: when the hosts entry also needs elevation, put the System keychain install in that same elevated batch and fall back to the login keychain only if trust is still unverified; otherwise try the login keychain first. | After the confirmation, try machine `Root` through `certutil`, then elevation. | After the confirmation, try system anchors/bundle update, then elevation. |
+| Client certificate cleanup and installation | One elevated batch for the hosts repair and System-keychain deletions, then one shell as the signed-in user for the login-keychain deletions and the install, which is the only way macOS will set trust. Up to two prompts; fewer when there is less to repair. | One elevated batch: hosts repair, `Remove-Item` per stale thumbprint, then `certutil -addstore -f Root`. | One elevated batch: hosts repair, stale anchor removal with a trust-store update, then the new anchor with another update. |
 | mDNS | Shared IPv4 address-selection and response-probing implementation. | Same implementation; firewall/profile repair is separate. | Same implementation; no Linux firewall manager is configured here. |
 | Network repair | `netfix` reports not applicable; no repair. | Public profiles can become Private; three owned inbound rules cover HTTP, HTTPS, and mDNS on Private and Domain profiles. | `netfix` reports not applicable; no repair. |
 | Atomic replacement | Rename within the destination directory, then sync that directory. | `MoveFileEx` with replacement and write-through flags. | Same Unix replacement implementation as macOS. |
@@ -318,8 +318,17 @@ Sources: [elevate.go](../app/internal/sys/elevate/elevate.go),
 ### Approval is a boundary, not evidence of success
 
 `elevate.Step` contains a human description (`What`), a Unix shell form (`Sh`),
-and a PowerShell form (`PS`). Callers can collect only the remaining actions and
-explain them in one confirmation dialog before requesting native elevation.
+and a PowerShell form (`PS`). Callers collect only the remaining actions.
+CARE-owned confirmation copy explains the purpose and upcoming approval, not a
+technical checklist of every hosts-file and certificate-store operation.
+
+The engine's `Confirm` callback is backed by the
+[in-window permission protocol](wails-application.md#in-window-permission-confirmations)
+when the frontend is registered. It preserves explicit consent, declines a
+pending request when the UI unregisters or the app shuts down, and does not
+release the caller's job lock while waiting. Before registration there is a
+native confirmation fallback. Neither path answers or replaces the OS
+administrator/security prompt.
 
 `ShQuote`, `PSQuote`, and `OSAQuote` escape different interpreter syntaxes. They
 are not interchangeable. `elevate.Run(sh, false)` executes `sh -c`; its elevated
@@ -390,9 +399,10 @@ outside application control.
 `setUpThisComputer` is an optional, local-browser finish operation. It obtains the
 clinic host, tries a silent unprivileged hosts append, reads the Caddy root, and
 prepares the trust step without installing anything. If work remains, it logs
-`Setting up this computer...` and shows one confirmation listing every change
-and how the operating system will ask (password or Touch ID on macOS, UAC on
-Windows, the administrator password on Linux). Only after approval does it try
+`Setting up this computer...` and shows one short confirmation explaining that
+this lets the computer open CARE securely, followed by the platform's password
+or approval instruction. It does not list hosts-file edits or keychain details.
+Only after approval does it try
 the unprivileged certificate install and then run whatever is still needed as
 one elevated batch. Before this ordering, the macOS Touch ID prompt appeared
 before the explanation.
@@ -456,6 +466,12 @@ Important result rules:
   devices are unaffected means these **local changes** do not configure or
   disable them; it is not proof that LAN access or remote trust already works.
 
+Certificate removal and saved-address removal use the same styled confirmation
+surface with concise action-specific copy. The certificate prompt asks to remove
+CARE's security certificate; the address prompt identifies the clinic hostname.
+Their shorter text does not change ownership checks, privilege requests,
+post-removal verification or incomplete-cleanup reporting.
+
 ### Hosts entries and their ownership marker
 
 The owned line has the form:
@@ -488,14 +504,24 @@ cache. There are two filters:
 - `withoutMarker` (uninstall, purge, remove old installation) drops every line
   carrying `# care-desktop`, whatever name it maps, and leaves unmarked lines
   alone.
-- `withoutHost` (client connect, through `hosts.RemoveHost`) removes one exact
-  hostname from any line, whoever added it, and keeps other names on that line.
+- `withoutHost` removes one exact hostname from any line, whoever added it, and
+  keeps other names on that line.
+- `withoutHostOrMarker` (client connect, through `hosts.RemoveHost` and
+  `hosts.RemoveHostStep`) is both: the name the client is about to open, and
+  every line CARE added for any name. A computer that hosted `old-clinic.local`
+  and is now connecting to `care.local` would otherwise keep resolving the old
+  name to itself, and would need a second administrator prompt later to stop.
+  One filter means one approval.
 
-`hosts.Remove`, `hosts.RemoveStepWindows`, and `hosts.RemoveHost` differ only in
-filter and prompting. `Remove` on macOS/Linux still tries without privileges, then
-asks, then elevates. `RemoveStepWindows` is batched into the single uninstall UAC
-prompt, and its caller runs the returned cleanup after that prompt. `RemoveHost`
-elevates directly and re-reads the file to verify.
+`hosts.Remove`, `hosts.RemoveStepWindows`, `hosts.RemoveHost` and
+`hosts.RemoveHostStep` differ only in filter and prompting. `Remove` on
+macOS/Linux still tries without privileges, then asks, then elevates.
+`RemoveStepWindows` is batched into the single uninstall UAC prompt, and its
+caller runs the returned cleanup after that prompt. `RemoveHost` elevates
+directly and re-reads the file to verify. `RemoveHostStep` stages the same work
+without running it, so the client can put it in the same elevated batch as its
+certificate cleanup and installation; `VerifyHostRemoved` is the re-read that
+must follow, because an approved prompt is not proof that the write happened.
 
 The entry makes the clinic name point back to the server for that computer's own
 browser. It does **not** advertise a DNS record, answer mDNS for the LAN, modify
@@ -504,7 +530,8 @@ another device, or prove that the `.local` name works beyond this machine.
 Removal is intentionally marker-based:
 
 - It removes every line containing the marker, not just the hostname passed to
-  `Remove`. Unmarked user-managed lines are not claimed.
+  `Remove`. Unmarked user-managed lines are not claimed, except for the one
+  name a client is connecting to, which it removes whoever wrote it.
 - Unix removal filters into a scratch file and uses `cat` back into the original
   file, preserving its inode and associated ownership/mode rather than renaming
   a replacement over it. This is not an atomic replacement.
@@ -571,16 +598,44 @@ URL with only its root path. It normalizes these to the clinic's HTTPS address.
 IP addresses, custom ports, and URLs containing application paths are not
 accepted.
 
-Before anything touches the network, the client removes any hosts-file line that
-maps the clinic name (for example `care.local`) to an address. A leftover entry,
-such as `127.0.0.1 care.local` from an earlier server setup on this computer,
-would send the client to itself instead of the clinic found through mDNS.
-`hosts.RemoveHost` removes only that name: other names on a shared line and all
-comments are kept. It uses the same `replaceStep` helper as uninstall (see
+Looking for a clinic and connecting to it are two steps. **Find clinic**
+(`FindClinic`) resolves the address, downloads and validates the clinic's public
+root, and verifies TLS pinned to it. It changes nothing: no hosts file, no
+certificate store, no settings, no browser. It exists so the interface can say
+what it found, and what connecting would repair, before asking for a password.
+The validated root is held in memory and reused by the connection, so the
+trust-on-first-use download happens once rather than twice.
+
+**Connect** (`ConnectClient`) is the step that changes the computer. It removes
+every hosts-file line that maps the clinic name (for example `care.local`) and
+every line carrying CARE's own `# care-desktop` marker, whatever name that line
+maps. A leftover entry such as `127.0.0.1 care.local` from an earlier server
+setup on this computer would send the client to itself instead of the clinic
+found through mDNS, and a leftover entry for the *previous* clinic's name would
+do the same the next time somebody typed it. It uses the same `replaceStep`
+helper as uninstall (see
 [Hosts entries](#hosts-entries-and-their-ownership-marker)): it saves the previous
-file as `hosts.care-backup`, writes the new file with one administrator prompt,
-and flushes the DNS cache. The client then re-reads the file to confirm the name is gone. There is no
-prompt when no entry exists. This runs on every connect, including **Open CARE**.
+file as `hosts.care-backup`, writes the new file, and flushes the DNS cache. The
+client then re-reads the file to confirm the names are gone. There is no prompt
+when no entry exists. This runs on every connect, including **Open CARE**.
+
+A hosts entry pointing the clinic name at this computer is exactly the state
+that would stop `FindClinic` from ever seeing the real clinic, since it changes
+nothing. So when one exists, the client asks the LAN instead of the resolver:
+`mdns.Resolve` runs the same multicast probe as the address-conflict check,
+which bypasses the system resolver, its cache and the hosts file, and returns
+the address of whichever other device answers for the name. The certificate
+download and the pinned TLS check are then dialled at that address with the
+clinic's name still in the request and the handshake. This is what lets
+`ConnectClient` put the hosts repair, the removal of other CARE roots and the
+installation of the new one in a single elevated batch: one administrator
+prompt on a computer that used to be the clinic.
+
+If nothing answers the probe — mDNS blocked, no LAN interface, the clinic off —
+`FindClinic` returns `this computer is sending the clinic address to itself;
+connect to fix it`, which the interface can explain. `ConnectClient` in that
+case repairs the hosts file first and then downloads the root normally, which
+works but costs the second prompt.
 
 The client downloads `http://<host>/root.crt?ok=1`. The query flag keeps this
 native flow compatible with older servers; new servers do not require it.
@@ -598,6 +653,35 @@ Subsequent connections use that pinned root; they do not silently replace it
 with another HTTP download. OS installation uses the Windows LocalMachine Root
 store, the macOS login keychain, or fingerprint-specific Linux anchors.
 Administrator approval may be needed.
+
+Both cleanups are automatic. There is no extra confirmation in front of them:
+the operator already pressed **Connect**, and the operating system is about to
+ask for a password, a fingerprint or a PIN anyway. The interface says beforehand
+what will be repaired, which is what `ClientPreflight` is for, and warns that
+permission will be asked for.
+
+On macOS it can be asked for twice, and this is a platform limit rather than a
+choice. The hosts repair and any System-keychain deletions need a root shell, so
+they go through one `osascript ... with administrator privileges` batch. The
+certificate itself is installed into the **login** keychain as the signed-in
+user, because macOS refuses `SecTrustSettingsSetTrustSettings` from a root
+script with no user interaction, and that raises macOS's own Certificate Trust
+prompt. The only way to merge the two is to put the client's root in the System
+keychain with the admin batch, which would make one client's choice change trust
+for every account on the computer; that is not a trade worth one fewer prompt.
+All per-user keychain work — deleting other clinics' roots and installing this
+one — is issued as a single shell sequence so macOS is asked for the
+trust-settings right once for the whole sequence rather than once per command.
+A computer with nothing to repair sees no administrator prompt at all.
+
+In the same step, `trust.ApplyClientTrust` removes every other trusted root
+whose Subject Common Name is `CARE Desktop Local CA` and whose SHA-1
+fingerprint differs from the one being pinned — an earlier server installation
+on this computer, or a clinic this computer has left. Selection is by
+fingerprint, never by name, so the certificate being installed cannot be deleted
+by its own cleanup, and reconnecting to the same clinic removes nothing at all.
+See [Fingerprints, stable identity, and removal](#fingerprints-stable-identity-and-removal)
+for what each platform enumerates. Removed roots are named in the log.
 
 On macOS the client runs `security add-trusted-cert` as the signed-in user, not
 through the `osascript` administrator prompt. macOS refuses trust-setting changes
@@ -628,12 +712,32 @@ This flow does not provide a phone/tablet installer. Separate servers with
 unique clinic names remain valid; there is no signed, network-wide enforcement
 of a single clinic.
 
+### Watching the clinic from a connected client
+
+`trust.ProbeClient` is the connected screen's heartbeat: one TLS handshake to
+the clinic's `:443`, pinned to the saved root, closed immediately. It is bounded
+at three seconds, does not retry, and resolves the name the way the browser
+will — so it answers the question the screen is actually asking, which is "if I
+click through now, will it open?".
+
+It is deliberately not a `HostTrusts`-style loopback check, not an mDNS probe,
+and not an HTTP request: a clinic that is reachable and trusted is exactly a
+handshake that completes. Failures are separated into "nothing answered" and
+"something answered that we do not trust", because the advice differs. A
+handshake that fails because the *pinned* root is expired is reported as its own
+state rather than as a network problem.
+
+This is a read of the world, not a change to it. It writes nothing, installs
+nothing, elevates nothing, and takes no application lock, so it can run every
+few seconds behind a visible screen while other work continues.
+
 ### Removing client access
 
 On a client, choose **Disconnect** and confirm the native
 client cleanup. It removes this device's saved connection and only the exact
-certificate that this client installed. Previously trusted certificates and
-unrelated CARE roots are not removed and may still enable browser access.
+certificate that this client installed. Certificates trusted by anything other
+than CARE are not removed and may still enable browser access. Other CARE roots
+are removed by the connection that replaces them, not by this step.
 This is not a blanket revocation of access to the clinic. It does not run server uninstall,
 change hosts files, or delete any clinic data.
 
@@ -759,6 +863,23 @@ cryptographic proof; avoid reusing it for unrelated certificates.
 Linux first attempts removal without elevation and rechecks. If trust remains,
 it needs approval for the elevated retry, then checks again. It does not
 arbitrarily edit a generated trust bundle to delete an unknown source entry.
+
+`Untrust` is teardown: it is removing CARE from this computer, so deleting by
+Common Name is correct and, on Windows, is the only thing that works once the
+captured PEM is gone. Client connection is the opposite case — one CARE root is
+arriving while the others leave — and it uses a separate path,
+`trust.OtherCARoots(keep)`, which returns each trusted CARE root as a
+fingerprint plus the store it lives in:
+
+| Platform | What is enumerated | How it is removed |
+| --- | --- | --- |
+| macOS | `security find-certificate -a -Z -c "CARE Desktop Local CA"` in the login and System keychains. | `security delete-certificate -t -Z <fingerprint> <keychain>`. Login-keychain deletions run as the signed-in user, for the same reason installation does; System-keychain deletions join the elevated batch. |
+| Windows | `Get-ChildItem Cert:\LocalMachine\Root` filtered on an exact `CN=CARE Desktop Local CA` subject, returning thumbprints. | `Remove-Item Cert:\LocalMachine\Root\<thumbprint>`, one per certificate. **Not** `certutil -delstore Root <CommonName>`: deleting by name in the same step as the installation would take the new clinic's root with it. |
+| Linux | Every `.crt` in `/usr/local/share/ca-certificates` and `/etc/pki/ca-trust/source/anchors` that parses as a single CARE CA root. Files that are not CARE roots are skipped, not inspected further. | The shared anchor-removal script, which deletes the files and runs whichever of `update-ca-certificates` and `update-ca-trust` exists. |
+
+`keep` is filtered out of every list before anything is scheduled, comparing
+uppercase fingerprints with spaces removed, so the certificate being pinned is
+never a removal target and a reconnection to the same clinic is a no-op.
 
 Unlike local setup's positive state-only result, `Untrust` retains a removal
 command error even if subsequent inspection finds no root. It returns explanatory
@@ -1833,13 +1954,13 @@ For the rest of the repository, use [Repository map](repository-map.md).
 | [sys/hosts/hosts.go](../app/internal/sys/hosts/hosts.go) | Hosts-file parsing, local append planning, marker-scoped removal, and explicit residue inspection. |
 | [sys/hosts/hosts_test.go](../app/internal/sys/hosts/hosts_test.go) | Loopback/conflicting-entry parsing; POSIX removal fixtures preserve unowned lines, empty output, write errors, scratch cleanup, and state-based/unknown results. |
 | [sys/trust/trust.go](../app/internal/sys/trust/trust.go) | Local root preparation/install/removal, verified loopback TLS, store/bundle inspection, stable CA identity, and SHA-1 identification. |
-| [sys/trust/client.go](../app/internal/sys/trust/client.go) | Native HTTP certificate bootstrap and remote-host TLS verification for clients. |
+| [sys/trust/client.go](../app/internal/sys/trust/client.go) | Native HTTP certificate bootstrap, remote-host TLS verification, optional resolver bypass, the fingerprint-scoped removal of other CARE roots that shares one approval with installation, and the bounded read-only reachability probe a connected client polls. |
+| [sys/trust/client_test.go](../app/internal/sys/trust/client_test.go) | Address normalization, download and validity validation, pinned TLS, fingerprint selection that never removes the pinned root, Linux anchor enumeration, per-platform removal scripts, and probe outcomes against a live TLS fixture and a closed port. |
 | [sys/trust/trust_test.go](../app/internal/sys/trust/trust_test.go) | Generated certificate fixtures test Linux anchor/bundle residue, partial removal, approval/retry, unreadable bundles, and fresh trust-pool loading. |
-| [sys/trust/installer_test.go](../app/internal/sys/trust/installer_test.go) | Redirected POSIX installer fixtures verify readable Debian/Fedora public anchors, NSS profile imports including spaces, and visible NSS failures; not live trust-store installation. |
 | [sys/mdns/advertise.go](../app/internal/sys/mdns/advertise.go) | DNS labels, usable interfaces, responder lifetime, topology comparison, and bounded hostname probes. |
 | [sys/mdns/responder.go](../app/internal/sys/mdns/responder.go) | Interface-bound multicast/unicast transport, hostname and DNS-SD replies, announcements and goodbyes. |
 | [sys/mdns/probe.go](../app/internal/sys/mdns/probe.go) | Direct hostname queries and interface-local response validation. |
-| [sys/mdns/conflict.go](../app/internal/sys/mdns/conflict.go) | Live foreign-name checks independent of hosts entries and cached resolver answers. |
+| [sys/mdns/conflict.go](../app/internal/sys/mdns/conflict.go) | Live foreign-name checks independent of hosts entries and cached resolver answers, and `Resolve`, which returns the answering device's address so a client can reach a clinic its own hosts file is hiding. |
 | [sys/mdns/advertise_test.go](../app/internal/sys/mdns/advertise_test.go) | Protocol framing, known answers, address validation, lifecycle and topology regression checks. |
 | [sys/mdns/hostname_network_test.go](../app/internal/sys/mdns/hostname_network_test.go) | Opt-in live multicast and legacy hostname checks using a temporary name. |
 | [sys/netfix/netfix.go](../app/internal/sys/netfix/netfix.go) | Windows profile/rule readiness, scoped repair, verified prefix-owned removal, and non-Windows no-op entry points. |

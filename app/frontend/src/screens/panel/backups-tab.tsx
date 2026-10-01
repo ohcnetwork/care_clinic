@@ -1,387 +1,355 @@
-import { Database, FolderOpen, HardDrive } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { Archive, Check, Clock3, Database, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { InfoButton } from "@/components/field";
-import { RecoveryFilePicker } from "@/components/recovery-file-picker";
-import { LEVEL_BADGE, StorageMeter } from "@/components/storage-meter";
-import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { toast } from "@/components/ui/sonner";
-import { bridge } from "@/lib/bridge";
-import { diskSize, errorText, firstLine, megabytes } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { bridge, onCareEvent } from "@/lib/bridge";
+import { diskSize, errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
-import type { ImportedBackup } from "@/types";
+import type { BackupPolicy } from "@/types";
 
-const RESTORE_INFO =
-  "Restoring replaces today's data with the chosen copy. CARE pauses for a moment while it restores, and you confirm before anything changes.";
+import {
+  backupGroups, BackupNotice, backupProblem, backupSpaceSummary, backupWhen,
+  type BackupProblem,
+} from "./backup-ui";
+import { PanelPageHeader } from "./panel-ui";
+import { usePanelUpdateLock } from "./panel-update-lock";
+import { RestoreBackupFile } from "./restore-backup-dialog";
+import "./backups.css";
 
 export function BackupsTab() {
-  const { backups, backupsError, busy, restorePending, runAction, reloadBackups, restore } = useCare();
-  const [showInfo, setShowInfo] = useState(false);
-  const [confirming, setConfirming] = useState<string | null>(null);
-  const [recoveryFile, setRecoveryFile] = useState("");
-  const [adminPassword, setAdminPassword] = useState("");
-
-  return (
-    <div className="flex flex-col gap-3">
-      <BackupFolderRow />
-      <Alert>
-        Restoring encrypted backups requires the separate backup recovery file saved during
-        setup. Keep it secure and separate from backups. Lost every copy? Old backups
-        cannot be unlocked. Forgot the Desktop password? Open Advanced to use a recovery code.
-      </Alert>
-
-      <div className="flex items-center gap-[11px]">
-        <Button
-          variant="primary"
-          disabled={busy || restorePending}
-          onClick={() => void runAction("backup-now")}
-        >
-          Back up now
-        </Button>
-        <span className="text-[13px] text-muted-foreground">Automatic, daily</span>
-        <InfoButton
-          title="Restoring replaces current data"
-          pressed={showInfo}
-          onClick={() => setShowInfo((v) => !v)}
-        />
-        <span className="flex-1" />
-        <span className="text-[13px] text-muted-foreground">
-          {!backupsError && backups.length ? `${backups.length} kept` : ""}
-        </span>
-        <Button
-          disabled={busy}
-          onClick={() => {
-            setConfirming(null);
-            void reloadBackups();
-          }}
-        >
-          Refresh
-        </Button>
-      </div>
-
-      {showInfo ? <Alert>{RESTORE_INFO}</Alert> : null}
-
-      <div className="overflow-hidden rounded-xl border border-line bg-card shadow-card">
-        {backupsError ? (
-          <Alert variant="danger">Could not read the backup folder: {backupsError}</Alert>
-        ) : backups.length === 0 ? (
-          <div className="p-5 text-center text-[13px] text-faint">
-            No backups yet. Click <b>Back up now</b> or wait for the daily backup.
-          </div>
-        ) : (
-          backups.map((backup, i) => {
-            const meta = [
-              megabytes(backup.size_bytes),
-              backup.files_archive ? "database and files" : "database only",
-              backup.encrypted ? "encrypted" : "",
-            ]
-              .filter(Boolean)
-              .join("  ·  ");
-            return (
-              <Fragment key={backup.db_dump}>
-                <div
-                  className={cn(
-                    "flex items-center gap-[13px] px-4 py-3.5",
-                    i > 0 && "border-t border-hair",
-                  )}
-                >
-                  <span className="flex size-[30px] flex-none items-center justify-center rounded-sm bg-hair text-muted-foreground">
-                    <Database className="size-[15px]" strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-mono text-[13.5px] font-semibold text-ink">
-                      {backup.label}
-                    </div>
-                    <div className="mt-0.5 text-[12.5px] text-muted-foreground">{meta}</div>
-                  </div>
-                  <Badge variant={backup.manual ? "plainOk" : "plain"} size="sm">
-                    {backup.manual ? "Manual" : "Automatic"}
-                  </Badge>
-                  <Button disabled={busy || restorePending} onClick={() => {
-                      setRecoveryFile("");
-                      setAdminPassword("");
-                      setConfirming(backup.db_dump);
-                    }}>
-                    Restore
-                  </Button>
-                </div>
-                {confirming === backup.db_dump ? (
-                  <div className="flex flex-col gap-3 border-t border-danger-bg bg-danger-tint px-4 py-[13px] text-[12.5px] text-danger-ink">
-                    <label className="flex items-center gap-3">
-                      <span className="flex-none">Desktop admin password</span>
-                      <input
-                        type="password"
-                        autoComplete="current-password"
-                        value={adminPassword}
-                        onChange={(e) => setAdminPassword(e.target.value)}
-                        className="min-w-0 flex-1 rounded-sm border border-danger-bg bg-white px-2 py-1 font-mono text-[12.5px] text-ink"
-                      />
-                    </label>
-                    {backup.encrypted ? (
-                      <RecoveryFilePicker value={recoveryFile} onChange={setRecoveryFile} disabled={busy} />
-                    ) : null}
-                    <div className="flex items-center gap-3">
-                      <span className="flex-1">
-                        Replace current data with this copy? This cannot be undone.
-                      </span>
-                      <Button onClick={() => setConfirming(null)}>Cancel</Button>
-                      <Button
-                        variant="destructive"
-                        disabled={busy || !adminPassword || (backup.encrypted && !recoveryFile)}
-                        onClick={() => {
-                          setConfirming(null);
-                          void restore(backup, recoveryFile, adminPassword);
-                          setAdminPassword("");
-                          setRecoveryFile("");
-                        }}
-                      >
-                        Yes, restore
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-              </Fragment>
-            );
-          })
-        )}
-      </div>
-
-      <ImportCard />
-    </div>
-  );
-}
-
-/** Where backups are written, and how to point them somewhere else (a USB drive). */
-function BackupFolderRow() {
-  const { busy, restorePending, log, storage, recheckStorage } = useCare();
+  const updateLock = usePanelUpdateLock();
+  const {
+    backups, backupsError, busy, busyLabel, restorePending, storage, storageError, log, tab, operationError,
+    runAction, reloadBackups, recheckStorage, setTab,
+  } = useCare();
   const [dir, setDir] = useState("");
-  const [problem, setProblem] = useState("");
-  const [working, setWorking] = useState(false);
+  const [folderLoading, setFolderLoading] = useState(true);
+  const [folderProblem, setFolderProblem] = useState<BackupProblem | null>(null);
+  const [folderChanged, setFolderChanged] = useState(false);
+  const [policy, setPolicy] = useState<BackupPolicy | null>(null);
+  const [policyProblem, setPolicyProblem] = useState(false);
+  const [working, setWorking] = useState<"folder" | "refresh" | "backup" | null>(null);
+  const [actionProblem, setActionProblem] = useState<BackupProblem | null>(null);
+  const [backupComplete, setBackupComplete] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const operation = useRef(false);
+  const blocked = useRef(busy || restorePending);
+  const mounted = useRef(true);
+  const space = storage?.backup;
+  const run = storage?.last_run;
+  const automaticRunning = run?.state === "running" && run.at > 0 &&
+    now.getTime() - run.at * 1000 < 6 * 60 * 60 * 1000;
+  blocked.current = busy || restorePending || automaticRunning || folderLoading || updateLock.active;
+
+  const readPolicy = useCallback(async () => {
+    setPolicy(null);
+    try {
+      const settings = await bridge.GetBackupPolicy();
+      if (mounted.current) {
+        setPolicy(settings);
+        setPolicyProblem(false);
+      }
+    } catch (error) {
+      if (mounted.current) {
+        log(`backup settings: ${errorText(error)}`);
+        setPolicy(null);
+        setPolicyProblem(true);
+      }
+    }
+  }, [log]);
+
+  const readFolder = useCallback(async () => {
+    try {
+      const path = await bridge.GetBackupDir();
+      if (mounted.current) {
+        setDir(path);
+        setFolderProblem(null);
+      }
+    } catch (error) {
+      if (mounted.current) {
+        log(`backup folder: ${errorText(error)}`);
+        setDir("");
+        setFolderProblem({
+          title: "The backup folder couldn't be checked",
+          detail: "Try Refresh again. Your existing backups have not been moved.",
+        });
+      }
+    } finally {
+      if (mounted.current) setFolderLoading(false);
+    }
+  }, [log]);
 
   useEffect(() => {
-    void bridge.GetBackupDir().then(setDir, () => setDir(""));
+    mounted.current = true;
+    const clock = window.setInterval(() => setNow(new Date()), 60_000);
+    const off = onCareEvent("care-done", (code: number, label?: string) => {
+      if (label !== "backup-now") return;
+      setBackupComplete(code === 0);
+      setActionProblem(code === 0 ? null : backupProblem("", "backup"));
+    });
+    return () => {
+      mounted.current = false;
+      window.clearInterval(clock);
+      off();
+    };
   }, []);
 
-  const change = async () => {
-    const chosen = await bridge.ChooseFolder("Choose where backups should go");
-    if (!chosen) return;
-    setWorking(true);
-    setProblem("");
+  useEffect(() => {
+    if (tab !== "backups") return;
+    setFolderLoading(true);
+    void readFolder();
+    void readPolicy();
+  }, [tab, readFolder, readPolicy]);
+
+  const refresh = async () => {
+    if (operation.current || blocked.current || updateLock.isActive()) return;
+    operation.current = true;
+    setWorking("refresh");
+    setActionProblem(null);
     try {
-      setDir(await bridge.SetBackupDir(chosen));
-      toast("Backups will go to the new folder");
-      void recheckStorage();
-    } catch (e) {
-      setProblem(firstLine(errorText(e)));
-      log(`backup folder: ${errorText(e)}`);
+      await Promise.all([readFolder(), readPolicy(), reloadBackups(), recheckStorage()]);
+      if (mounted.current) setNow(new Date());
+    } catch (error) {
+      if (mounted.current) setActionProblem(backupProblem(error, "storage"));
     } finally {
-      setWorking(false);
+      operation.current = false;
+      if (mounted.current) setWorking(null);
     }
   };
 
-  const space = storage?.backup;
-  const run = storage?.last_run;
-  const failed = run?.state === "failed";
-  const tone = space?.level ?? "unknown";
-  const canChange = !(busy || working || restorePending);
+  const changeFolder = async () => {
+    if (operation.current || blocked.current || updateLock.isActive()) return;
+    const revision = updateLock.revision();
+    operation.current = true;
+    setWorking("folder");
+    try {
+      const chosen = await bridge.ChooseFolder("Choose where backups should go");
+      if (!chosen || !mounted.current) return;
+      if (revision !== updateLock.revision() || updateLock.isActive()) {
+        setFolderProblem({
+          title: "Choose the backup folder again",
+          detail: "A CARE Desktop update interrupted this change. Your backup folder has not changed.",
+        });
+        return;
+      }
+      if (blocked.current) {
+        setFolderProblem(backupProblem(restorePending ? "a restore is unfinished" : "something else is still running", "folder"));
+        return;
+      }
+      const target = await bridge.SetBackupDir(chosen);
+      if (!mounted.current) return;
+      setDir(target);
+      setFolderProblem(null);
+      setFolderChanged(target !== dir);
+      setBackupComplete(false);
+      try {
+        await Promise.all([reloadBackups(), recheckStorage()]);
+      } catch (error) {
+        if (mounted.current) setActionProblem(backupProblem(error, "storage"));
+      }
+    } catch (error) {
+      if (mounted.current) {
+        log(`backup folder: ${errorText(error)}`);
+        await readFolder();
+        if (!mounted.current) return;
+        setFolderProblem(backupProblem(error, "folder"));
+      }
+    } finally {
+      operation.current = false;
+      if (mounted.current) setWorking(null);
+    }
+  };
+
+  const backUpNow = async () => {
+    if (operation.current || blocked.current || updateLock.isActive()) return;
+    operation.current = true;
+    setWorking("backup");
+    setActionProblem(null);
+    setBackupComplete(false);
+    try {
+      await runAction("backup-now");
+    } catch (error) {
+      if (mounted.current) setActionProblem(backupProblem(error, "backup"));
+    } finally {
+      operation.current = false;
+      if (mounted.current) setWorking(null);
+    }
+  };
+
+  const backingUp = (busy && busyLabel === "Backing up") || working === "backup";
+  const disabled = busy || restorePending || !!working || automaticRunning || folderLoading || updateLock.active;
+  const measured = !storageError && !!space && space.total > 0 && space.level !== "unknown" &&
+    !!dir && space.dir === dir;
+  const tone = measured ? space.level : "unknown";
+  const usedPercent = measured ? Math.min(100, Math.max(0, (1 - space.free / space.total) * 100)) : 0;
+  const groups = backupGroups(backups, now);
+  const lastBackup = storage?.newest_backup_at
+    ? backupWhen(new Date(storage.newest_backup_at * 1000), now) : "";
+  const lastRun = run?.at ? backupWhen(new Date(run.at * 1000), now) : "";
+  const badge = tone === "critical" ? "Low space" : tone === "low" ? "Low space"
+    : tone === "ok" ? "Healthy" : folderLoading ? "Checking" : "Not checked";
+  const localActionProblem = operationError?.action === "backup-now" ? null : actionProblem;
 
   return (
     <>
-      {failed ? (
-        <Alert variant="danger" className="items-start">
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold">
-              {run.reason === "disk_full"
-                ? "The last automatic backup failed because the backup drive is full."
-                : "The last automatic backup failed."}
-            </div>
-            <div className="mt-0.5">
-              {run.reason === "disk_full"
-                ? `It needed about ${diskSize(run.need_bytes)} and ${diskSize(run.free_bytes)} was free. Free up space on that drive, or choose another folder. The next backup runs automatically.`
-                : `${run.message ? `Cause: ${run.message}. ` : ""}Try Back up now; if it fails again, check the log under Advanced.`}
-            </div>
+    <PanelPageHeader title="Backups" subtitle="Safe copies of your patient data, made automatically." />
+    <div className="care-backups">
+      <section className={`care-backups-card care-backups-folder care-backups-folder--${tone}`} aria-label="Backup folder">
+        <div className="care-backups-card-row">
+          <span className={`care-backups-icon care-backups-icon--${tone}`}><FolderOpen aria-hidden="true" /></span>
+          <div className="care-backups-grow">
+            <div className="care-backups-eyebrow">Backups are saved to</div>
+            <p className="care-backups-folder-path" title={dir}>{dir || (folderLoading ? "Checking backup folder…" : "Folder unavailable")}</p>
+            {measured ? (
+              <>
+                <div className={`care-backups-meter care-backups-meter--${tone}`}
+                  role="meter" aria-label="Backup folder space used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(usedPercent)}>
+                  <span style={{ width: `${usedPercent}%` }} />
+                </div>
+                <div className="care-backups-space">
+                  <span>{backupSpaceSummary(space)}</span>
+                  <span>{diskSize(space.free)} free of {diskSize(space.total)}</span>
+                </div>
+              </>
+            ) : <p className="care-backups-space-unavailable">Free space {folderLoading ? "is being checked" : "couldn't be checked"}</p>}
           </div>
-          {run.reason === "disk_full" ? (
-            <Button disabled={!canChange} onClick={() => void change()}>
-              Choose another folder
-            </Button>
-          ) : null}
-        </Alert>
-      ) : storage?.stale ? (
-        <Alert variant="danger">
-          No backup in over a day. Check the backup drive is plugged in, then press Back up now.
-        </Alert>
-      ) : null}
-
-      <div className="rounded-xl border border-line bg-card px-4 py-3.5 shadow-card">
-        <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "flex size-[30px] flex-none items-center justify-center rounded-sm",
-              tone === "critical"
-                ? "bg-danger-bg text-danger-ink"
-                : tone === "low"
-                  ? "bg-warn-bg text-warn-ink"
-                  : "bg-brand-bg text-brand-ink",
-            )}
-          >
-            <HardDrive className="size-4" strokeWidth={2} />
+          <span className={`care-backups-badge care-backups-badge--${tone}`}>
+            {tone === "ok" ? <Check aria-hidden="true" /> : null}{badge}
           </span>
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-semibold tracking-[0.04em] text-muted-foreground uppercase">
-              Backups are saved to
-            </div>
-            <div className="truncate font-mono text-[13.5px] font-semibold text-ink">
-              {dir || "…"}
-            </div>
-          </div>
-          {space && space.total > 0 ? (
-            <Badge variant={LEVEL_BADGE[tone].variant} size="sm">
-              {LEVEL_BADGE[tone].label}
-            </Badge>
-          ) : null}
-          <Button disabled={!canChange} onClick={() => void change()}>
-            {working ? "Switching…" : "Change"}
+          <Button disabled={disabled} onClick={() => void changeFolder()}>
+            {working === "folder" ? "Changing folder…" : "Change folder"}
           </Button>
         </div>
-        {space && space.total > 0 ? (
-          <div className="mt-3 pl-[42px]">
-            <StorageMeter free={space.free} total={space.total} level={tone} />
-            <div className="mt-1.5 flex items-baseline justify-between gap-3 text-[12.5px]">
-              <span
-                className={cn(
-                  tone === "critical"
-                    ? "text-danger-ink"
-                    : tone === "low"
-                      ? "text-warn-ink"
-                      : "text-muted-foreground",
-                )}
-              >
-                {space.message}
-              </span>
-              <span className="flex-none font-mono text-[12px] text-faint">
-                {diskSize(space.free)} free of {diskSize(space.total)}
-              </span>
-            </div>
-            {space.shares_docker_drive ? (
-              <div className="mt-1 text-[12.5px] text-muted-foreground">
-                Same drive as the clinic&apos;s data. A USB drive keeps the backups safe if this
-                computer&apos;s drive fails.
-              </div>
-            ) : null}
-          </div>
+        {measured && space.need > 0 ? <p className="care-backups-folder-note">Each backup needs about {diskSize(space.need)}.</p> : null}
+        {measured && space.shares_docker_drive ? (
+          <p className="care-backups-folder-note">This folder shares the drive with the clinic's data. Keep another copy on a different drive to protect against drive failure.</p>
         ) : null}
-      </div>
-      {problem ? (
-        <div className="-mt-1 text-[12.5px] leading-[1.5] text-danger-ink">{problem}</div>
+      </section>
+
+      {folderProblem ? <BackupNotice title={folderProblem.title}>{folderProblem.detail}</BackupNotice>
+        : folderChanged ? (
+          <BackupNotice title="The backup folder has changed" tone="success" log={false}>
+            New backups will be saved here. Earlier backups stay in the previous folder.
+          </BackupNotice>
+        ) : null}
+
+      {storageError ? (
+        <BackupNotice title="Storage couldn't be checked">
+          The last reading may be out of date. Try Refresh again before relying on the available space.
+        </BackupNotice>
       ) : null}
-    </>
-  );
-}
 
-/** Restore a backup that came from another computer, chosen with the file picker. */
-function ImportCard() {
-  const { busy, restorePending, restoreFile } = useCare();
-  const [found, setFound] = useState<ImportedBackup | null>(null);
-  const [problem, setProblem] = useState("");
-  const [recoveryFile, setRecoveryFile] = useState("");
-  const [confirming, setConfirming] = useState(false);
-  const [adminPassword, setAdminPassword] = useState("");
-
-  const pick = async () => {
-    const path = await bridge.ChooseBackupFile();
-    if (!path) return;
-    setProblem("");
-    setConfirming(false);
-    setRecoveryFile("");
-    setAdminPassword("");
-    try {
-      setFound(await bridge.InspectBackupFile(path));
-    } catch (e) {
-      setFound(null);
-      setProblem(firstLine(errorText(e)));
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-line bg-card p-4 shadow-card">
-      <div className="flex items-center gap-3">
-        <span className="flex size-[30px] flex-none items-center justify-center rounded-sm bg-hair text-muted-foreground">
-          <FolderOpen className="size-4" strokeWidth={2} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] font-semibold text-ink">
-            Restore from a file
-          </div>
-          <div className="mt-px text-[12.5px] text-muted-foreground">
-            For a backup brought from another computer, on a USB drive.
-          </div>
+      <div className="care-backups-toolbar">
+        <Button variant="primary" disabled={disabled} onClick={() => void backUpNow()}>
+          {backingUp || automaticRunning ? <LoaderCircle className="care-backups-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
+          {backingUp || automaticRunning ? "Backing up…" : "Back up now"}
+        </Button>
+        <div className="care-backups-schedule">
+          <span>{policy?.interval_seconds === 86400 ? "Automatic every 24 hours"
+            : policy ? `Automatic every ${policy.interval_seconds / 3600} hours`
+              : "Automatic backups"}</span>
+          <span className="care-backups-retention">{policy
+            ? policy.retention_days === 0 ? "Kept forever"
+              : `Kept for ${policy.retention_days} ${policy.retention_days === 1 ? "day" : "days"}`
+            : policyProblem ? "Retention couldn't be checked" : "Checking retention…"}</span>
         </div>
-        <Button disabled={busy || restorePending} onClick={() => void pick()}>
-          Choose file
+        {!backupsError ? <span className="care-backups-count">{backups.length} {backups.length === 1 ? "backup" : "backups"}</span> : null}
+        <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void refresh()}>
+          <RefreshCw aria-hidden="true" className={working === "refresh" ? "care-backups-spin" : undefined} />
+          {working === "refresh" ? "Refreshing…" : "Refresh"}
         </Button>
       </div>
 
-      {problem ? (
-        <div className="text-[12.5px] leading-[1.5] text-danger-ink">{problem}</div>
+      {policyProblem ? (
+        <BackupNotice title="The backup settings couldn't be read">
+          Refresh to check how long backups are kept, or check Clinic settings in Advanced.
+        </BackupNotice>
       ) : null}
 
-      {found ? (
-        <div className="flex flex-col gap-2.5 rounded-lg border border-line bg-background px-3.5 py-3">
-          <div className="font-mono text-[13px] font-semibold text-ink">{found.db_dump}</div>
-          <div className="text-[12.5px] text-muted-foreground">
-            {found.files_archive
-              ? "Database and uploaded files."
-              : "Database only — this backup has no uploaded files with it."}
-          </div>
-          {found.encrypted ? (
-            <RecoveryFilePicker value={recoveryFile} onChange={setRecoveryFile} disabled={busy} />
-          ) : null}
-          <label className="flex items-center gap-3 text-[12.5px]">
-            <span className="flex-none text-muted-foreground">Desktop admin password</span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              className="min-w-0 flex-1 rounded-sm border border-line bg-white px-2 py-1 font-mono text-[12.5px] text-ink"
-            />
-          </label>
+      {restorePending ? (
+        <BackupNotice title="An earlier restore needs attention"
+          actions={<Button onClick={() => setTab("overview")}>Open Overview</Button>}>
+          Start CARE from Overview to recover safely before backing up, changing folders or restoring another file.
+        </BackupNotice>
+      ) : null}
 
-          {confirming ? (
-            <div className="flex items-center gap-3 rounded-lg border border-danger-bg bg-danger-tint px-3.5 py-[11px] text-[12.5px] text-danger-ink">
-              <span className="flex-1">
-                Replace this clinic&apos;s data with that file? This cannot be undone.
-              </span>
-              <Button onClick={() => setConfirming(false)}>Cancel</Button>
-              <Button
-                variant="destructive"
-                disabled={busy || !adminPassword || (found.encrypted && !recoveryFile)}
-                onClick={() => {
-                  setConfirming(false);
-                  void restoreFile(found.path, recoveryFile, adminPassword);
-                  setAdminPassword("");
-                  setRecoveryFile("");
-                }}
-              >
-                Yes, restore
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="destructive"
-              className="self-start"
-              disabled={busy || !adminPassword || (found.encrypted && !recoveryFile)}
-              onClick={() => setConfirming(true)}
-            >
-              Restore this file
-            </Button>
-          )}
+      {localActionProblem ? <BackupNotice title={localActionProblem.title}>{localActionProblem.detail}</BackupNotice>
+        : backingUp || automaticRunning ? (
+          <BackupNotice title="A backup is running" tone="info" log={false}>
+            Keep CARE Desktop open. The new copy will appear after the backup finishes.
+          </BackupNotice>
+        ) : backupComplete && run?.state === "ok" && !storage?.stale ? (
+          <BackupNotice title="The backup finished" tone="success" log={false}>
+            Refresh the list if the new copy hasn't appeared yet.
+          </BackupNotice>
+        ) : null}
+
+      {run?.state === "failed" && !backingUp && !automaticRunning ? (
+        <BackupNotice title={run.reason === "disk_full" ? "The last backup didn't finish — there wasn't enough space" : "The last backup didn't finish"}
+          actions={<>
+            <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button>
+            <Button disabled={disabled} onClick={() => void backUpNow()}>Try again now</Button>
+          </>}>
+          {run.reason === "disk_full"
+            ? `${run.need_bytes > 0 ? `It needed about ${diskSize(run.need_bytes)} and ${diskSize(run.free_bytes)} was free. ` : ""}Free up space or choose another folder.`
+            : "Check that the backup folder is available and has enough space. Try again, or open the log file for support."}
+          {lastRun ? ` Last attempt: ${lastRun}.` : ""}
+        </BackupNotice>
+      ) : storage?.stale && !backingUp && !automaticRunning ? (
+        <BackupNotice title={lastBackup ? `No backup since ${lastBackup}` : "No recent backup"} tone="warning"
+          actions={<>
+            <Button variant="primary" disabled={disabled} onClick={() => void backUpNow()}><Archive aria-hidden="true" />Back up now</Button>
+            <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button>
+          </>} log={false}>
+          Check that the backup folder is available, then back up now. Automatic backups continue while CARE is running.
+        </BackupNotice>
+      ) : lastRun && run?.state === "ok" ? (
+        <p className="care-backups-last-run"><Clock3 aria-hidden="true" />Last completed backup: {lastRun}</p>
+      ) : lastBackup ? (
+        <p className="care-backups-last-run"><Clock3 aria-hidden="true" />Latest backup: {lastBackup}</p>
+      ) : null}
+
+      {backupsError ? (
+        <BackupNotice title="The backup list couldn't be read">
+          Check that the backup folder is available, then try Refresh. Your existing backups have not been changed.
+        </BackupNotice>
+      ) : backups.length === 0 ? (
+        <div className="care-backups-card care-backups-empty">
+          <span className="care-backups-icon"><Archive aria-hidden="true" /></span>
+          <h2>{measured ? "No backups yet" : "No backups listed"}</h2>
+          <p>{measured
+            ? "The first backup runs automatically after the clinic starts. Or choose Back up now."
+            : "Check that the backup folder is available, or choose another folder."}</p>
         </div>
-      ) : null}
+      ) : (
+        <section className="care-backups-list" aria-label="Saved backups">
+          {groups.map(([day, entries]) => (
+            <div key={day}>
+              <h2>{day}</h2>
+              <ul>
+                {entries.map(({ backup, date }) => (
+                  <li key={backup.db_dump}>
+                    <span className="care-backups-icon care-backups-icon--small"><Database aria-hidden="true" /></span>
+                    <div className="care-backups-grow">
+                      <h3 title={backup.db_dump}>{backupWhen(date, now)}</h3>
+                      <p>{backup.size_bytes > 0 ? <>
+                        {diskSize(backup.size_bytes)} database · {backup.files_archive ? "database and files" : "database only"}
+                        {backup.encrypted ? " · encrypted" : " · not encrypted"}
+                      </> : "Empty database file · not ready to restore"}</p>
+                    </div>
+                    <span className={`care-backups-kind${backup.manual ? " care-backups-kind--manual" : ""}`}>
+                      {backup.manual ? "Manual" : "Automatic"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <RestoreBackupFile disabled={!!working || automaticRunning || folderLoading} />
     </div>
+    </>
   );
 }

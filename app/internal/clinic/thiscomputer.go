@@ -94,24 +94,19 @@ func localSetupResult(host string, hostsReady, trustReady bool, err error) strin
 }
 
 func confirmPrompt(goos, host string, steps []elevate.Step) (title, message string) {
-	var what strings.Builder
-	for _, s := range steps {
-		what.WriteString("  •  " + s.What + "\n")
-	}
 	return "Set up " + host + " on this computer?",
-		"To open https://" + host + " in this computer's own browser, CARE needs to:\n\n" +
-			what.String() + "\n" + approvalNote(goos, len(steps)) + " Other devices are unaffected."
+		"This lets you open CARE securely on this computer.\n\n" + approvalNote(goos, len(steps))
 }
 
 func approvalNote(goos string, changes int) string {
 	switch goos {
 	case "darwin":
 		if changes > 1 {
-			return "macOS will ask for your administrator password, then ask you to confirm trusting the certificate."
+			return "Enter your computer's administrator password and approve the security prompt when macOS asks."
 		}
-		return "macOS will ask you to approve this with your password or Touch ID."
+		return "Use your computer's password or Touch ID when macOS asks."
 	case "windows":
-		return "Windows will ask for permission."
+		return "Approve the Windows permission prompt to continue."
 	}
-	return "This asks for your administrator password."
+	return "Enter your computer's administrator password when asked."
 }

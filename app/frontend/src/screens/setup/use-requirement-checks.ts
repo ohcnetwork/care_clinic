@@ -145,7 +145,9 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
               label: "Remove old installation",
               detail:
                 "Deletes the earlier installation's clinic data, images, and settings from this computer. Backups are kept.",
-              run: () => bridge.PurgeResidue(),
+              run: async () => {
+                await bridge.PurgeResidue(true);
+              },
             },
           };
     } catch (e) {

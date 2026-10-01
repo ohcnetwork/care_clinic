@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -38,6 +39,24 @@ func Scan(o Options) (Report, error) {
 	return scan(o, systemTraces)
 }
 
+// engineAvailable separates "this computer has no Docker" from "Docker is
+// installed but not answering". A client, or a computer where setup never got
+// as far as installing an engine, has no Docker-side traces to find; that is an
+// empty result, not an inspection failure.
+func engineAvailable(run proc.Runner) (bool, error) {
+	if _, err := run.Capture("docker", "--version"); err != nil {
+		if missingCommand(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("could not inspect this computer's clinic containers; start Docker and try again: %w", err)
+	}
+	return true, nil
+}
+
+func missingCommand(err error) bool {
+	return errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist)
+}
+
 func scan(o Options, inspectSystem func(proc.Runner) ([]Trace, error)) (Report, error) {
 	var traces []Trace
 	var failed []error
@@ -45,28 +64,16 @@ func scan(o Options, inspectSystem func(proc.Runner) ([]Trace, error)) (Report, 
 		traces = append(traces, Trace{ID: id, Label: label, Detail: detail})
 	}
 
-	label := "label=com.docker.compose.project=" + o.Project
-
-	for _, resource := range []struct {
-		id, label, one, many string
-		args                 []string
-	}{
-		{"containers", "Clinic containers", "container", "containers", []string{"ps", "-aq", "--filter", label}},
-		{"volumes", "Old clinic data", "data volume", "data volumes", []string{"volume", "ls", "-q", "--filter", label}},
-		{"networks", "Clinic network", "network", "networks", []string{"network", "ls", "-q", "--filter", label}},
-	} {
-		ids, err := o.Runner.Lines("docker", resource.args...)
-		if err != nil {
-			failed = append(failed, fmt.Errorf("could not inspect %s; start Docker and try again: %w", resource.label, err))
-		} else if len(ids) > 0 {
-			add(resource.id, resource.label, plural(len(ids), resource.one, resource.many)+" from an earlier install")
-		}
-	}
-	images, err := presentImages(o.Runner, o.Images)
+	engine, err := engineAvailable(o.Runner)
 	if err != nil {
 		failed = append(failed, err)
-	} else if len(images) > 0 {
-		add("images", "Clinic images", plural(len(images), "Docker image", "Docker images")+" from an earlier install")
+	}
+	if engine {
+		docker, dockerErr := dockerTraces(o)
+		traces = append(traces, docker...)
+		if dockerErr != nil {
+			failed = append(failed, dockerErr)
+		}
 	}
 
 	if _, err := os.Stat(o.InstallDir); err == nil {
@@ -96,6 +103,39 @@ func scan(o Options, inspectSystem func(proc.Runner) ([]Trace, error)) (Report, 
 		}
 	}
 	return Report{Clean: blocking == 0 && len(failed) == 0, Traces: traces}, errors.Join(failed...)
+}
+
+func dockerTraces(o Options) ([]Trace, error) {
+	var traces []Trace
+	var failed []error
+	add := func(id, label, detail string) {
+		traces = append(traces, Trace{ID: id, Label: label, Detail: detail})
+	}
+
+	label := "label=com.docker.compose.project=" + o.Project
+
+	for _, resource := range []struct {
+		id, label, one, many string
+		args                 []string
+	}{
+		{"containers", "Clinic containers", "container", "containers", []string{"ps", "-aq", "--filter", label}},
+		{"volumes", "Old clinic data", "data volume", "data volumes", []string{"volume", "ls", "-q", "--filter", label}},
+		{"networks", "Clinic network", "network", "networks", []string{"network", "ls", "-q", "--filter", label}},
+	} {
+		ids, err := o.Runner.Lines("docker", resource.args...)
+		if err != nil {
+			failed = append(failed, fmt.Errorf("could not inspect %s; start Docker and try again: %w", resource.label, err))
+		} else if len(ids) > 0 {
+			add(resource.id, resource.label, plural(len(ids), resource.one, resource.many)+" from an earlier install")
+		}
+	}
+	images, err := presentImages(o.Runner, o.Images)
+	if err != nil {
+		failed = append(failed, err)
+	} else if len(images) > 0 {
+		add("images", "Clinic images", plural(len(images), "Docker image", "Docker images")+" from an earlier install")
+	}
+	return traces, errors.Join(failed...)
 }
 
 func systemTraces(run proc.Runner) ([]Trace, error) {
@@ -133,6 +173,10 @@ const workingDirFormat = `{{.Label "com.docker.compose.project.working_dir"}}`
 func InstallDirFrom(run proc.Runner, project, configured string) (string, error) {
 	found, err := hasComposeFile(configured)
 	if err != nil || found {
+		return configured, err
+	}
+	engine, err := engineAvailable(run)
+	if err != nil || !engine {
 		return configured, err
 	}
 	dirs, err := run.Lines("docker", "ps", "-a",

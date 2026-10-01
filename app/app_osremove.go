@@ -46,6 +46,7 @@ func (a *App) setUp() (bool, error) {
 		Role: cfg.Role, MDNSName: cfg.MDNSName,
 		BackupCertificate: cfg.BackupCertificate, BackupRecoveryPath: cfg.BackupRecoveryPath,
 		BackupRecoveryVerified: cfg.BackupRecoveryVerified, AdminRecoveryHashes: cfg.AdminRecoveryHashes,
+		AdminRecoveryPath: cfg.AdminRecoveryPath,
 	}
 	return installed || cfg != wizard, nil
 }
@@ -71,7 +72,8 @@ func (a *App) CanRemoveApp() bool {
 	return err == nil
 }
 
-func (a *App) RemoveApp() error {
+func (a *App) RemoveApp() (err error) {
+	defer a.logError(&err)
 	if a.osUninstall {
 		return errors.New("the uninstaller is already removing CARE Desktop")
 	}

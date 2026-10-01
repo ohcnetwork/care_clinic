@@ -34,6 +34,22 @@ func CheckAvailable(name string) error {
 	return checkAvailable(Label(name)+".local.", links, probeConflict)
 }
 
+// Resolve returns the LAN address of another device answering for name. It uses
+// the same multicast probe as CheckAvailable, so it ignores this computer's
+// hosts file: a client whose hosts file still points the clinic name at itself
+// can still reach the real clinic. Silence is an error, not a loopback answer.
+func Resolve(name string) (net.IP, error) {
+	err := CheckAvailable(name)
+	var conflict *ConflictError
+	if errors.As(err, &conflict) {
+		return conflict.Address, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("no device on this network answered for %s.local", Label(name))
+}
+
 func checkAvailable(host string, links []lanInterface, probe func(context.Context, string, lanInterface, []net.IP) error) error {
 	if len(links) == 0 {
 		return fmt.Errorf("could not check the clinic address: no LAN interface available")

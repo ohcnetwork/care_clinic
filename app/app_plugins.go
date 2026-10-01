@@ -24,6 +24,7 @@ func (a *App) SavePlugins(pluginList []plugins.Plugin) error {
 	})
 }
 
-func (a *App) PluginCatalog() ([]plugins.CatalogEntry, error) {
+func (a *App) PluginCatalog() (entries []plugins.CatalogEntry, err error) {
+	defer a.logError(&err)
 	return plugins.Catalog()
 }

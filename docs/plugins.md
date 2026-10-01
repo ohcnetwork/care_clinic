@@ -113,8 +113,10 @@ flowchart TD
 | Startup and rebuild hooks | [`start.go`](../app/internal/clinic/start.go), [`rebuild.go`](../app/internal/clinic/rebuild.go) | Sync frontend rows after migrations; a failure is only a warning. |
 | Bindings | [`app_plugins.go`](../app/app_plugins.go), [`app_actions.go`](../app/app_actions.go) | `ReadPlugins`, `SavePlugins`, `PluginCatalog`; the `apply-plugins` action. |
 | Panel | [`plugin-table.tsx`](../app/frontend/src/screens/panel/plugin-table.tsx) | Catalog picker, custom plugin editor, settings editors, save. |
+| Frontend model | [`plugin-model.ts`](../app/frontend/src/screens/panel/plugin-model.ts) | Catalog reconciliation, typed setting round trips and native-compatible field validation. |
 | Types | [`types.ts`](../app/frontend/src/types.ts), [`wails.d.ts`](../app/frontend/src/wails.d.ts) | `CarePlugin`, `PluginBackend`, `PluginFrontend`, `PluginCatalogEntry`. |
 | Tests | [`plugins_test.go`](../app/internal/plugins/plugins_test.go) | Dotenv round trip, legacy migration, backend/frontend split, validation, catalog refresh, frontend rows, catalog validity. |
+| UI tests | [`plugins.spec.ts`](../app/frontend/tests/plugins.spec.ts) | Real editor behavior, failed reads/writes/apply, typed settings, duplicate identities and update/job locks against a simulated host. |
 
 ### `plugins.json`
 
@@ -124,7 +126,7 @@ When the file does not exist, `ReadPlugins` builds the list from `ADDITIONAL_PLU
 
 New-clinic `Clinic.Setup` calls `InitializeDefaults` before building images. If `plugins.json` is absent, it preserves those legacy backend entries, adds catalog entries marked `default: true` (without replacing an existing ID), and persists the list. If a list already exists, it is left untouched, including an empty list. Reads, restarts, rebuilds and upgrades never initialize defaults. Existing clinics must explicitly add CARE Onboarding; removing it and saving keeps it removed.
 
-CARE Onboarding uses the hosted GitHub Pages remote with `{"config":{"auto_onboarding":true}}`. Automatic pre-login setup also requires compatible CARE frontend/backend builds; see [facility setup](onboarding.md#care-compatibility-and-startup).
+CARE Onboarding uses the hosted GitHub Pages remote with `{"config":{"redirect_after_login":true}}`. After normal login, it redirects a superuser from the home dashboard to setup only when no facility exists. The CARE frontend must be built with `UserDashboard` included in `REACT_MFE_REGISTERED_COMPONENTS`; the bundled frontend environment sets this for new installations. Existing installations must update their preserved frontend environment and rebuild the frontend. No CARE source changes or new backend endpoint are needed; see [facility setup](onboarding.md#care-compatibility-and-startup).
 
 ### `ADDITIONAL_PLUGS`
 
@@ -167,6 +169,13 @@ The panel calls `SavePlugins(list)`, which validates and persists, and then `Cli
 
 So a change to frontend parts only takes a few seconds, and a change to any backend part takes a full backend rebuild.
 
+The desktop distinguishes saving from applying. A successful `SavePlugins`
+means the configuration was persisted; `ClinicAction("apply-plugins")` resolving
+only means the job was accepted. The editor waits for the matching `care-done`
+before reporting that application finished. If apply fails after saving, the
+saved list remains and the retry applies it rather than pretending the write
+was rolled back.
+
 `Start` and `RebuildBackend` also sync after migrations. There a failure is only logged as a warning, because a missing plugin screen is less harmful than a clinic that will not start. Syncing on every start also repairs rows after a database restore or a hand edit in CARE's admin.
 
 ## The panel
@@ -176,6 +185,19 @@ So a change to frontend parts only takes a few seconds, and a change to any back
 - **Backend settings** are key/value rows. `true`/`false`, integers, decimals, and text starting with `[` or `{` (parsed as JSON) are converted to the matching type; anything else stays a string.
 - **Frontend settings** are the raw `meta` JSON object, the same format as CARE's `/admin/apps` editor. Invalid JSON, or a value that is not an object, disables saving.
 - **Custom plugins** show a **Display name** (spaces allowed) separately from the required **Plugin ID** (letters, numbers, `.`, `_`, `-`; no spaces). Invalid or duplicate IDs have inline errors and block saving. They also show a switch for each part, the backend module, pip source and version, and the frontend name and `remoteEntry.js` URL.
+
+The catalog/table layout is retained. Unchanged backend settings preserve their
+original JSON types, including strings that look numeric or boolean, nulls and
+structured values. Parsing applies to edited values; the frontend metadata must
+be an object. A custom plugin may have either part or both, the backend version
+can be omitted, and a local HTTP frontend URL is allowed just as in native
+validation. Only configure sources the clinic trusts.
+
+Saved-plugin and catalog reads have independent retry states. Another clinic
+job, a pending restore or an unresolved Desktop update disables mutations while
+preserving the draft. Readable errors distinguish a failed load, a failed save,
+and saved settings whose apply failed. These are frontend protections in
+addition to the native stable-clinic and operation guards.
 
 ## Troubleshooting
 

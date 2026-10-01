@@ -1,370 +1,378 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import {
-  AlertCircle,
-  CheckCircle2,
-  ExternalLink,
-  FileText,
-  Globe,
-  KeyRound,
-  Lock,
-  Search,
-  Unplug,
-} from "lucide-react";
+import { ArrowLeft, Check, Copy, ExternalLink, KeyRound, Plug, RefreshCw, Search, Sparkles, Unplug, WifiOff } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { AppUpdateCard } from "@/components/app-update-card";
-import { Screen, ScreenBody, ScreenHead } from "@/components/screen";
+import {
+  Callout, ClinicAddressInput, isClinicName, LogButton,
+  OnboardingBrand, OnboardingUpdates, StatusBadge,
+} from "@/components/onboarding";
 import { Spinner } from "@/components/spinner";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { bridge } from "@/lib/bridge";
+import { toast } from "@/components/ui/sonner";
+import { useAppUpdate } from "@/hooks/use-app-update";
+import { bridge, onCareEvent } from "@/lib/bridge";
 import { friendlyClientError, type FriendlyError } from "@/lib/client-errors";
+import { errorText, normaliseHost } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useCare } from "@/state/care-store";
+import type { ClientConnectPhase, ClientPreflight, ClientReachability, ClinicInfo } from "@/types";
 
-function displayHost(url: string): string {
-  return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-}
+type Phase = "entry" | "finding" | "found" | "connecting" | "saved";
+type Operation = "find" | "connect" | "disconnect" | "back" | null;
+
+const displayHost = (url: string) => url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
 
 export function ClientScreen() {
-  const { clientURL, clearRole, busy: updating } = useCare();
-  const [address, setAddress] = useState(displayHost(clientURL));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<FriendlyError | null>(null);
-  const [connected, setConnected] = useState(false);
+  const { clientURL, clearRole, restartSetup, busy: hostBusy, log } = useCare();
+  const [address, setAddress] = useState(displayHost(clientURL).replace(/\.local$/i, "") || "care");
   const [savedAddress, setSavedAddress] = useState(clientURL);
+  const [phase, setPhase] = useState<Phase>(clientURL ? "saved" : "entry");
+  const [established, setEstablished] = useState(!!clientURL);
+  const [justConnected, setJustConnected] = useState(false);
+  const [found, setFound] = useState<ClinicInfo | null>(null);
+  const [preflight, setPreflight] = useState<ClientPreflight | null>(null);
+  const [progress, setProgress] = useState<ClientConnectPhase>("finding");
+  const [error, setError] = useState<FriendlyError | null>(null);
+  const [operation, setOperation] = useState<Operation>(null);
+  const operationRef = useRef<Operation>(null);
   const [removing, setRemoving] = useState(false);
-  const [removeError, setRemoveError] = useState<FriendlyError | null>(null);
-  const [leaving, setLeaving] = useState(false);
+  const removingRef = useRef(false);
   const [removeApp, setRemoveApp] = useState(false);
   const [canRemoveApp, setCanRemoveApp] = useState(false);
+  const [removeError, setRemoveError] = useState<FriendlyError | null>(null);
+  const [removalOptionError, setRemovalOptionError] = useState("");
+  const [reachability, setReachability] = useState<ClientReachability | null>(null);
+  const [reachError, setReachError] = useState("");
+  const [checkingReach, setCheckingReach] = useState(false);
+  const [pollAttempt, setPollAttempt] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const focusEntry = useRef(true);
+  const update = useAppUpdate(operation !== null || removing, true, () => operationRef.current !== null || removingRef.current);
+  const locked = operation !== null || update.active || hostBusy;
+  const valid = isClinicName(address);
+  const host = phase === "saved" ? displayHost(savedAddress) : found?.host || normaliseHost(address);
+
+  const begin = (next: Operation) => {
+    if (operationRef.current || update.isActive() || hostBusy) return false;
+    operationRef.current = next;
+    setOperation(next);
+    return true;
+  };
+  const end = () => { operationRef.current = null; setOperation(null); };
+  const showRemoval = (open: boolean) => { removingRef.current = open; setRemoving(open); };
+
+  useEffect(() => onCareEvent("client-connect-progress", (next: ClientConnectPhase) => {
+    if (operationRef.current === "connect") setProgress(next);
+  }), []);
+
+  useEffect(() => { focusEntry.current = phase === "entry"; }, [phase]);
+  useEffect(() => {
+    if (phase !== "entry" || locked || !focusEntry.current) return;
+    inputRef.current?.focus();
+    focusEntry.current = false;
+  }, [phase, locked]);
 
   useEffect(() => {
-    void bridge.CanRemoveApp().then(setCanRemoveApp, () => setCanRemoveApp(false));
-  }, []);
+    if (!savedAddress) return;
+    let live = true;
+    void bridge.CanRemoveApp().then(
+      (value) => { if (live) setCanRemoveApp(value); },
+      (e) => {
+        log(`app removal option: ${errorText(e)}`);
+        if (live) setRemovalOptionError("App removal couldn't be checked. You can still disconnect this computer.");
+      },
+    );
+    return () => { live = false; };
+  }, [savedAddress, log]);
 
-  const saved = savedAddress !== "";
-  const host = saved ? displayHost(savedAddress) : address.trim();
+  useEffect(() => {
+    if (phase !== "saved" || !savedAddress || operation || update.active) return;
+    let live = true;
+    let timer = 0;
+    const poll = async () => {
+      setCheckingReach(true);
+      try {
+        const result = await bridge.ClientReachable();
+        if (live) { setReachability(result); setReachError(""); }
+      } catch (e) {
+        log(`client reachability: ${errorText(e)}`);
+        if (live) {
+          setReachability(null);
+          setReachError("Couldn't check the clinic connection. Try again, or share the log file with your support contact.");
+        }
+      } finally {
+        if (live) {
+          setCheckingReach(false);
+          timer = window.setTimeout(() => void poll(), 15_000);
+        }
+      }
+    };
+    void poll();
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [phase, savedAddress, operation, update.active, pollAttempt, log]);
+
+  const readPreflight = async () => {
+    const result = await bridge.ClientPreflight();
+    setPreflight(result);
+    if (result.unfinished_server_setup) {
+      throw new Error("this computer has an unfinished clinic setup; remove it in Setup before connecting");
+    }
+    return result;
+  };
+
+  const findServer = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (!valid || !begin("find")) return;
+    setError(null);
+    setFound(null);
+    setPhase("finding");
+    try {
+      await readPreflight();
+      const result = await bridge.FindClinic(normaliseHost(address));
+      setAddress(result.host.replace(/\.local$/i, ""));
+      setFound(result);
+      setPhase("found");
+    } catch (e) {
+      log(`find clinic: ${errorText(e)}`);
+      setError(friendlyClientError(e));
+      setPhase("entry");
+    } finally { end(); }
+  };
+
+  const connect = async () => {
+    if (!begin("connect")) return;
+    const wasSaved = phase === "saved";
+    const target = wasSaved ? savedAddress : found?.url || `https://${normaliseHost(address)}`;
+    setError(null);
+    setProgress("finding");
+    setPhase("connecting");
+    try {
+      await readPreflight();
+      await bridge.ConnectClient(target);
+      setSavedAddress(target);
+      setEstablished(true);
+      setJustConnected(!wasSaved);
+      setReachability(null);
+      setPhase("saved");
+    } catch (e) {
+      log(`connect clinic: ${errorText(e)}`);
+      setError(friendlyClientError(e));
+      // Trust ownership can be saved before a permission prompt is declined.
+      // Keep it visible and removable; a rejected promise is never "connected".
+      try {
+        const state = await bridge.GetState();
+        setSavedAddress(state.client_url);
+      } catch (stateError) {
+        log(`read connection after failure: ${errorText(stateError)}`);
+        setError({
+          title: "The connection didn't finish",
+          message: "CARE couldn't check what was saved. Try again, or reopen CARE Desktop before changing this connection.",
+        });
+      }
+      setPhase(wasSaved ? "saved" : found ? "found" : "entry");
+    } finally { end(); }
+  };
 
   const goBack = async () => {
-    setLeaving(true);
-    setError(null);
-    await clearRole();
-    setLeaving(false);
+    if (!begin("back")) return;
+    try { await clearRole(); } finally { end(); }
   };
 
-  const removeAccess = async () => {
-    setBusy(true);
+  const disconnect = async () => {
+    if (!begin("disconnect")) return;
     setRemoveError(null);
+    let disconnected = false;
     try {
       await bridge.DisconnectClient();
-    } catch (e) {
-      setRemoveError(friendlyClientError(e));
-      setBusy(false);
-      return;
-    }
-    if (!removeApp) {
-      window.location.reload();
-      return;
-    }
-    try {
-      await bridge.RemoveApp();
-    } catch (e) {
+      disconnected = true;
+      if (removeApp) await bridge.RemoveApp();
       setSavedAddress("");
-      setRemoveError(friendlyClientError(e));
-    } finally {
-      setBusy(false);
-    }
+      setEstablished(false);
+      setFound(null);
+      setReachability(null);
+      setPhase("entry");
+      showRemoval(false);
+      toast("Disconnected");
+      await clearRole();
+    } catch (e) {
+      log(`disconnect clinic: ${errorText(e)}`);
+      if (disconnected) {
+        setSavedAddress("");
+        setEstablished(false);
+        setFound(null);
+        setPhase("entry");
+        showRemoval(false);
+        setError({ title: "Disconnected, but the app couldn't be removed", message: "No clinic data was deleted. You can remove CARE Desktop using this computer's normal app settings." });
+      } else {
+        setRemoveError(friendlyClientError(e));
+      }
+    } finally { end(); }
   };
 
-  const connect = async (event?: FormEvent) => {
-    event?.preventDefault();
-    if (busy || updating || !host) return;
-    setBusy(true);
-    setError(null);
-    setConnected(false);
-    try {
-      await bridge.ConnectClient(host);
-      setConnected(true);
-    } catch (e) {
-      setError(friendlyClientError(e));
-    } finally {
-      await bridge.GetState().then((state) => {
-        setSavedAddress(state.client_url);
-        if (state.client_url) setAddress(displayHost(state.client_url));
-      }).catch(() => {});
-      setBusy(false);
-    }
+  const retryError = () => {
+    if (error?.action === "setup") { if (begin("back")) restartSetup(); }
+    else if (error?.action === "disconnect") showRemoval(true);
+    else if (error?.action === "repair" || found || phase === "saved") void connect();
+    else void findServer();
   };
+  const errorAction = error?.action === "setup" ? "Open setup"
+    : error?.action === "disconnect" ? "Disconnect"
+    : error?.action === "repair" ? "Connect and fix" : "Try again";
+  const secureProblem = reachability && !reachability.reachable && /certificate|verified/.test(reachability.detail);
+  const title = phase === "saved" ? (justConnected ? "You're connected" : "Welcome back")
+    : phase === "connecting" ? `Connecting to ${host}`
+    : phase === "found" ? "We found your clinic's server"
+    : error?.title === "We couldn't find the clinic" ? "We couldn't find that server"
+    : "Find your clinic's server";
+  const subtitle = phase === "saved" ? "This computer opens CARE from your clinic's server."
+    : phase === "connecting" ? "Keep this window open. About a minute."
+    : phase === "found" ? "Check the address, then connect this computer."
+    : "Type the clinic address shown on the clinic's main computer.";
 
   return (
-    <Screen>
-      <ScreenHead
-        className="mx-auto w-full max-w-2xl"
-        kicker="CARE Desktop"
-        title={saved ? "Your clinic" : "Connect to your clinic"}
-        subtitle={saved
-          ? "This computer is set up to open CARE from your clinic."
-          : "Link this computer to your clinic so you can open CARE here."}
-        onBack={saved ? undefined : () => void goBack()}
-        backDisabled={busy || leaving || updating}
-      />
-      <ScreenBody className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-        <Card className="p-6">
-          {saved ? (
-            <SavedClinic host={host} busy={busy} disabled={updating} connected={connected} onOpen={() => void connect()} />
-          ) : (
-            <form onSubmit={(event) => void connect(event)} className="flex flex-col gap-5">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="clinic-address">Clinic address</Label>
-                <div
-                  className={cn(
-                    "flex h-[46px] items-center gap-2.5 rounded-md border bg-white px-3 transition-colors focus-within:border-brand",
-                    error ? "border-danger-line" : "border-line",
-                  )}
-                >
-                  <Globe className="size-[18px] text-faint" strokeWidth={2} />
-                  <Input
-                    id="clinic-address"
-                    className="h-full flex-1 border-0 px-0 text-[15px] shadow-none focus-visible:ring-0 disabled:bg-transparent"
-                    value={address}
-                    onChange={(event) => {
-                      setAddress(event.target.value);
-                      setError(null);
-                    }}
-                    placeholder="care.local"
-                    autoFocus
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    disabled={busy || leaving || updating}
-                    required
-                  />
-                </div>
-                <p className="text-[12.5px] text-muted-foreground">
-                  You can find this on the clinic's main computer, in CARE Desktop. It usually
-                  looks like <span className="font-mono text-ink2">care.local</span>.
+    <div className="onboarding onboarding-flow on-client">
+      <aside className="on-left" aria-label="CARE Desktop">
+        <OnboardingBrand />
+        <div className="on-hero"><h2>Connect this computer to your clinic.</h2></div>
+        <OnboardingUpdates controller={update} context="client" />
+      </aside>
+      <main className="on-client-body" aria-labelledby="client-title">
+        <div className="on-client-nav">{!established ? <Button className="on-back" variant="ghost" disabled={locked} onClick={() => void goBack()}><ArrowLeft aria-hidden="true" />Back</Button> : null}</div>
+        <div className="on-kicker">{phase === "saved" ? "Your clinic" : "Connect to an existing server"}</div>
+        <h1 className="on-title" id="client-title">{title}</h1>
+        <p className="on-subtitle">{subtitle}</p>
+        <div className="on-client-content">
+          {phase === "entry" || phase === "finding" ? (
+            <form onSubmit={(e) => void findServer(e)}>
+              <div className="on-field">
+                <label htmlFor="clinic-address">Clinic address</label>
+                <ClinicAddressInput id="clinic-address" ref={inputRef} value={address} disabled={locked}
+                  invalid={!valid || !!error} aria-describedby="client-address-hint"
+                  onValueChange={(value) => { setAddress(value); setError(null); setFound(null); }}
+                />
+                <p id="client-address-hint" className={cn("on-hint", !valid && "on-error")}>
+                  {valid ? <>Just the name — for example <span className="on-mono">care</span> or <span className="on-mono">care-hospital</span>.</>
+                    : "Type only the clinic's name — for example care — with nothing else before or after it."}
                 </p>
               </div>
-
-              {error ? <ErrorPanel error={error} /> : null}
-
-              {busy ? (
-                <Waiting host={host} />
-              ) : (
-                <Button type="submit" variant="primary" size="lg" disabled={leaving || updating || !host}>
-                  Connect
-                </Button>
-              )}
+              {phase === "finding" ? (
+                <div className="on-check-work" role="status"><Callout title={`Looking for ${host} on your network…`}>This usually takes a few seconds.</Callout></div>
+              ) : !error ? (
+                <div className="on-actions"><Button type="submit" variant="primary" className="on-primary" disabled={locked || !valid}><Search aria-hidden="true" />Find server</Button></div>
+              ) : null}
             </form>
-          )}
-          {saved && error ? <div className="mt-5"><ErrorPanel error={error} /></div> : null}
-        </Card>
-
-        {saved ? null : <HowItWorks />}
-
-        {saved ? (
-          <Card className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center">
-            <div className="min-w-0 flex-1">
-              <div className="text-[15px] font-semibold text-ink">Disconnect this computer</div>
-              <p className="mt-1 text-[13px] text-muted-foreground">
-                Moving to a different clinic or giving this computer to someone else?
-                No patient or clinic data is deleted.
-              </p>
-            </div>
-            <Button
-              size="lg"
-              className="border-danger-line text-danger-ink hover:border-danger hover:bg-danger-bg hover:text-danger-ink"
-              disabled={busy || leaving || updating}
-              onClick={() => {
-                setRemoveError(null);
-                setRemoving(true);
-              }}
-            >
-              <Unplug className="size-[18px]" />
-              Disconnect
-            </Button>
-          </Card>
-        ) : null}
-
-        <AppUpdateCard disabled={busy || leaving || removing} />
-
-        <AlertDialog open={removing} onOpenChange={(open) => {
-          if (!busy) setRemoving(open);
-        }}>
-          <AlertDialogContent>
-            <AlertDialogTitle>Disconnect this computer?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This computer will stop opening CARE from {host}. No patient or clinic
-              data is deleted, and you can connect again at any time.
-              Your computer may ask for your password.
-            </AlertDialogDescription>
-            {canRemoveApp ? (
-              <label className="flex cursor-pointer items-center gap-2.5 text-[13px] text-ink2">
-                <Checkbox
-                  checked={removeApp}
-                  disabled={busy}
-                  onCheckedChange={(v) => setRemoveApp(v === true)}
-                />
-                <span>Also remove the CARE Desktop app from this computer.</span>
-              </label>
-            ) : null}
-            {removeError ? <div className="mt-3"><ErrorPanel error={removeError} /></div> : null}
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className={buttonVariants({ variant: "destructive" })}
-                disabled={busy}
-                onClick={(event) => {
-                  event.preventDefault();
-                  void removeAccess();
-                }}
-              >
-                {busy ? <Spinner /> : null}
-                {busy ? "Disconnecting…" : "Disconnect"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </ScreenBody>
-    </Screen>
-  );
-}
-
-function SavedClinic({
-  host,
-  busy,
-  disabled,
-  connected,
-  onOpen,
-}: {
-  host: string;
-  busy: boolean;
-  disabled: boolean;
-  connected: boolean;
-  onOpen: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3.5">
-        <span className="flex size-11 flex-none items-center justify-center rounded-full bg-brand-bg text-brand-ink">
-          <Globe className="size-5" strokeWidth={2} />
-        </span>
-        <div className="min-w-0">
-          <div className="text-[12.5px] text-muted-foreground">Clinic address</div>
-          <div className="truncate font-mono text-[16px] font-semibold text-ink">{host}</div>
-        </div>
-      </div>
-      {connected ? (
-        <div className="flex items-start gap-2.5 rounded-md border border-brand-line bg-brand-bg px-3.5 py-3 text-[13px] text-brand-ink">
-          <CheckCircle2 className="mt-px size-[18px] flex-none" strokeWidth={2.2} />
-          <span>
-            <strong className="font-semibold">You're connected.</strong> CARE has opened in your
-            browser. Next time, just click Open CARE.
-          </span>
-        </div>
-      ) : null}
-      {busy ? (
-        <Waiting host={host} />
-      ) : (
-        <Button variant="primary" size="lg" disabled={disabled} onClick={onOpen}>
-          <ExternalLink className="size-[18px]" />
-          Open CARE
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function Waiting({ host }: { host: string }) {
-  return (
-    <div role="status" className="flex items-start gap-3 rounded-md border border-line bg-background px-4 py-3.5">
-      <Spinner className="mt-0.5 flex-none text-brand" />
-      <div className="flex flex-col gap-1">
-        <span className="text-[14px] font-semibold text-ink">Connecting to {host}…</span>
-        <span className="text-[13px] text-muted-foreground">
-          If your computer asks for your password, enter it and click OK or Yes.
-          The window may be hidden behind this one.
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function ErrorPanel({ error }: { error: FriendlyError }) {
-  return (
-    <div role="alert" className="rounded-md border border-danger-line bg-danger-tint px-4 py-3.5">
-      <div className="flex items-start gap-2.5">
-        <AlertCircle className="mt-px size-[18px] flex-none text-danger" strokeWidth={2.2} />
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <span className="text-[14px] font-semibold text-danger-ink">{error.title}</span>
-          <span className="text-[13px] text-ink2">{error.message}</span>
-          {error.tips?.length ? (
-            <ul className="mt-0.5 flex list-disc flex-col gap-1 pl-4 text-[13px] text-ink2">
-              {error.tips.map((tip) => <li key={tip}>{tip}</li>)}
-            </ul>
           ) : null}
-          <button
-            type="button"
-            className="mt-1 inline-flex w-fit cursor-pointer items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-ink2"
-            onClick={() => void bridge.OpenLogFolder().catch(() => {})}
-          >
-            <FileText className="size-3.5" />
-            Open log file for support
-          </button>
+          {phase === "found" && found && !error ? (
+            <section className="on-card on-pad" aria-label="Server found">
+              <div className="on-row">
+                <span className="on-tile on-large on-round on-solid"><Check aria-hidden="true" /></span>
+                <div className="on-grow"><div className="on-eyebrow">Server found</div><div className="on-found-host">{found.host}</div><p className="on-small">Answering on this network · Secure connection available</p></div>
+              </div>
+              <div className="on-divider" />
+              <div className="on-eyebrow">What happens when you connect</div>
+              <div className="on-stack" style={{ marginTop: 10 }}>
+                <p className="on-hint"><KeyRound aria-hidden="true" />Your computer will ask for permission — password, fingerprint or PIN, depending on how you sign in. It may ask twice.</p>
+                <p className="on-hint"><Sparkles aria-hidden="true" />Any old clinic address or clinic certificate left on this computer is removed automatically.</p>
+                <p className="on-hint"><ExternalLink aria-hidden="true" />CARE opens in your web browser. Takes about a minute.</p>
+              </div>
+              <div className="on-actions">
+                <Button variant="primary" className="on-primary" disabled={locked} onClick={() => void connect()}><Plug aria-hidden="true" />Connect</Button>
+                <Button variant="ghost" disabled={locked} onClick={() => { setFound(null); setPhase("entry"); }}>Not this one</Button>
+              </div>
+            </section>
+          ) : null}
+          {phase === "connecting" ? <ConnectionProgress phase={progress} found={!!found || established} cleanup={!!preflight?.hosts_entry || !!preflight?.old_certificate} /> : null}
+          {phase === "saved" ? (
+            <section className="on-card on-pad" aria-label="Your clinic connection">
+              <div className="on-row on-connection-heading">
+                <span className={cn("on-tile on-large on-round", reachability?.reachable ? "on-solid" : reachability ? "on-warn" : "")} aria-hidden="true">
+                  {!reachability ? <Spinner /> : reachability.reachable ? <Check /> : <WifiOff />}
+                </span>
+                <div className="on-grow"><div className="on-eyebrow">Connected to</div><div className="on-found-host">{host}</div></div>
+                <StatusBadge tone={reachability?.reachable ? "ok" : reachability ? "warn" : ""}>{!reachability && !reachError ? "Checking" : reachability?.reachable ? "Connected" : "Can't reach it right now"}</StatusBadge>
+              </div>
+              <div className="on-divider" />
+              {reachError ? <Callout title="Couldn't check the connection" tone="danger">{reachError}<div className="on-actions"><Button disabled={locked || checkingReach} onClick={() => setPollAttempt((n) => n + 1)}>Check again</Button><LogButton /></div></Callout>
+                : reachability && !reachability.reachable ? (
+                  <Callout tone="warn" title={secureProblem ? "We couldn't connect securely" : `This computer is set up for ${host}, but we can't find it right now`}>
+                    {secureProblem ? <p>The clinic's security check didn't pass. Check this computer's date and time. If the clinic was set up again, disconnect here and connect again.</p>
+                      : <ul><li>Are you on the same Wi-Fi or network as the clinic server?</li><li>Is CARE running on the clinic's server computer?</li></ul>}
+                    <div className="on-actions"><Button disabled={locked || checkingReach} onClick={() => setPollAttempt((n) => n + 1)}><RefreshCw aria-hidden="true" />{checkingReach ? "Checking…" : "Check again"}</Button><span className="on-small">Checking automatically</span></div>
+                  </Callout>
+                ) : null}
+              <div className="on-actions">
+                <Button variant="primary" className="on-primary" disabled={locked || checkingReach || !reachability?.reachable} onClick={() => void connect()}><ExternalLink aria-hidden="true" />Open CARE</Button>
+                <Button disabled={locked} onClick={() => {
+                  setCopyError("");
+                  setCopied(false);
+                  void (async () => {
+                    try { await navigator.clipboard.writeText(savedAddress); setCopied(true); }
+                    catch (e) { log(`copy clinic address: ${errorText(e)}`); setCopyError("Couldn't copy the address. You can select it and copy it yourself."); }
+                  })();
+                }}><Copy aria-hidden="true" />{copied ? "Copied" : "Copy address"}</Button>
+              </div>
+              {copyError ? <p className="on-error" role="alert">{copyError}</p> : null}
+              {reachability?.reachable ? <p className="on-small" style={{ marginTop: 16 }}>{justConnected ? `CARE has opened in your browser. Next time, open CARE Desktop and click Open CARE, or type ${host} in your browser.` : "Click Open CARE to start. · Server answering · checked just now"}</p> : null}
+            </section>
+          ) : null}
+          {error ? (
+            <Callout title={error.title} tone="danger">
+              <p>{error.message}</p>{error.tips ? <ul>{error.tips.map((tip) => <li key={tip}>{tip}</li>)}</ul> : null}
+              <div className="on-actions"><Button variant="primary" disabled={locked || (error.action === "repair" && !valid)} onClick={retryError}>{errorAction}</Button><LogButton label="Open log file for support" /></div>
+            </Callout>
+          ) : null}
+          {savedAddress && phase !== "connecting" ? (
+            <section className="on-card">
+              <div className="on-data-row on-client-disconnect">
+                <span className="on-tile"><Unplug aria-hidden="true" /></span>
+                <div className="on-grow"><h3>Disconnect this computer</h3><p>Moving to a different clinic or handing this computer over? No patient or clinic data is deleted.</p></div>
+                <Button className="on-disconnect" disabled={locked} onClick={() => { setRemoveError(null); showRemoval(true); }}>Disconnect</Button>
+              </div>
+            </section>
+          ) : null}
         </div>
-      </div>
+      </main>
+      <AlertDialog open={removing} onOpenChange={(open) => { if (!operationRef.current) showRemoval(open); }}>
+        <AlertDialogContent className="onboarding onboarding-dialog">
+          <AlertDialogTitle>Disconnect this computer?</AlertDialogTitle>
+          <AlertDialogDescription>This computer will stop opening CARE from {displayHost(savedAddress)}. No patient or clinic data is deleted, and you can connect again at any time. Your computer may ask for your password.</AlertDialogDescription>
+          {canRemoveApp ? <label className="on-row"><Checkbox checked={removeApp} disabled={locked} onCheckedChange={(v) => setRemoveApp(v === true)} /><span>Also remove the CARE Desktop app from this computer</span></label> : null}
+          {removalOptionError ? <p className="on-small">{removalOptionError}</p> : null}
+          {removeError ? <Callout title={removeError.title} tone="danger">{removeError.message}<LogButton /></Callout> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={locked}>Cancel</AlertDialogCancel>
+            <AlertDialogAction className={buttonVariants({ variant: "destructive" })} disabled={locked} onClick={(e) => { e.preventDefault(); void disconnect(); }}>{operation === "disconnect" ? <Spinner /> : null}{operation === "disconnect" ? "Disconnecting…" : "Disconnect"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-function HowItWorks() {
+function ConnectionProgress({ phase, found, cleanup }: { phase: ClientConnectPhase; found: boolean; cleanup: boolean }) {
+  const index = phase === "finding" ? found ? 1 : 0 : phase === "connecting" ? 1 : phase === "checking" ? 3 : 4;
+  const labels = [
+    found || index > 0 ? "Found your clinic's server" : "Finding your clinic's server",
+    cleanup ? "Removing an old clinic address and certificate" : "Checking for old clinic settings",
+    "Setting up the secure connection", "Checking the connection", "Opening CARE",
+  ];
   return (
-    <div className="px-1">
-      <div className="mb-3 text-xs font-bold tracking-[0.04em] text-muted-foreground uppercase">
-        What happens next
+    <>
+      <div className="on-card on-pad" role="status" aria-live="polite">
+        <ol className="on-steps">{labels.map((label, i) => (
+          <li key={i} className={cn(i < index ? "on-done" : i === index ? "on-current" : "")}>
+            <span className="on-step-dot" aria-hidden="true">{i < index ? <Check /> : i === index ? <Spinner /> : i + 1}</span>
+            <div><strong>{label}</strong>{i === index && i === 1 ? <p>Your computer may ask for permission — password, fingerprint or PIN. The window may appear behind this one.</p> : i === index && i === 3 ? <p>Making sure CARE opens safely</p> : null}</div>
+          </li>
+        ))}</ol>
       </div>
-      <ol className="grid gap-3 sm:grid-cols-3">
-        <Step icon={<Search className="size-4" />} n={1} title="We find your clinic">
-          on the local network.
-        </Step>
-        <Step icon={<KeyRound className="size-4" />} n={2} title="You allow it">
-          Your computer asks for its password once.
-        </Step>
-        <Step icon={<ExternalLink className="size-4" />} n={3} title="CARE opens">
-          in your web browser.
-        </Step>
-      </ol>
-      <p className="mt-4 flex items-center gap-2 text-[12.5px] text-muted-foreground">
-        <Lock className="size-3.5 flex-none" />
-        Only connect to an address your clinic gave you. This keeps your connection private.
-      </p>
-    </div>
-  );
-}
-
-function Step({ icon, n, title, children }: { icon: ReactNode; n: number; title: string; children: ReactNode }) {
-  return (
-    <li className="flex items-start gap-2.5 rounded-lg border border-line bg-white p-3">
-      <span className="flex size-7 flex-none items-center justify-center rounded-full bg-brand-bg text-brand-ink" aria-hidden>
-        {icon}
-      </span>
-      <span className="text-[13px] leading-snug">
-        <span className="sr-only">Step {n}: </span>
-        <span className="block font-semibold text-ink">{title}</span>
-        <span className="text-muted-foreground">{children}</span>
-      </span>
-    </li>
+      {index === 1 ? <Callout title="Your computer may ask for permission" tone="info">If nothing appears, look for a small window asking for your password, fingerprint or PIN. It may ask a second time for the certificate.</Callout> : null}
+    </>
   );
 }

@@ -1,129 +1,85 @@
-import { Screen } from "@/components/screen";
-import { SectionTitle } from "@/components/section-header";
+import { Check, Coffee } from "lucide-react";
+import { useEffect, useRef } from "react";
+
+import { Callout, LogButton } from "@/components/onboarding";
 import { Spinner } from "@/components/spinner";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useElapsed } from "@/hooks/use-elapsed";
+import { onCareEvent } from "@/lib/bridge";
 import { mmss } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useCare } from "@/state/care-store";
 
+import { InstallLayout } from "./install-layout";
+
+const QUIET_WARNING_MS = 15 * 60 * 1000;
+
 export function InstallingScreen() {
-  const { run, mdnsName, openPanel } = useCare();
-  const elapsed = useElapsed(run.startedAt, !run.finished);
-  const done = run.finished || run.pct >= 100;
+  const { run } = useCare();
+  const elapsed = useElapsed(run.startedAt, true);
+  const elapsedTime = mmss(elapsed).padStart(5, "0");
+  const lastLogAt = useRef(run.startedAt || Date.now());
+
+  useEffect(() => {
+    lastLogAt.current = run.startedAt || Date.now();
+    // Only actual host log events reset silence, not UI logs or phase weights.
+    return onCareEvent("care-log", (line: unknown) => {
+      if (typeof line === "string") lastLogAt.current = Date.now();
+    });
+  }, [run.startedAt]);
+
+  const quiet = Date.now() - lastLogAt.current >= QUIET_WARNING_MS;
+  // The legacy weight only tells us whether a log milestone has arrived.
+  // It is not measured progress and must never become a displayed percentage.
+  const stageIndex = run.pct > 0 ? run.stepIdx : -1;
+  const stage = run.finished ? "Finishing installation"
+    : run.steps[stageIndex]?.label || "Preparing the installation";
 
   return (
-    <Screen className="px-[42px] pt-[44px] pb-[30px]">
-      <div className="flex items-start gap-3.5">
-        <span
-          className={cn(
-            "flex size-[34px] flex-none items-center justify-center rounded-full text-base font-bold",
-            done ? "bg-brand text-white" : "bg-brand-bg text-brand-ink",
-          )}
-        >
-          {done ? "✓" : <Spinner />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-[-0.015em] text-ink">
-            {done ? "Your clinic is ready" : "Setting up your clinic"}
-          </h1>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            {done
-              ? "CARE is running on this computer and reachable on the clinic WiFi."
-              : "This takes about 10 to 20 minutes."}
-          </p>
+    <InstallLayout
+      title="Installing CARE"
+      subtitle="This takes 5 to 20 minutes. You can leave this window open and do something else."
+      headerAside={<time className="install-elapsed" role="timer" aria-live="off" dateTime={`PT${elapsed}S`} aria-label={`Elapsed installation time: ${elapsedTime}`}>{elapsedTime}</time>}
+      footer={<p className="on-foot-note">Installing — please don't close this window.</p>}
+    >
+      <section className="on-card install-progress-card" aria-label="Installation progress">
+        <div role="status" aria-live="polite" aria-atomic="true">
+          {quiet ? <div className="on-eyebrow">Last reported stage</div> : null}
+          <h2 className="install-current-label">{stage}</h2>
         </div>
-        <span className="font-mono text-faint">{mmss(elapsed)}</span>
+        <Progress className="install-progress" aria-label="Installation progress" />
+        <ol className="install-stages" aria-label="Installation stages">
+          {run.steps.map((step, index) => {
+            const state = index < stageIndex ? "past" : index === stageIndex ? "now" : "waiting";
+            return (
+              <li key={step.label} className={cn("install-stage", `install-stage-${state}`)}
+                aria-current={state === "now" ? "step" : undefined}>
+                <span className="install-stage-mark" aria-hidden="true">
+                  {state === "past" ? <Check /> : state === "now" ? <Spinner /> : "·"}
+                </span>
+                <span className="install-stage-name">{step.label}</span>
+                <span className="sr-only">: {state === "past" ? "Earlier stage" : state === "now" ? "Latest reported stage" : "Not reported yet"}</span>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+      {quiet ? (
+        <div role="status">
+          <Callout tone="warn" title="This is taking longer than usual">
+            No new installation messages have arrived for at least 15 minutes. Open the log file and share it with your support contact before closing CARE Desktop.
+          </Callout>
+        </div>
+      ) : (
+        <div className="install-reassurance">
+          <Coffee aria-hidden="true" />
+          <div><strong>A good time for a break</strong>Keep the computer on, awake and connected to the internet. The control panel will open when your clinic is ready.</div>
+        </div>
+      )}
+      <div className="install-support">
+        <LogButton />
+        <p className="on-small">For technical support only — you don't need to read it.</p>
       </div>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="mt-[26px]">
-          <div className="mb-[9px] flex items-baseline justify-between text-[15px] font-semibold text-ink">
-            <span>{done ? "Done" : run.steps[run.stepIdx].label}</span>
-            <span className="font-mono text-[22px] font-bold text-brand-ink">
-              {Math.floor(run.pct)}%
-            </span>
-          </div>
-          <Progress value={run.pct} />
-        </div>
-
-        <Accordion type="single" collapsible className="mt-5">
-          <AccordionItem value="details">
-            <AccordionTrigger>
-              <SectionTitle
-                title="Details"
-                summary={
-                  done
-                    ? `All ${run.steps.length} steps finished`
-                    : `Step ${run.stepIdx + 1} of ${run.steps.length}`
-                }
-              />
-            </AccordionTrigger>
-            <AccordionContent className="gap-0">
-              {run.steps.map((step, i) => {
-                const state = done || i < run.stepIdx ? "done" : i === run.stepIdx ? "now" : "todo";
-                return (
-                  <div
-                    key={step.label}
-                    className={cn(
-                      "flex items-center gap-[11px] py-[9px]",
-                      i > 0 && "border-t border-hair",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex size-[18px] flex-none items-center justify-center rounded-full text-[11px] font-bold",
-                        state === "done"
-                          ? "bg-brand text-white"
-                          : state === "now"
-                            ? "bg-brand-bg text-brand-ink"
-                            : "bg-hair text-[#d1d5db]",
-                      )}
-                    >
-                      {state === "done" ? "✓" : state === "now" ? <Spinner className="size-[11px]" /> : "·"}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex-1 text-[13.5px] font-medium",
-                        state === "todo" ? "text-faint" : "text-ink",
-                        state === "now" && "font-semibold",
-                      )}
-                    >
-                      {step.label}
-                    </span>
-                    <span className="font-mono text-xs text-faint">
-                      {state === "done" ? "done" : state === "now" ? "working" : ""}
-                    </span>
-                  </div>
-                );
-              })}
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
-
-      {run.finished ? (
-        <div className="flex items-center gap-3.5">
-          <Button
-            variant="primary"
-            size="lg"
-            className="shadow-lift"
-            onClick={openPanel}
-          >
-            Open control panel
-          </Button>
-          <span className="text-[13px] text-muted-foreground">
-            Clinic address <b className="font-mono text-brand-ink">{mdnsName}</b>
-          </span>
-        </div>
-      ) : null}
-    </Screen>
+    </InstallLayout>
   );
 }

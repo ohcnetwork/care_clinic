@@ -1,0 +1,95 @@
+.onboarding.install-screen { --on-muted: #5f7268; position: relative; overflow: hidden; }
+.install-screen .on-main { overflow: hidden; }
+.install-screen .on-rail-step, .install-screen .install-stage { position: relative; }
+.install-screen .on-rail .on-step-dot .animate-spin { width: 11px; height: 11px; border-width: 1.5px; }
+.install-screen .install-head { display: flex; align-items: flex-start; gap: 20px; }
+.install-screen .install-content { display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
+.install-screen.install-failed .install-content { max-width: 720px; }
+.install-screen .install-rail-track { height: 4px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: #ffffff24; }
+.install-screen .install-rail-track span { display: block; height: 100%; border-radius: inherit; background: #6ee7b7; }
+.install-screen .install-version { padding: 0 4px; color: #b7cec3; font: 12px var(--font-mono); }
+.install-screen .install-elapsed { flex: none; padding-top: 2px; color: var(--on-muted); font: 15px var(--font-mono); font-variant-numeric: tabular-nums; }
+.install-screen .install-progress-card { padding: 26px 28px; }
+.install-screen .install-progress-card .install-current-label { margin-top: 4px; font-size: 17px; line-height: 1.4; font-weight: 700; }
+.install-screen .install-progress { height: 8px; margin-top: 16px; background: #eef2ef; }
+.install-screen .install-progress [data-slot="progress-indicator"] { width: 35%; background: linear-gradient(90deg, #0d9f6e, #22c08a); animation: install-travel 1.8s ease-in-out infinite; }
+.install-screen .install-stages { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: column; grid-template-rows: repeat(4, auto); column-gap: 28px; list-style: none; margin: 14px 0 0; padding: 10px 0 0; border-top: 1px solid #eef2ef; }
+.install-screen .install-stage { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 0; border-top: 1px solid #eef2ef; font-size: 13px; color: #52685c; }
+.install-screen .install-stage:nth-child(1), .install-screen .install-stage:nth-child(5) { border-top: 0; }
+.install-screen .install-stage-mark { display: grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 50%; background: #eef2ef; color: #667a70; }
+.install-screen .install-stage-mark svg { width: 12px; height: 12px; }
+.install-screen .install-stage-past { color: #33403a; }
+.install-screen .install-stage-past .install-stage-mark { background: #0d9f6e; color: #fff; }
+.install-screen .install-stage-now { color: #0f1a16; font-weight: 600; }
+.install-screen .install-stage-now .install-stage-mark { background: #e3f7ee; color: #046c4e; }
+.install-screen .install-stage-name { min-width: 0; overflow-wrap: anywhere; }
+.install-screen .install-reassurance { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; font-size: 13px; color: #33403a; }
+.install-screen .install-reassurance > svg { flex: none; width: 18px; height: 18px; margin-top: 2px; }
+.install-screen .install-reassurance strong { display: block; margin-bottom: 3px; font-weight: 600; color: #0f1a16; }
+.install-screen .install-support { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.install-screen .install-support > p { flex: 1; min-width: 190px; }
+.install-screen .install-support .on-log button { color: #52685c; }
+.install-screen .install-foot { min-height: 48px; }
+.install-screen .install-foot > .on-foot-note { margin-left: auto; text-align: right; }
+.install-screen .install-failure-card { padding: 26px 28px; border-color: #f6b4b4; background: #fffafa; }
+.install-screen .install-failure-card .on-card-head { align-items: center; gap: 14px; }
+.install-screen .install-failure-card .on-tile { color: #b91c1c; background: #fdecec; }
+.install-screen .install-failure-card h2 { font-size: 15px; line-height: 1.5; letter-spacing: 0; }
+.install-screen .install-failure-card p { font-size: 13px; }
+.install-screen .install-failure-card .on-log { margin-top: 16px; }
+.install-screen .install-failure-card .on-log button { border: 1px solid var(--on-line); background: #fff; color: #33403a; }
+.install-screen .install-retry-consequences { border-color: #f6b4b4; background: #fffafa; }
+.install-screen .install-retry-consequences p + p { margin-top: 6px; }
+.install-screen .install-retry-action { min-height: 46px; padding: 11px 22px; font-size: 14.5px; background: #c81e1e; border-color: #c81e1e; color: #fff; }
+.install-screen .install-retry-action:hover:not(:disabled) { background: #991b1b; border-color: #991b1b; }
+.install-screen .install-retry-action:disabled { background: #eef2ef; border-color: #eef2ef; color: #667a70; }
+.install-screen .install-update { padding: 20px 22px; }
+.install-screen .install-update-row { display: flex; align-items: center; gap: 14px; }
+.install-screen .install-update h2 { font-size: 14px; line-height: 1.5; letter-spacing: 0; font-weight: 600; }
+.install-screen .install-update p { margin-top: 2px; color: var(--on-muted); font-size: 12.5px; }
+.install-screen .install-update button { flex: none; }
+.install-screen .install-update-primary { color: #fff; background: #057a55; border-color: #057a55; }
+.install-screen .install-update-primary:hover:not(:disabled) { background: #046c4e; border-color: #046c4e; }
+.install-screen .install-update-primary:disabled { opacity: .5; }
+.install-screen .install-update-meta { margin-top: 8px; font-size: 12px; color: var(--on-muted); }
+.install-screen .install-update-checking { display: flex; align-items: center; gap: 8px; color: var(--on-muted); font-size: 12.5px; }
+.install-screen .install-update-checking .animate-spin { width: 14px; height: 14px; }
+.onboarding.install-screen .on-rail { width: 272px; }
+@keyframes install-travel { 0% { transform: translateX(-100%); } 100% { transform: translateX(386%); } }
+@media (max-width: 1000px) {
+  .install-screen .install-progress-card, .install-screen .install-failure-card { padding: 22px; }
+  .install-screen .install-stages { column-gap: 20px; }
+  .install-screen .install-stage { gap: 8px; }
+  .install-screen .install-update-row { flex-wrap: wrap; }
+  .install-screen .install-update-row .on-grow { flex-basis: calc(100% - 60px); }
+  .install-screen .install-update-row > button { margin-left: 54px; }
+}
+@media (max-width: 800px) {
+  .install-screen .install-head { flex-wrap: wrap; gap: 10px; }
+  .install-screen .install-head .on-grow { flex-basis: 100%; }
+  .install-screen .install-elapsed { margin-left: auto; font-size: 13px; }
+  .install-screen:not(.install-failed) .install-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 0; }
+  .install-screen:not(.install-failed) .install-head .on-grow { display: contents; }
+  .install-screen:not(.install-failed) .on-subtitle { grid-column: 1 / -1; grid-row: 2; }
+  .install-screen:not(.install-failed) .install-elapsed { grid-column: 2; grid-row: 1; align-self: center; }
+  .install-screen .install-stages { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
+  .install-screen .install-stage:nth-child(5) { border-top: 1px solid #eef2ef; }
+  .install-screen .install-progress-card, .install-screen .install-failure-card { padding: 18px; }
+  .install-screen .install-progress-card .install-current-label { font-size: 16px; }
+  .install-screen .install-failure-card .on-card-head { flex-wrap: nowrap; align-items: flex-start; }
+  .install-screen .install-failure-card .on-tile { width: 40px; height: 40px; border-radius: 12px; }
+  .install-screen .install-failure-card .on-tile svg { width: 22px; height: 22px; }
+  .install-screen .install-update { padding: 18px; }
+  .install-screen .install-foot > .on-foot-note { order: -1; flex-basis: 100%; text-align: left; }
+  .install-screen .install-retry-action { margin-left: auto; }
+}
+@media (max-height: 620px) {
+  .onboarding.install-screen .on-rail { padding-top: 28px; padding-bottom: 14px; }
+  .onboarding.install-screen .on-rail-sep { margin-top: 12px; margin-bottom: 10px; }
+  .onboarding.install-screen .on-rail-progress { margin-bottom: 10px; }
+  .onboarding.install-screen .on-rail-step { padding-top: 4px; padding-bottom: 4px; }
+  .onboarding.install-screen .on-rail-spacer { min-height: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .install-screen .install-progress [data-slot="progress-indicator"] { animation: none; transform: none; }
+}

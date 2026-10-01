@@ -1,17 +1,22 @@
-# CARE Desktop backend documentation
+# CARE Desktop documentation
 
 CARE Desktop is a local control application for a clinic's CARE installation. Its Go backend installs and operates a Docker Compose stack, maintains the computer's local networking, and manages encrypted backups. Wails connects that backend to the desktop control panel.
 
-At first run, choose a persisted **Server** role to host the clinic or **Client**
-to connect to its `.local` address using native certificate setup and automatic
-HTTPS verification. The server operations documented here do not run on clients.
+At first run, choose to host the clinic or connect to its `.local` address.
+The Start screen saves no role: Server is recorded when setup initializes,
+Client when connecting begins. Client discovery changes nothing on the computer.
+The server operations documented here do not run on clients.
 
-This documentation explains the current implementation, from operating-system primitives to the methods the desktop interface calls. It includes the deployment kit and the small part of the desktop frontend that defines the backend contract. It does not attempt to document the CARE medical application, its Django API, or React presentation components.
+These guides cover the operator's desktop workflows and the current
+implementation, from React/Wails lifecycle handling to operating-system
+primitives and the deployment kit. They do not replace the CARE medical
+application's own user or API documentation.
 
 ## Start here
 
 | Guide | What you will understand |
 | --- | --- |
+| [Using CARE Desktop](desktop-workflows.md) | Start, client connection, the setup wizard, installation, permission prompts, every panel tab and safe recovery. |
 | [Architecture and design choices](architecture.md) | The system boundary, layers, state, dependency direction, and the reasons behind the design. |
 | [Repository and file map](repository-map.md) | Where every Go component lives, what each file does, and which guide explains it. |
 | [Wails application and API](wails-application.md) | Process startup, background jobs, concurrency, authorization, all bound methods, and events. |
@@ -33,6 +38,9 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | --- | --- |
 | "What actually runs on the clinic computer?" | [System architecture](architecture.md) and [deployment services](clinic-lifecycle.md). |
 | "Where does a button click enter Go?" | [Wails application and API](wails-application.md). |
+| "When do I enter my computer password, and what does Cancel do?" | [Permission prompts](desktop-workflows.md#permission-prompts) and [the confirmation protocol](wails-application.md#in-window-permission-confirmations). |
+| "Does Advanced really lock after 15 minutes?" | [Advanced's unlock window](desktop-workflows.md#advanceds-15-minute-unlock). |
+| "Why are actions still locked after the Desktop installer opens?" | [Update handoff and running work](desktop-workflows.md#updates-and-running-work). |
 | "Why does an operation say something else is running?" | [Concurrency and job protocol](wails-application.md#concurrency-and-job-protocol). |
 | "Which `backend.env` does the editor read?" | [Configuration and settings](configuration-and-settings.md). |
 | "Why did a setting require a rebuild?" | [Applying settings](configuration-and-settings.md#applying-settings) and [the different builds](development-and-release.md#the-different-builds). |
@@ -54,7 +62,7 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | CARE Desktop | The Go/Wails executable and its embedded desktop control panel. |
 | Desktop frontend | `app/frontend/`: the interface inside the Wails window. It is not the CARE web application. |
 | CARE frontend | The separately built `care_fe` web application served to clinic staff by the Compose stack. |
-| `App` | The Wails-facing object in `app/*.go`; owns application state, authorization, jobs, and native dialogs. |
+| `App` | The Wails-facing object in `app/*.go`; owns application state, authorization, jobs, confirmation requests and native integrations. |
 | `Clinic` | The orchestration object in `app/internal/clinic/`; operates the installed stack without importing Wails. |
 | Deployment kit | The files in `deployments/`, embedded into the desktop executable and unpacked for Docker Compose. |
 | Installed kit | The runtime copy of that kit on the clinic computer; distinct from source and build staging. |
@@ -64,7 +72,8 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | Sidecar | A supporting container; here, notably the container running scheduled backups. |
 | mDNS | Multicast DNS, used to advertise the clinic's `.local` name to nearby devices. |
 | Root CA | The local certificate authority used to establish trust in the clinic's HTTPS certificate. |
-| Recovery key | The password-encrypted private key required to decrypt encrypted backups; it is not the password itself. |
+| Backup recovery file | The exported private key required to decrypt encrypted backups. It is not encrypted with the Desktop password; keep it separate from backup data. |
+| Desktop recovery code | A single-use code that resets the local Desktop password, not the CARE web login or backup encryption key. |
 | Restore journal | Durable metadata used to recognize and recover an interrupted staged restore. |
 | Residue | Resources left by an earlier or partially removed CARE Desktop installation. |
 
@@ -78,12 +87,20 @@ An arrow in an architecture diagram means "calls or depends on" unless stated ot
 
 These guides describe the code in this checkout, including the shared read lock for environment/plugin reads, staged restore recovery, recovery-key-safe cleanup, and the Silo-backed storage service.
 
-The root [design notes](../design.md) explain the original intent, but include historical file counts, signatures, and flows. The code and these current guides take precedence where they differ. For example, settings reads are no longer exclusive jobs, backups use an exported recovery file instead of a password, and restore is no longer a direct drop-and-reload of the live database.
+The implementation and these guides are the source of truth; removed design
+boards and historical notes are not runtime specifications. Settings reads use
+shared locks, backups use an exported recovery file rather than a password, and
+restore stages replacement data instead of directly dropping the live database.
 
 File links lead to the implementation rather than fixed line numbers. When changing a component, update its guide, affected flowcharts, and the API or file map if the contract changed. Do not treat a diagram as a substitute for error handling in the code.
 
 ## Operational caution
 
 Running the desktop application is not a read-only demonstration: it can refresh an existing installed kit, start the clinic, and advertise its name. Setup, restore, networking repair, and removal have real effects on the current computer. Use a disposable development environment for end-to-end experiments.
+
+For safe UI regression work, use the [Playwright test fixture](development-and-release.md#safe-desktop-ui-tests).
+It requires Vite test mode and does not operate a native clinic. Ordinary
+`wails dev` uses the real backend; removed design boards and preview pages are
+not application entry points.
 
 The presence of regression tests is not a claim that every operating system, power-loss scenario, or production backup has been exercised. The subsystem guides distinguish implemented recovery behavior from what their tests actually cover.

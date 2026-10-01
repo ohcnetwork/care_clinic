@@ -14,21 +14,25 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/autostart"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/mdns"
 
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func (a *App) run(fn func() error, markSetup bool, label string) error {
 	if err := a.requireServer(); err != nil {
-		return err
+		return a.logged(err)
 	}
 	return a.runJob(fn, markSetup, label)
 }
 
 func (a *App) runJob(fn func() error, markSetup bool, label string) error {
 	if err := a.lockJob(); err != nil {
-		return err
+		return a.logged(err)
 	}
+	return a.runLockedJob(fn, markSetup, label)
+}
+
+// The caller owns jobMu; ownership passes to the worker.
+func (a *App) runLockedJob(fn func() error, markSetup bool, label string) error {
 	a.activeJob.Store(label)
 	go func() {
 		defer func() {
@@ -43,7 +47,7 @@ func (a *App) runJob(fn func() error, markSetup bool, label string) error {
 				detail := fmt.Sprintf("CARE hit an internal error during %s: %v", label, r)
 				a.logln("error: " + detail)
 				if !markSetup {
-					a.notifyActionFailed(label, detail)
+					a.reportError(failureTitle(label), detail)
 				}
 			}
 			a.emit("care-done", code, label)
@@ -59,14 +63,13 @@ func (a *App) runJob(fn func() error, markSetup bool, label string) error {
 						") - turn on \"Start at login\" yourself")
 				}
 				a.emit("setup-done", true)
-				a.notifyInstalled(cfg.MDNSName)
 			}
 		}
 		if err != nil {
 			a.logln("error: " + err.Error())
 			code = 1
 			if !markSetup {
-				a.notifyActionFailed(label, err.Error())
+				a.reportError(failureTitle(label), err.Error())
 			}
 		}
 	}()
@@ -84,12 +87,15 @@ func (a *App) lockJob() error {
 	return nil
 }
 
+// withJob and withReadJob log whatever they return. Every bound method that
+// runs through them therefore leaves its failure in the log file, named, with
+// no line of its own to forget.
 func (a *App) withJob(fn func() error) error {
 	if err := a.lockJob(); err != nil {
-		return err
+		return a.logged(err)
 	}
 	defer a.jobMu.Unlock()
-	return fn()
+	return a.logged(fn())
 }
 
 func (a *App) withServerJob(fn func() error) error {
@@ -111,13 +117,13 @@ func (a *App) withLabeledJob(label string, fn func() error) error {
 
 func (a *App) withReadJob(fn func() error) error {
 	if !a.jobMu.TryRLock() {
-		return errors.New("something else is still running - wait for it to finish")
+		return a.logged(errors.New("something else is still running - wait for it to finish"))
 	}
 	defer a.jobMu.RUnlock()
 	if a.closing {
-		return errors.New("CARE Desktop is closing")
+		return a.logged(errors.New("CARE Desktop is closing"))
 	}
-	return fn()
+	return a.logged(fn())
 }
 
 func (a *App) requireSetup() error {
@@ -177,58 +183,38 @@ func (a *App) requireStableClinic() error {
 	return nil
 }
 
-func (a *App) notifyActionFailed(label, detail string) {
-	if a.ctx == nil {
-		return
-	}
-	title := "CARE couldn't finish that"
+// failureTitle names the failure in the words the operator used to press,
+// so a care-error event can be shown without the desktop re-deriving it.
+func failureTitle(label string) string {
 	switch label {
 	case "start":
-		title = "CARE couldn't start"
+		return "CARE couldn't start"
 	case "restart":
-		title = "CARE couldn't restart"
+		return "CARE couldn't restart"
 	case "stop":
-		title = "CARE couldn't stop"
+		return "CARE couldn't stop"
 	case "restore":
-		title = "Restore didn't finish"
+		return "Restore didn't finish"
 	case "backup-now":
-		title = "Backup didn't finish"
+		return "Backup didn't finish"
 	case "rebuild-all", "rebuild-backend", "rebuild-frontend":
-		title = "Rebuild didn't finish"
+		return "Rebuild didn't finish"
 	case "apply-plugins":
-		title = "The plugins couldn't be applied"
+		return "The plugins couldn't be applied"
 	case "update":
-		title = "The CARE update didn't finish"
+		return "The CARE update didn't finish"
 	case "free-space":
-		title = "Cleanup didn't finish"
+		return "Cleanup didn't finish"
 	case "app-update":
-		title = "The CARE Desktop update didn't finish"
+		return "The CARE Desktop update didn't finish"
 	case "network-name":
-		title = "The clinic address is already in use"
+		return "The clinic address is already in use"
 	}
-	_, _ = wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
-		Type:    wruntime.ErrorDialog,
-		Title:   title,
-		Message: detail,
-		Buttons: []string{"OK"},
-	})
+	return "CARE couldn't finish that"
 }
 
-func (a *App) notifyInstalled(mdnsName string) {
-	if a.ctx == nil {
-		return
-	}
-	if mdnsName == "" {
-		mdnsName = "care.local"
-	}
-	url := "https://" + mdnsName + "/"
-	if a.confirmDialog("CARE Desktop installed",
-		"Staff can open the clinic at "+url+"\n\nOpen it now?") {
-		wruntime.BrowserOpenURL(a.ctx, url)
-	}
-}
-
-func (a *App) ClinicAction(action, adminPassword string) error {
+func (a *App) ClinicAction(action, adminPassword string) (err error) {
+	defer a.logError(&err)
 	switch action {
 	case "start", "stop", "restart", "rebuild-all", "rebuild-backend", "rebuild-frontend", "apply-plugins", "backup-now", "update", "free-space":
 	default:
@@ -310,7 +296,8 @@ func actionFunc(e *clinic.Clinic, action string) func() error {
 	return nil
 }
 
-func (a *App) RunSetup(mdnsName, adminPassword, backupDir string) error {
+func (a *App) RunSetup(mdnsName, adminPassword, backupDir string) (err error) {
+	defer a.logError(&err)
 	if err := ValidatePassword(adminPassword); err != nil {
 		return err
 	}
@@ -323,7 +310,18 @@ func (a *App) RunSetup(mdnsName, adminPassword, backupDir string) error {
 	if err := mdns.ValidateLabel(host); err != nil {
 		return err
 	}
-	return a.run(func() error {
+	if err := a.requireServer(); err != nil {
+		return err
+	}
+	if err := a.lockJob(); err != nil {
+		return err
+	}
+	issues := a.validateSetup(host, adminPassword, backupDir)
+	if len(issues) > 0 {
+		a.jobMu.Unlock()
+		return fmt.Errorf("setup needs attention (%s): %s", issues[0].Step, issues[0].Message)
+	}
+	return a.runLockedJob(func() error {
 		cfg := a.loadConfig()
 		if cfg.SetupDone || cfg.Removing {
 			return errors.New("this computer already has a clinic set up")
@@ -407,7 +405,8 @@ func (a *App) CleanupFailedInstall() error {
 	})
 }
 
-func (a *App) ClinicStatus() (string, error) {
+func (a *App) ClinicStatus() (status string, err error) {
+	defer a.logError(&err)
 	if err := a.requireServer(); err != nil {
 		return "", err
 	}

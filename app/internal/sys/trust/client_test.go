@@ -1,6 +1,7 @@
 package trust
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/tls"
@@ -10,11 +11,17 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 )
 
 func TestClientAddress(t *testing.T) {
@@ -97,6 +104,162 @@ func TestClientTLSUsesClinicNameAndPinnedRoot(t *testing.T) {
 				t.Fatalf("TLS verification: %v", err)
 			}
 		})
+	}
+}
+
+func TestSelectRemovableNeverRemovesThePinnedRoot(t *testing.T) {
+	const pinned = "AABBCCDDEEFF00112233445566778899AABBCCDD"
+	const other = "1122334455667788990011223344556677889900"
+	for _, tc := range []struct {
+		name  string
+		found []string
+		keep  string
+		want  []string
+	}{
+		{"nothing trusted", nil, pinned, nil},
+		{"only the clinic being connected to", []string{pinned}, pinned, nil},
+		{"spaced and lower case spelling of the same root",
+			[]string{strings.ToLower("AA BB CC DD EE FF 00 11 22 33 44 55 66 77 88 99 AA BB CC DD")}, pinned, nil},
+		{"an earlier clinic", []string{other, pinned}, pinned, []string{other}},
+		{"duplicates across two stores", []string{other, other}, pinned, []string{other}},
+		{"no clinic pinned yet", []string{other, pinned}, "", []string{other, pinned}},
+		{"blank entries", []string{"", "  "}, pinned, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := selectRemovable(tc.found, tc.keep)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("selectRemovable(%v, %q) = %v, want %v", tc.found, tc.keep, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHexLinesIgnoresEverythingThatIsNotAFingerprint(t *testing.T) {
+	got := hexLines("A1B2C3\n\nnot a hash\n a1 b2 c3 \nCN=CARE Desktop Local CA\n")
+	if !slices.Equal(got, []string{"A1B2C3"}) {
+		t.Fatalf("hexLines = %v", got)
+	}
+}
+
+func TestLinuxAnchorsListOnlyOtherCARoots(t *testing.T) {
+	dir := t.TempDir()
+	clinic := certPEM(t, CommonName)
+	earlier := certPEM(t, CommonName)
+	write := func(name string, data []byte) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("care-root.crt", earlier)
+	write("care-client-new.crt", clinic)
+	write("someone-else.crt", certPEM(t, "Another organisation"))
+	write("notes.txt", clinic)
+	write("damaged.crt", []byte("not a certificate"))
+
+	roots, err := linuxCARoots([]string{dir, filepath.Join(dir, "missing")}, SHA1Hex(string(clinic)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) != 1 || roots[0].Fingerprint != SHA1Hex(string(earlier)) ||
+		roots[0].Store != filepath.Join(dir, "care-root.crt") {
+		t.Fatalf("linuxCARoots = %+v", roots)
+	}
+	all, err := linuxCARoots([]string{dir}, "")
+	if err != nil || len(all) != 2 {
+		t.Fatalf("an unpinned client should see every CARE root: %+v, %v", all, err)
+	}
+}
+
+func TestRemoveOtherRootsStepsTargetFingerprintsNotTheCommonName(t *testing.T) {
+	const stale = "1122334455667788990011223344556677889900"
+	for _, goos := range []string{"darwin", "windows", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			if admin, user := removeOtherRootsSteps(goos, nil); admin != nil || user != nil {
+				t.Fatal("a computer with no other CARE roots must ask for nothing")
+			}
+			roots := []CARoot{{Fingerprint: stale, Store: "/etc/anchors/care-root.crt"}}
+			if goos == "darwin" {
+				roots = []CARoot{
+					{Fingerprint: stale, Store: darwinLoginKeychain()},
+					{Fingerprint: stale, Store: darwinSystemKeychain},
+				}
+			}
+			admin, user := removeOtherRootsSteps(goos, roots)
+			script := ""
+			for _, step := range append(append([]elevate.Step{}, admin...), user...) {
+				script += step.Sh + step.PS + "\n"
+			}
+			if strings.Contains(script, CommonName) {
+				t.Fatalf("removal by name would delete the clinic's own root: %s", script)
+			}
+			want := stale
+			if goos == "linux" {
+				want = "/etc/anchors/care-root.crt"
+			}
+			if !strings.Contains(script, want) {
+				t.Fatalf("%s removal does not target %q: %s", goos, want, script)
+			}
+			// macOS refuses trust changes to the login keychain from a root
+			// script, so that half must stay outside the elevated batch.
+			if (goos == "darwin") != (len(user) == 1) {
+				t.Fatalf("%s split removal wrongly: admin %d, user %d", goos, len(admin), len(user))
+			}
+		})
+	}
+}
+
+func TestProbeClientSeparatesSilenceFromAnUntrustedAnswer(t *testing.T) {
+	root, certificate := clientTestTLS(t, time.Now().Add(time.Hour))
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.Config.ErrorLog = log.New(io.Discard, "", 0)
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{certificate}}
+	server.StartTLS()
+	address := server.Listener.Addr().String()
+
+	closed, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	silent := closed.Addr().String()
+	if err := closed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name, host, root, address string
+		reachable                 bool
+		detail                    string
+	}{
+		{"the clinic answers", "care.local", root, address, true, ""},
+		{"nothing is listening", "care.local", root, silent, false, "the server did not answer"},
+		{"another clinic's certificate", "care.local", string(certPEM(t, CommonName)), address,
+			false, "the connection could not be verified"},
+		{"the wrong clinic name", "other.local", root, address,
+			false, "the connection could not be verified"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config, err := clientTLSConfig(tc.host, tc.root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := probeClient(context.Background(), config, tc.address)
+			if got.Reachable != tc.reachable || got.Detail != tc.detail {
+				t.Fatalf("probeClient = %+v, want reachable %v with %q", got, tc.reachable, tc.detail)
+			}
+		})
+	}
+	server.Close()
+
+	// A clinic whose pinned root has expired is a state to report, not a
+	// question the screen asked wrongly.
+	expired, _ := clientTestTLS(t, time.Now().Add(-time.Hour))
+	probe, err := ProbeClient(context.Background(), "care.local", expired)
+	if err != nil || probe.Reachable || probe.Detail != "the clinic's security certificate is no longer valid" {
+		t.Fatalf("expired pin: %+v, %v", probe, err)
+	}
+	if _, err := ProbeClient(context.Background(), "not a clinic address", root); err == nil {
+		t.Fatal("an address that is not a clinic address should be a misuse error")
 	}
 }
 

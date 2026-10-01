@@ -1,63 +1,78 @@
-import { useState } from "react";
+import { ArrowRight, Clock, Wifi } from "lucide-react";
+import { useRef } from "react";
 
-import { AppUpdateCard } from "@/components/app-update-card";
-import { Screen, ScreenBody, ScreenHead } from "@/components/screen";
-import { Alert } from "@/components/ui/alert";
+import logoMark from "@/assets/care-logo-mark.svg";
+import { StartUpdateCard } from "@/components/start-update-card";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { errorText } from "@/lib/format";
+import { useAppUpdate } from "@/hooks/use-app-update";
 import { useCare } from "@/state/care-store";
 
+import "./role-screen.css";
+
 export function RoleScreen() {
-  const { selectRole, busy: updating } = useCare();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const choose = async (role: "server" | "client") => {
-    setBusy(true);
-    setError("");
-    try {
-      await selectRole(role);
-    } catch (e) {
-      setError(errorText(e));
-      setBusy(false);
-    }
+  const { selectRole, busy } = useCare();
+  const navigating = useRef(false);
+  const update = useAppUpdate(false, true, () => navigating.current);
+  const paused = busy || update.active;
+  const chooseRole = (role: "server" | "client") => {
+    if (busy || navigating.current || update.isActive()) return;
+    navigating.current = true;
+    selectRole(role);
   };
-
   return (
-    <Screen>
-      <ScreenHead
-        kicker="CARE Desktop"
-        title="How will you use this computer?"
-        subtitle="Choose how to use this computer. To change this later, uninstall its current setup first."
-      />
-      <ScreenBody className="flex flex-col gap-4">
-        {error ? <Alert variant="danger" role="alert">{error}</Alert> : null}
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card className="flex flex-col gap-4 p-6">
-            <h2 className="text-lg font-bold text-ink">Set up a clinic</h2>
-            <p className="flex-1 text-sm text-muted-foreground">
-              Use this computer as the clinic server. Install and manage CARE here,
-              and keep it running for other computers on the clinic network.
-            </p>
-            <Button variant="primary" disabled={busy || updating} onClick={() => void choose("server")}>
-              Use as server
-            </Button>
-          </Card>
-          <Card className="flex flex-col gap-4 p-6">
-            <h2 className="text-lg font-bold text-ink">Connect to a clinic</h2>
-            <p className="flex-1 text-sm text-muted-foreground">
-              CARE is already installed on another computer. Enter its clinic address,
-              approve its certificate with your computer administrator, and open CARE.
-              No server installation is needed here.
-            </p>
-            <Button variant="primary" disabled={busy || updating} onClick={() => void choose("client")}>
-              Use as client
-            </Button>
-          </Card>
+    <div className="start-screen">
+      <aside className="start-brand-panel" aria-label="CARE Desktop">
+        <div className="start-brand">
+          <img src={logoMark} alt="" />
+          <span>CARE Desktop</span>
         </div>
-        <AppUpdateCard disabled={busy} />
-      </ScreenBody>
-    </Screen>
+        <div className="start-hero">
+          <h2>Your clinic's records, running on this computer.</h2>
+        </div>
+        <StartUpdateCard controller={update} />
+      </aside>
+      <main className="start-main" aria-labelledby="start-title">
+        <div className="start-body">
+          <div className="start-kicker">Welcome</div>
+          <h1 id="start-title">Set up CARE on this computer</h1>
+          <p className="start-subtitle">This computer will run CARE for your whole clinic.</p>
+          <p className="start-expectation">
+            <Clock aria-hidden="true" />
+            <span>Takes about 20 minutes. Internet is needed.</span>
+          </p>
+          <div className="start-primary-row">
+            <Button
+              variant="primary"
+              className="start-primary"
+              disabled={paused}
+              aria-describedby={paused ? "start-paused" : undefined}
+              onClick={() => chooseRole("server")}
+            >
+              Start setup
+            </Button>
+            {paused ? (
+              <p id="start-paused" className="start-paused" role="status">
+                You can continue as soon as the update has finished.
+              </p>
+            ) : null}
+          </div>
+          <div className="start-divider" aria-hidden="true"><span>or</span></div>
+          <Button
+            className="start-connect"
+            disabled={paused}
+            aria-labelledby="start-connect-title"
+            aria-describedby={`start-connect-description${paused ? " start-paused" : ""}`}
+            onClick={() => chooseRole("client")}
+          >
+            <span className="start-connect-icon"><Wifi aria-hidden="true" /></span>
+            <span className="start-connect-copy">
+              <strong id="start-connect-title">Connect to an existing server on the local network</strong>
+              <span id="start-connect-description">CARE is already running on another computer in this clinic</span>
+            </span>
+            <ArrowRight aria-hidden="true" />
+          </Button>
+        </div>
+      </main>
+    </div>
   );
 }
