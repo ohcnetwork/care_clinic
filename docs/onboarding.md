@@ -4,6 +4,11 @@
 
 Facility setup lives in the [CARE Onboarding frontend plugin](https://github.com/ohcnetwork/care_onboarding_fe), not in a separate Desktop page. Its source, curated datasets and master-sheet converter are maintained in the plugin repository, with the datasets in `data_source/`. Desktop only registers the hosted plugin; it does not bundle its assets or datasets.
 
+For the desktop's computer checks, recovery exports, installation and control
+panel, use [Using CARE Desktop](desktop-workflows.md). Reaching the desktop
+Overview means the local installation completed; it does not mean a facility,
+staff or clinical catalog has already been created in CARE.
+
 ## Default installation
 
 CARE Onboarding is a frontend-only [catalog entry](plugins.md). **New clinic installations** enable it automatically with:

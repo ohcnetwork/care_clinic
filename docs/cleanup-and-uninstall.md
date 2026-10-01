@@ -22,8 +22,8 @@ removed only after its setup is gone; see
 
 For a former server now used as a browser client, see
 [client recovery](client-recovery.md): client setup removes the stale hosts entry
-automatically. That guide also covers the destructive standalone cleanup scripts
-used when the app is unavailable.
+automatically. That guide explains the supported cleanup path when the desktop
+application is missing or an earlier installation remains.
 
 This guide explains the current Wails backend and engine cleanup paths. It is
 not a collection of destructive terminal recipes. Resource and command names
@@ -94,9 +94,10 @@ the job to finish, quits, and then:
   below and finds nothing set up. Declining the prompt leaves the app installed
   and says so.
 
-Dragging the app to the Trash on macOS skips all of this;
-[`uninstall-macos.sh`](../uninstall-macos.sh) remains the cleanup for an app that
-was already deleted.
+Dragging the app to the Trash on macOS skips all of this. This checkout does not
+ship standalone uninstall scripts. Restore the desktop application under the
+same OS account to use its guarded cleanup flow, or ask support if it cannot
+start; do not delete configuration to hide an installation that still exists.
 
 **Windows uninstaller.** Before removing files, `un.onInit` in
 [`project.nsi`](../app/build/windows/installer/project.nsi) runs the installed app
@@ -471,6 +472,13 @@ or undo failures are also collected. A canceled privilege request is not
 automatically reported as successful cleanup. These native APIs and their
 verification limits are documented in [native integrations](native-integrations.md).
 
+When these helpers ask for CARE-owned confirmation, the registered root dialog
+shows a short certificate- or saved-address-removal message with Continue and
+Cancel. The job keeps its exclusive lock while waiting; it does not interpret
+closing or losing the dialog as approval. Actual OS password/security prompts
+remain native. Shorter wording changes neither the removal scope nor the
+verification requirement.
+
 That three-call sequence is the macOS and Linux path. On Windows each of those
 helpers would raise its own administrator prompt, and approving one while
 missing another silently leaves the unapproved item behind — after which the
@@ -518,6 +526,13 @@ This means an autostart or verification error can happen **after** the kit and
 live Docker data are already gone. The retained removal state supports a
 cleanup retry; it is not evidence that those deleted data are still present.
 Normal uninstall does not purge diagnostic logs.
+
+The desktop waits for both `uninstalled` and the matching successful
+`care-done(0, "uninstall")`, in either arrival order, before returning to Start or
+requesting optional executable removal. The initial `RunUninstall` response,
+an unrelated completion event, or just one of the two success signals is not
+sufficient. Failure keeps the removal state and retry path; it must not return
+to first-run setup over partially removed resources.
 
 ## 7. Failed-setup cleanup and the unused-key exception
 

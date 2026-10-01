@@ -73,7 +73,9 @@ The backend starts name advertising, but the desktop state store makes the norma
 
 `App` owns the mDNS advertiser. Its watcher wakes every 30 seconds, restarts advertising when LAN interfaces/addresses change or enumeration fails, and retries after two consecutive direct-hostname probe failures. Live foreign-name checks run before advertising and on watcher ticks. A conflict withdraws advertising and shows an administrator warning; retries cannot advertise while the conflict is detected. Probe and network errors are logged. It can also recreate an absent advertiser. No name is advertised merely by choosing it in the setup wizard, when the name is empty, during removal, or after application shutdown has begun.
 
-`shutdown()` closes the watcher's stop channel and stops the advertiser. Stopping the desktop's advertisement is distinct from stopping Docker containers.
+`shutdown()` cancels pending permission confirmations, closes the watcher's stop
+channel and stops the advertiser. Stopping the desktop's advertisement is
+distinct from stopping Docker containers.
 
 ### Closing the application
 
@@ -121,6 +123,41 @@ Shutting the clinic down is also available without quitting, from the panel's St
 
 These semantics are separate from macOS window hiding: hiding a window is not necessarily process shutdown.
 
+### In-window permission confirmations
+
+[`app_confirmation.go`](../app/app_confirmation.go) implements the engine's
+`Confirm(title, message) bool` callback without coupling `internal/` to React
+or Wails. [`confirmation-dialog.tsx`](../app/frontend/src/components/confirmation-dialog.tsx)
+is mounted at the application root, alongside the running-job quit dialog.
+It is available during installation and removal, not only in the panel.
+
+1. The component subscribes to `confirmation-requested` and
+   `confirmation-cancelled`, then calls `SetConfirmationDialogReady(true)`.
+   Registration returns the current immutable request snapshot, or `null`.
+2. A native caller queues `{id, title, message}` and waits on that request's
+   answer channel. Only one request may be pending. The caller retains its
+   operation lock; confirmation uses a separate mutex, so answering cannot
+   deadlock on that lock.
+3. The dialog presents the concise message with Continue and Cancel. Cancel has
+   initial focus and Escape declines. The component sends
+   `RespondToConfirmation(id, approved)` once while a response is pending.
+4. Go consumes only the matching current ID. Wrong, stale and replayed IDs
+   reject and are logged. A delayed response or registration snapshot cannot
+   close a newer dialog or revive a cancelled request.
+5. Unregistration, runtime-context cancellation or shutdown declines a pending
+   request and emits its cancelled ID. Shutdown also prevents new requests.
+
+Response failures remain visible with a recheck/retry path. An unavailable
+frontend before registration uses the explicit native confirmation fallback;
+missing runtime and dialog errors are not approval. The fallback follows the
+platform behavior described in [native dialog answers](#native-dialog-answers-are-not-the-button-labels).
+
+This protocol transports consent, not operating-system credentials. Password,
+Touch ID, certificate-security and UAC prompts still come from native system
+tools. Decline handling belongs to the caller: optional local-browser setup
+can be skipped, whereas incomplete cleanup must remain reported. Client Connect
+already provides its own explicit consent and does not add this extra question.
+
 ## Concurrency and job protocol
 
 ### Three execution helpers
@@ -152,7 +189,7 @@ sequenceDiagram
         J->>C: Perform requested operation
         C-->>UI: care-log via App.logln
         C-->>J: Success or error
-        J-->>UI: Error log and optional native dialog on failure
+        J-->>UI: Error log and care-error on failure
         J-->>UI: care-done with 0 or 1
         J->>J: Release lock on goroutine exit
     end
@@ -166,7 +203,10 @@ both this persisted-success signal and the matching successful `care-done`
 before entering Overview directly. There is no intermediate ready screen. If
 persisting successful state fails, the job is still reported as failed.
 
-A job can be waiting for a native confirmation or result dialog while holding the lock. An idle-looking terminal does not prove that the job has finished; both the work and its synchronous dialog handling must return before the lock is released.
+A job can be waiting for an in-window confirmation, a native question or an OS
+approval while holding the lock. An idle-looking terminal does not prove that
+the job has finished; both the work and its synchronous confirmation handling
+must return before the lock is released.
 
 A panic inside the job is converted to a logged stack trace and failure notification. This recovery is for the long-running job boundary; it is not a general transaction rollback.
 
@@ -183,7 +223,11 @@ Start and Stop can be requested during a pending restore; Start performs recover
 
 Environment and plugin reads use `requireAdmin` plus `requireSetup`, allowing inspection after an interrupted restore. They still respect the shared/exclusive operation gate.
 
-The desktop administrator password is a local authorization mechanism. The interface may check it to unlock controls, but protected Go methods check it again. There is no durable unlocked session or bearer token.
+The desktop administrator password is a local authorization mechanism. Advanced
+retains it only for its current unlock and locks after a fixed 15 minutes or
+when the tab is left. Protected Go methods check the supplied password again.
+There is no backend 15-minute lease, durable unlocked session or bearer token.
+Locking the UI does not cancel a native operation already accepted.
 
 ## Complete bound method reference
 
@@ -213,6 +257,11 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `RestartNow()` | `void` | Sync. Attempts to enable login startup, then requests an OS restart; autostart failure is logged. |
 | `ClinicHealth()` | `Health` | Query. HTTP health probe, separate from name and certificate-trust checks. |
 | `ClinicStatus()` | `string` | Query. Engine's formatted Compose service status. |
+| `DiskStatus()` | `DiskStatus` | Query. Installation/running free-space assessment. Measurement problems are described in the result, not necessarily a rejected promise; do not infer measured free bytes from `ok` alone. |
+| `StorageStatus()` | `StorageReport` | Query. Returns the cached storage report or performs the first check. |
+| `RecheckStorage()` | `StorageReport` | Query. Refreshes drive/backup measurements, updates the cache and emits `care-storage`. |
+| `BackupDirSpace(dir)` | `BackupSpace` | Query. Assesses the selected parent plus `care-db-backups`, or the effective default; an unmeasurable destination has an unknown level and explanatory message. |
+| `RancherDesktopInstalled()` | `boolean` | Query. Reports whether optional Rancher Desktop removal is applicable. It does not remove it. |
 
 #### What the wizard rows owe the operator
 
@@ -252,7 +301,7 @@ JavaScript promise. Role selection lives in
 | --- | --- |
 | `SelectRole(role string)` | Sync. Retained entry point: persists `server` or `client` and rejects ordinary role changes after selection. It now delegates to the same work as `BeginServerSetup`. |
 | `BeginServerSetup()` | Sync. Records the server role when the operator enters setup step 1, not when the first screen is drawn. The Server/Client question itself writes nothing, so a computer that was only looked at keeps an empty settings file. |
-| `FindClinic(address string)` | Read. Role-independent. Normalizes the address, fetches and validates the clinic's public root, and verifies TLS pinned to it. It installs nothing, does not touch the hosts file, saves no settings and opens no browser; the validated root is kept in memory so `ConnectClient` does not download it a second time. |
+| `FindClinic(address string)` | Read. Available before choosing Client, but refuses a saved or on-disk server setup. Normalizes the address, fetches and validates the clinic's public root, and verifies TLS pinned to it. It installs nothing, does not touch the hosts file, saves no settings and opens no browser; the validated root is kept in memory so `ConnectClient` does not download it a second time. |
 | `ClientPreflight()` | Read. Role-independent, read-only and privilege-free: what connecting would clean up on this computer. |
 | `ClientReachable()` | Query. One verified HTTPS connection to the saved clinic, pinned to the saved certificate, with a three-second limit and no retry. Takes no job lock, so the connected screen can poll it on a timer without a running connection turning every poll into a busy error. Changes nothing and elevates nothing. A clinic that does not answer is `reachable: false` with a plain `detail`, not a rejected promise; only a computer with no saved clinic is an error. |
 | `ClearRole()` | Sync. Undoes an unused choice from the setup or client screen's Back button when `setUp()` confirms no installation/connection is in use. Pre-install recovery metadata is allowed; exported files are not deleted. Otherwise errors and changes nothing. See [Persisted `Config`](configuration-and-settings.md#persisted-config). |
@@ -327,20 +376,35 @@ to warn that the computer will ask for permission.
 | `DismissCareUpdate()` | `void` | Sync. Records the staged commits as declined so the banner stops. The staged build still applies at the next start. |
 | `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
 | `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. |
+| `ScanResidue()` | `ResidueReport` | Query. Role-independent. Inspects owned files, Docker resources, saved-password presence and native traces. No Docker executable means no Docker-side traces; an installed engine that cannot be inspected is an error. |
+| `PurgeResidue(confirmed)` | `ResidueReport` | Sync. Server only. Requires explicit destructive confirmation, refuses a normal installed clinic, preserves backups and returns the post-cleanup report. |
 
 `InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job would ask the user whether to quit during the update. `quitAfterJob` waits for the job lock to be released and quits then.
 
 The shared [CARE Desktop update controller](../app/frontend/src/hooks/use-app-update.ts)
 drives the start/client cards, the pre-install wizard rail, failed-install offer
 and installed server's Updates tab. It is absent while clinic installation runs.
-Successful installer handoff is not permission to start conflicting operations:
-the active update state remains guarded until the handoff is resolved.
+Successful native completion in an `installer` or `restarting` phase keeps the
+global busy state under **Finish the CARE Desktop update**. For an external
+installer, OK (start/client/setup) or Done (Updates) becomes available only after
+the matching successful `care-done(0, "app-update")`. That acknowledgement releases
+the handoff; it does not claim installation finished or that the running
+version changed. A `restarting` phase has no acknowledgement and remains locked
+until reopening. Unrelated completion events cannot release either guard.
 It checks automatically and supports manual retries, download progress, and
 update installation without a Desktop admin password, Docker, Git, or a clinic
 connection. The OS may still request permission to replace the application.
 Check failures are shown without blocking role selection. While an update is
 running, conflicting role, client connection, and installation-retry actions
 are disabled. CARE backend/frontend updates remain server-only.
+
+The panel shares a live update guard rather than relying only on disabled
+buttons from the last render. Its revision changes on update progress so a
+folder picker opened before an update cannot write after the update is
+acknowledged. Restore file selection and preflight additionally invalidate
+cancelled operations, preserve the prior file selection and clear credentials.
+Cancellation and password-recovery navigation remain available before native
+restore submission; they do not cancel an accepted restore.
 
 The download is capped and checksum-verified before it is launched: an installer arrives from the network and replaces the application, so an unbounded or unverified body is not something a clinic should be asked to run. A download that fails or whose SHA-256 differs from `SHA256SUMS` is deleted and fetched once more, since a dropped connection is the usual cause; if the second attempt is also bad, the temporary folder is removed and the operator is told the update didn't download properly and to choose Update again. Nothing unverified is ever opened. Windows runs the downloaded installer, which needs this app closed.
 
@@ -352,8 +416,6 @@ macOS replaces the bundle in place (`app_selfupdate.go`), so the operator never 
 4. A detached `sh` waits for this process to exit, runs `open` on the bundle, and removes the temporary folder. The app then quits through `quitAfterJob` with `closing` set, so no quit prompt appears. The clinic's containers keep running throughout.
 
 Replacing the bundle while the old binary is still running is safe on macOS: the process keeps its mapped executable, and the frontend is embedded in the binary. When the app runs from a location it can't replace (the mounted disk image or an App Translocation copy), `appremoval.Target` refuses and the update falls back to opening the disk image for a manual drag.
-| `ScanResidue()` | `ResidueReport` | Query. Role-independent: a client and a computer that has chosen nothing both need to know what an earlier clinic left here. Inspects owned files, Docker resources, saved password presence, and native traces. A computer with no `docker` command has no Docker-side traces, which is an empty result rather than a failure; an installed engine that will not answer is still an inspection error. |
-| `PurgeResidue(confirmed bool)` | `ResidueReport` | Sync. Server only. `confirmed` is the interface's own destructive confirmation; there is no native dialog. Refuses a normal installed clinic, preserves backups, and returns the report for the state afterwards so the caller needs no second scan. |
 
 The password policy in [`password.go`](../app/password.go) is 8 through 20 Unicode characters, with at least one uppercase letter, lowercase letter, and digit. Setup, change and recovery enforce it for the Desktop admin password. There is no backup password.
 
@@ -402,7 +464,7 @@ The API does not require the desktop admin password for every operational contro
 | `ListBackups()` | `Backup[]` | Query. Returns an empty list if the installed compose file is absent; other file/read errors are not treated as an empty list. |
 | `GetBackupDir()` | `string` | Query. Effective backup directory, including the engine's default if unconfigured. |
 | `SetBackupDir(dir)` | `string` | Sync. Stable clinic required. Takes a parent folder, appends `care-db-backups`, preserves the key and conditionally restarts the sidecar. |
-| `ChooseBackupFile()` | `string` | Native dialog. Starts in the backup directory; empty string means canceled or dialog failure. |
+| `ChooseBackupFile()` | `string` | Native dialog. Starts in the backup directory; empty string means cancellation. Dialog errors reject and are logged. |
 | `InspectBackupFile(path)` | `ImportedBackup` | Query. Checks filename/regular-file metadata and matching neighboring archive; does not yet validate dump contents. |
 | `RestoreFromFile(path, recoveryFile, adminPassword)` | `void` | Job. Desktop admin plus stable clinic required; restore using the explicitly selected recovery file. |
 | `RestoreBackup(dbDump, filesArchive, recoveryFile, adminPassword)` | `void` | Job. Desktop admin plus stable clinic required; restore selected names from the configured backup directory using the selected recovery file. |
@@ -414,7 +476,7 @@ File selection is not restore authorization. Full validation and data replacemen
 | Method | Result | Execution and contract |
 | --- | --- | --- |
 | `OpenURL(url)` | `void` | Opens the URL through the native browser integration. |
-| `ChooseFolder(title)` | `string` | Native directory dialog; empty string means canceled or dialog failure. |
+| `ChooseFolder(title)` | `string` | Native directory dialog; empty string means cancellation. Dialog errors reject and are logged. |
 | `LogPath()` | `string` | Current diagnostic log path; may be empty if file logging is unavailable. |
 | `OpenLogFolder()` | `void` | Opens/reveals the log with the OS file browser; errors if no log file is available. |
 | `WasAutostartLaunched()` | `boolean` | Whether process arguments contain `--autostart`. |
@@ -424,6 +486,10 @@ File selection is not restore authorization. Full validation and data replacemen
 | `RemoveApp()` | `void` | Waits for any running job, refuses while the computer is still set up, then quits and removes the app. |
 | `AutostartEnabled()` | `boolean` | Reads the platform's login-startup state. |
 | `SetAutostart(on)` | `void` | Sync. Changes the platform login-startup entry. |
+| `SetQuitDialogReady(ready)` | `QuitRequest` or `null` | Registers/unregisters the running-job quit UI and returns a pending snapshot. Unregistration invalidates its current request. |
+| `RespondToQuit(id, quit)` | `void` | Answers only the current running-job quit request; stale/replayed IDs reject. A positive answer requests application exit, not job rollback. |
+| `SetConfirmationDialogReady(ready)` | `ConfirmationRequest` or `null` | Registers/unregisters the permission UI and returns a pending snapshot. Unregistration declines any waiting request. |
+| `RespondToConfirmation(id, approved)` | `void` | Consumes only the current permission request ID, using its independent mutex/channel rather than the job lock. |
 
 ### Native dialog answers are not the button labels
 
@@ -449,8 +515,9 @@ spelling, including `Cancel`, leaves the first button selected. A destructive
 action must use `No` if it is not to arrive pre-armed.
 
 `affirmative()` and `askToProceed()` in [app_ui.go](../app/app_ui.go) hold this
-for confirmations, and `confirmDialog()` routes through `affirmative()` so its
-labels can change without silently inverting its meaning.
+for native confirmations. The fallback in `confirmDialog()` also interprets
+answers through `affirmative()`; the registered in-window dialog instead sends
+an explicit boolean with its request ID.
 
 Which is why the native dialogs are now down to the ones that have no
 alternative. Questions and failures belong in the window, where the operator can
@@ -498,11 +565,17 @@ original text.
 | `care-check` | `{running, found, error?}` | Check/build activity. Only a completed, error-free check with `found=false` means up to date. |
 | `client-connect-progress` | `finding`, `connecting`, `checking`, or `opening` | Real boundaries of client connection work. Trust/cleanup is not marked complete before administrator operations finish. |
 | `quit-requested` | `{id, title, message}` | A running-job close request for the registered frontend dialog. Only its current ID can be answered. |
+| `confirmation-requested` | `{id, title, message}` | A CARE-owned permission question for the registered root dialog. Its caller is still waiting and retains its job lock. |
+| `confirmation-cancelled` | Request ID | Invalidates a permission question after frontend unregistration, runtime cancellation or shutdown. |
+| `care-storage` | `StorageReport` | Refreshed drive, backup-space and last-run information. Unknown measurements must not be displayed as confirmed free space. |
 
 There is no unique job identifier or measured clinic-installation percentage.
 The single-job model and completion label distinguish operations. Installation
 uses an indeterminate bar and log-backed stage names from
 [`run-steps.ts`](../app/frontend/src/lib/run-steps.ts), not a numeric estimate.
+The legacy `pct` weights in that file order milestones; they are not percentages
+to display. Visible earlier/now/latest tags are omitted, while accessible
+current/completed stage descriptions remain.
 The amber long-running note is based on fifteen minutes without a new `care-log`
 line. Parallel build milestones use the builder's own phase lines rather than
 per-image output, which could otherwise advance while other builds still run.
@@ -517,6 +590,7 @@ The core serialized shapes are:
 | `SetupIssue` | `step`, `message`; step is one of the wizard's requirement/configuration IDs. |
 | `SetupRecoveryStatus` | `backup_saved`, `backup_verified`, `codes_saved`, `backup_path`, `codes_path`, `backup_problem`, `codes_problem`. |
 | `BackupPolicy` | `interval_seconds`, `retention_days`. |
+| `ConfirmationRequest`, `QuitRequest` | `id`, `title`, `message`. IDs identify requests within the current native process, not jobs or authorization sessions. |
 | `DockerStatus`, `NameStatus` | `ok`, `message`. |
 | `Health` | `active`, `code`, `detail`. |
 | `NetworkStatus`, `WSLStatus` | `applicable`, `ok`, `message`, `how`, `fixable`. |

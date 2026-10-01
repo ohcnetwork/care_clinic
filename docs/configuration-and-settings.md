@@ -193,6 +193,29 @@ Refresh copies the current kit but is not a general recursive deletion or a migr
 
 The startup refresh is skipped for incomplete setup, incomplete removal, and pending restore. A pending restore must keep the configuration its recovery metadata expects.
 
+## Advanced access and authorization
+
+[`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx) starts a
+fixed `15 * 60 * 1000` millisecond timer after a successful password unlock.
+Typing, navigation within settings groups and other activity do not extend it.
+Leaving Advanced, leaving the panel or using Lock clears the unlock sooner.
+A successful password change starts a fresh unlock with the new password.
+
+Expiry clears the retained password, selected settings group and mounted
+sensitive/unsaved form state. The page reports that Advanced has locked.
+Already written files and accepted native jobs are not rolled back; saved
+settings that still need applying remain distinguishable from an unsaved draft.
+
+This timer exists in React. Go does not issue a 15-minute session token or
+remember a globally unlocked administrator. `ReadEnv`, `WriteEnv`, protected
+rebuilds, recovery administration and uninstall validate the supplied Desktop
+password through their native guards. Ordinary clinic controls, Updates and
+Plugins have their own lifecycle rules and do not acquire this Advanced unlock.
+
+The Desktop password is distinct from the operating-system password used for
+privilege prompts and from the CARE web login after initial setup. See
+[recovery materials](backups-and-restore.md#3-backup-recovery-file-and-desktop-admin-recovery).
+
 ## Environment-file API
 
 [`envPath()`](../app/app_env.go) accepts only `backend` and `frontend`, mapping them to fixed filenames under the installed kit. It is not an arbitrary file-reading or file-writing API.
@@ -305,6 +328,14 @@ The **Updates** tab shows both update mechanisms without a Desktop admin passwor
 | CARE | The tracked branch, the commits in use, and checking, up-to-date, staged-update or failed-check state. | Check now; retry a failed check; install a staged update now. |
 | CARE Desktop | The installed version against the newest published GitHub release, with its notes. | Download the verified installer for this platform and launch it. |
 
+CARE Desktop's shared controller remains guarded after native completion while
+an installer/restart handoff is unresolved. Only a completed external-installer
+handoff can be acknowledged with Done in Updates (OK before installation or on
+clients). A restarting phase waits for reopening. Acknowledgement does not
+update the running version or claim the external installer succeeded.
+Interrupted picker/preflight work is invalidated rather than resumed when the
+guard is released; see [the update protocol](wails-application.md).
+
 The panel also raises a banner when a CARE update finishes building, so operators need not keep the Updates tab open. Declining the banner is not declining the update: it stops the prompt for that commit, and the staged build is applied at the next start, when no clinic is running and applying it costs a retag instead of a restart.
 
 The app checks hourly, but only while the clinic is actually serving. Until then it re-examines every thirty seconds and checks nothing, because a check competing with the start it is racing helps nobody. A clinic that later stops serving drops back to that thirty-second wait, so a check is never made against a clinic that is down. The loop ends only when the app closes, the desktop is switched to a client, or the clinic is being removed. These desktops stay on for weeks, so a check that only ran at launch would leave a verified fix unreachable until somebody restarted the app.
@@ -328,10 +359,19 @@ The plugin list is stored in `plugins.json` beside `backend.env`. Its backend pa
 
 Before saving the new path it copies the public backup certificate to the destination without overwriting a different certificate. The private recovery file is never copied into the backup folder. After saving, it recreates the backup sidecar only if it was running. If that restart fails, it attempts to restore the previous configuration and sidecar, reporting rollback errors as well.
 
-Earlier backups and their key are left in the previous directory; changing the destination is not a file migration. This ordering prevents a seemingly successful folder change from leaving the new backups without their decryption material.
+Earlier backups and their public certificate are left in the previous directory;
+changing the destination is not a file migration. The private recovery file
+stays wherever the manager exported it. The ordering prevents a new backup
+destination from being activated without its matching public certificate.
 
 ## Relevant regression coverage
 
 [`app_env_test.go`](../app/app_env_test.go) covers concurrent environment/plugin reads, mutation exclusion, closing, administrator/lifecycle guards, and retention save/read values including zero. [`plugins_test.go`](../app/internal/plugins/plugins_test.go) covers literal plugin configuration round trips and duplicate removal.
 
 The underlying atomic-file behavior and the clinic's domain rewriting have their own tests, indexed in [the repository map](repository-map.md). Those layers matter independently of how a friendly control is rendered.
+
+[`advanced.spec.ts`](../app/frontend/tests/advanced.spec.ts) covers the exact
+15-minute unlock boundary, tab-leave clearing, recovery/password flows, sensitive
+field handling, latest-file merging and failed apply behavior.
+[`backups.spec.ts`](../app/frontend/tests/backups.spec.ts) covers destination
+changes, restore consent and stale async work across a Desktop update.

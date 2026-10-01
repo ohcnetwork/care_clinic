@@ -3,8 +3,9 @@
 Self-contained, offline [CARE](https://github.com/ohcnetwork/care) for a small clinic.
 One installer on one computer runs the whole EMR — backend, web app, database, file
 storage and automatic daily encrypted backups — and staff connect from other computers
-using CARE Desktop in client mode on the clinic Wi-Fi. No cloud account, and no internet
-needed after the first install.
+using CARE Desktop in client mode on the clinic Wi-Fi. The core clinic can run
+without internet after installation. Updates, externally hosted plugins such
+as CARE Onboarding, and configured online services still need connectivity.
 
 **Download:** [releases](https://github.com/ohcnetwork/care_desktop/releases)
 — `.dmg` for macOS (Apple Silicon and Intel), `-setup.exe` for Windows 64-bit.
@@ -62,7 +63,12 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   imported files. Restoring requires the Desktop admin password, a recovery file
   for encrypted backups, and acknowledgement that clinic records will be replaced.
 - **Advanced** — plain-language clinic settings (backups, sign-in, patient SMS
-  codes, email, branding, languages, visits, billing), backend plugins, log, uninstall.
+  codes, email, branding, languages, visits, billing), Desktop password recovery,
+  log, rebuild and uninstall. It locks 15 minutes after unlocking, or sooner
+  when you leave the tab; protected native actions still check the password.
+- **Short permission prompts** — CARE's in-window confirmations explain the
+  next action without a technical checklist. System password and certificate
+  approvals still appear in the operating system's own dialogs.
 
 ## How it works
 
@@ -88,9 +94,12 @@ built on the clinic's machine from the upstream commits pinned in `deployments/.
 | `deployments/` | The server kit: compose file, Caddyfile, env files, backup script, and public certificate bootstrap route |
 | `.github/workflows/` | CI, and releases started when `CARE_DESKTOP_VERSION` in `deployments/.env` changes on `main` |
 
-**Backend documentation:** [Start with `docs/README.md`](docs/README.md) for the
-architecture, file map, Wails API, configuration, lifecycle, backups, native
-integrations and release workflow.
+**Using the app:** [Desktop workflows](docs/desktop-workflows.md) covers setup,
+connection, installation, each control-panel tab and update handoffs.
+
+**Technical documentation:** [Start with `docs/README.md`](docs/README.md) for
+the architecture, file map, Wails API, configuration, lifecycle, backups, native
+integrations, safe UI tests and release workflow.
 
 **Releases:** [Preparing and publishing a version](docs/releases.md), including
 releases started on merge, automatic tags, and macOS and Windows signing configuration.
@@ -112,12 +121,9 @@ verified that the file came from that build.
 
 ### Privacy
 
-This program will not transfer any information to other networked systems unless
-specifically requested by the user or the person installing or operating it.
-
-CARE Desktop has no telemetry, analytics or crash reporting. It uses the internet
-only when the person setting up or operating the clinic asks for something that
-needs it:
+CARE Desktop has no telemetry, analytics or crash reporting. Network requests
+are made for setup, configured features and updates, including automatic update
+checks:
 
 - **Server setup** installs Docker (Rancher Desktop on macOS/Windows) and Git if they are missing (pinned,
   checksum-verified installers from github.com, or the operating system's own
@@ -128,6 +134,11 @@ needs it:
   downloads the WebView2 runtime from Microsoft if the computer lacks it.
 - **Clinic features** the operator turns on, such as SMS sign-in codes and email,
   send data to the provider the operator configured.
+- **Updates** check GitHub release metadata for CARE Desktop. While the clinic
+  is serving, CARE's background update checker can resolve its configured source
+  branches and build newer images; those builds fetch dependencies.
+- **Hosted plugins**, including the default CARE Onboarding plugin for new
+  clinics, are downloaded by staff browsers from their configured hosts.
 
 On the clinic network the server announces `https://<clinic>.local` with mDNS so
 staff computers can find it; clients do not advertise a clinic. Clients retrieve

@@ -22,8 +22,7 @@ Read [Architecture](architecture.md) for the overall boundaries and
 events, and application lifetime. See [Clinic lifecycle](clinic-lifecycle.md)
 for when installation and start operations call these helpers, and
 [Cleanup and uninstall](cleanup-and-uninstall.md) for teardown orchestration.
-This guide describes the current source, not the older behavior recorded in
-`design.md`.
+This guide describes the current source rather than historical design boards.
 
 ## Contents
 
@@ -319,8 +318,17 @@ Sources: [elevate.go](../app/internal/sys/elevate/elevate.go),
 ### Approval is a boundary, not evidence of success
 
 `elevate.Step` contains a human description (`What`), a Unix shell form (`Sh`),
-and a PowerShell form (`PS`). Callers can collect only the remaining actions and
-explain them in one confirmation dialog before requesting native elevation.
+and a PowerShell form (`PS`). Callers collect only the remaining actions.
+CARE-owned confirmation copy explains the purpose and upcoming approval, not a
+technical checklist of every hosts-file and certificate-store operation.
+
+The engine's `Confirm` callback is backed by the
+[in-window permission protocol](wails-application.md#in-window-permission-confirmations)
+when the frontend is registered. It preserves explicit consent, declines a
+pending request when the UI unregisters or the app shuts down, and does not
+release the caller's job lock while waiting. Before registration there is a
+native confirmation fallback. Neither path answers or replaces the OS
+administrator/security prompt.
 
 `ShQuote`, `PSQuote`, and `OSAQuote` escape different interpreter syntaxes. They
 are not interchangeable. `elevate.Run(sh, false)` executes `sh -c`; its elevated
@@ -391,9 +399,10 @@ outside application control.
 `setUpThisComputer` is an optional, local-browser finish operation. It obtains the
 clinic host, tries a silent unprivileged hosts append, reads the Caddy root, and
 prepares the trust step without installing anything. If work remains, it logs
-`Setting up this computer...` and shows one confirmation listing every change
-and how the operating system will ask (password or Touch ID on macOS, UAC on
-Windows, the administrator password on Linux). Only after approval does it try
+`Setting up this computer...` and shows one short confirmation explaining that
+this lets the computer open CARE securely, followed by the platform's password
+or approval instruction. It does not list hosts-file edits or keychain details.
+Only after approval does it try
 the unprivileged certificate install and then run whatever is still needed as
 one elevated batch. Before this ordering, the macOS Touch ID prompt appeared
 before the explanation.
@@ -456,6 +465,12 @@ Important result rules:
 - This method returns no error to stop clinic startup. Its warning that other
   devices are unaffected means these **local changes** do not configure or
   disable them; it is not proof that LAN access or remote trust already works.
+
+Certificate removal and saved-address removal use the same styled confirmation
+surface with concise action-specific copy. The certificate prompt asks to remove
+CARE's security certificate; the address prompt identifies the clinic hostname.
+Their shorter text does not change ownership checks, privilege requests,
+post-removal verification or incomplete-cleanup reporting.
 
 ### Hosts entries and their ownership marker
 
@@ -1942,7 +1957,6 @@ For the rest of the repository, use [Repository map](repository-map.md).
 | [sys/trust/client.go](../app/internal/sys/trust/client.go) | Native HTTP certificate bootstrap, remote-host TLS verification, optional resolver bypass, the fingerprint-scoped removal of other CARE roots that shares one approval with installation, and the bounded read-only reachability probe a connected client polls. |
 | [sys/trust/client_test.go](../app/internal/sys/trust/client_test.go) | Address normalization, download and validity validation, pinned TLS, fingerprint selection that never removes the pinned root, Linux anchor enumeration, per-platform removal scripts, and probe outcomes against a live TLS fixture and a closed port. |
 | [sys/trust/trust_test.go](../app/internal/sys/trust/trust_test.go) | Generated certificate fixtures test Linux anchor/bundle residue, partial removal, approval/retry, unreadable bundles, and fresh trust-pool loading. |
-| [sys/trust/installer_test.go](../app/internal/sys/trust/installer_test.go) | Redirected POSIX installer fixtures verify readable Debian/Fedora public anchors, NSS profile imports including spaces, and visible NSS failures; not live trust-store installation. |
 | [sys/mdns/advertise.go](../app/internal/sys/mdns/advertise.go) | DNS labels, usable interfaces, responder lifetime, topology comparison, and bounded hostname probes. |
 | [sys/mdns/responder.go](../app/internal/sys/mdns/responder.go) | Interface-bound multicast/unicast transport, hostname and DNS-SD replies, announcements and goodbyes. |
 | [sys/mdns/probe.go](../app/internal/sys/mdns/probe.go) | Direct hostname queries and interface-local response validation. |
