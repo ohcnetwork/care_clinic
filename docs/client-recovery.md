@@ -12,8 +12,8 @@ For an ordinary CARE Desktop client leaving a clinic, use **Disconnect**, not th
 client's saved connection and certificate it installed, preserving all server data.
 Successful uninstall clears the role so Server or Client can be selected again.
 If you also want to remove the desktop executable, uninstall it through the
-operating system afterwards. Pre-existing trusted certificates are intentionally
-preserved and may still allow browser access.
+operating system afterwards. Trusted certificates that did not come from CARE
+are intentionally preserved and may still allow browser access.
 See [client removal](native-integrations.md#removing-client-access).
 
 ## Why this happens
@@ -35,13 +35,29 @@ CARE Desktop's client setup removes this override automatically. On the affected
 computer, choose **Use as client**, enter the clinic address shown on the current
 server, and click **Connect**.
 
-Before it contacts the clinic, CARE checks this computer's hosts file for that
-address. If it finds any entry, marked or not, it removes only that name. It
-saves the old file as `hosts.care-backup` and clears the DNS cache. Your computer
-asks for administrator approval once; approve it. If there is no entry, you won't
-see that prompt. The check runs again every time you click **Connect** or
-**Open CARE**, so an entry that comes back later is also removed. See
-[the hosts check](native-integrations.md#hosts-entries-and-their-ownership-marker).
+**Connect** repairs this computer's hosts file, on its own and without asking
+a second time — pressing Connect is the decision. Your computer asks for
+permission the way it always does: a password, a fingerprint or a PIN. On a Mac
+it can ask twice, once for the address override and once for the certificate,
+because macOS handles those two things separately. It removes the address you
+entered, whoever added it, *and* every line CARE itself added, whatever name
+that line maps — so an entry left over from a clinic this computer used to host
+under a different name goes too. It saves the old file as `hosts.care-backup`
+and clears the DNS cache. In the same approval it removes every other
+`CARE Desktop Local CA` certificate this computer trusts and installs the
+current clinic's, so you are asked for administrator approval once. If there is
+nothing to repair, you won't see a prompt at all. The check runs again every
+time you click **Connect** or **Open CARE**, so an entry that comes back later
+is also removed. See [the hosts check](native-integrations.md#hosts-entries-and-their-ownership-marker)
+and [client trust](native-integrations.md#native-client-setup-and-trust-on-first-use).
+
+**Find clinic** is the step before it, and it changes nothing at all: it only
+looks for the clinic and checks that it really is a CARE clinic. Use it to
+confirm the address before anything is repaired. On a computer whose hosts file
+still points the address at itself, it asks the network directly rather than the
+address override, so it can normally still find the real clinic. If the network
+does not answer, it says **"this computer is sending the clinic address to
+itself"** — click **Connect**, which fixes exactly that.
 
 This does not remove the old clinic's Docker data, backups, or the application.
 Starting the old clinic again on this computer can add its entry back. Uninstall
@@ -51,6 +67,11 @@ If the prompt is declined, the app shows **"Your computer needs a quick fix
 first"**; click **Connect** again and approve it. If connecting still fails after
 that, the hosts file is not the problem. Check Wi-Fi, mDNS, and the server
 instead (see the end of this guide).
+
+If the computer still has an unfinished clinic setup of its own — installation
+files, or a half-finished wizard — connecting is refused with **"this computer
+has an unfinished clinic setup; remove it in Setup before connecting"**. Remove
+it from the setup screen first; that is the same cleanup described below.
 
 ## A different cause of the same message
 

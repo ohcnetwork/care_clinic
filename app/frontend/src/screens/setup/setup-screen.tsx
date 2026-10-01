@@ -1,554 +1,515 @@
-import { Check, Download, FileKey, KeyRound, Server, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Field } from "@/components/field";
-import { BoxNote, InputBox } from "@/components/input-box";
-import { FootNote, Screen, ScreenBody, ScreenFoot, ScreenHead } from "@/components/screen";
-import { SectionTitle, StepDot } from "@/components/section-header";
+import { Callout, isClinicName, LogButton } from "@/components/onboarding";
 import { Spinner } from "@/components/spinner";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
-import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useAppUpdate, type AppUpdateController } from "@/hooks/use-app-update";
 import { usePasswordStrength } from "@/hooks/use-password-strength";
-import { bridge } from "@/lib/bridge";
+import { bridge, onCareEvent } from "@/lib/bridge";
 import { diskSize, errorText, normaliseHost } from "@/lib/format";
-import { cn } from "@/lib/utils";
-import { useCare, type SetupStep } from "@/state/care-store";
+import { useCare } from "@/state/care-store";
 import type { SetupForm } from "@/state/forms";
-import type { BackupSpace, RestartPlan } from "@/types";
-import { CheckRows } from "./check-rows";
+import type { BackupSpace, PrereqDownloadProgress, ResidueReport, RestartPlan, SetupIssue, SetupPage, ToolPlan } from "@/types";
+import { AddressStep, AdminStep, BackupStep, ReviewStep, type AddressResult } from "./configuration-steps";
+import { RequirementStep, type RequirementAction } from "./requirement-step";
 import { RestartDialog } from "./restart-dialog";
-import { PasswordPair } from "./password-pair";
-import { useRequirementChecks } from "./use-requirement-checks";
+import { SetupLayout } from "./setup-layout";
+import { backupProblem, EMPTY_RECOVERY, isRequirement, recoveryProblem, SETUP_LABELS, type RequirementPage } from "./setup-model";
+import { useSetupChecks } from "./use-setup-checks";
 
-const ADDRESS_INFO =
-  "The address staff type in their browser. Each clinic server on this WiFi needs a different name, for example care-reception. Keep other clinic servers awake while checking: an offline device cannot answer.";
+const ALL_STEPS: SetupPage[] = ["space", "windows", "software", "cleanup", "network", "address", "backup", "admin", "review", "install"];
 
-export function SetupScreen({
-  form,
-  patch,
-}: {
-  form: SetupForm;
-  patch: (values: Partial<SetupForm>) => void;
-}) {
-  const { openStep, setOpenStep, setStepDone, startInstall, clearRole } = useCare();
-  const host = normaliseHost(form.hostInput);
-  const { checks, overall, checking, recheckAll, checkMDNS } = useRequirementChecks(host);
-
-  const [expanded, setExpanded] = useState<string>(openStep);
-  const [hostProblem, setHostProblem] = useState("");
-  const [verifying, setVerifying] = useState(false);
-  const [verifyNote, setVerifyNote] = useState("");
-  const [backupDirProblem, setBackupDirProblem] = useState("");
-  const [backupSpace, setBackupSpace] = useState<BackupSpace | null>(null);
-  const [restart, setRestart] = useState<RestartPlan | null>(null);
-  const [leaving, setLeaving] = useState(false);
-  const [fixing, setFixing] = useState(false);
-  const [recovery, setRecovery] = useState({ backup_saved: false, backup_verified: false, codes_saved: false });
-  const [recoveryAction, setRecoveryAction] = useState<"backup" | "verify" | "codes" | null>(null);
-  const savingRecovery = recoveryAction !== null;
-  const [recoveryProblem, setRecoveryProblem] = useState("");
-  const leavingRef = useRef(false);
-  const verifyingRef = useRef(false);
-  const hostSave = useRef<Promise<boolean>>(Promise.resolve(false));
-  const hostTimer = useRef(0);
-
-  const adminStrength = usePasswordStrength(form.adminPassword);
-  useEffect(() => {
-    void bridge.GetSetupRecoveryStatus().then(setRecovery, (e) => setRecoveryProblem(errorText(e)));
-  }, []);
-
-  const saveRecovery = async (kind: "backup" | "verify" | "codes", action: () => Promise<boolean>) => {
-    setRecoveryAction(kind);
-    setRecoveryProblem("");
-    try {
-      await action();
-      setRecovery(await bridge.GetSetupRecoveryStatus());
-    } catch (e) {
-      setRecoveryProblem(errorText(e));
-    } finally {
-      setRecoveryAction(null);
-    }
-  };
-
-  const pushHost = useCallback((raw: string): Promise<boolean> => {
-    // Serialize saves so Back can wait for every native write before clearing the role.
-    const pending = hostSave.current.then(async () => {
-      if (leavingRef.current) return false;
-      try {
-        const trimmed = raw.trim();
-        const problem = await bridge.ValidateDomain(trimmed);
-        if (leavingRef.current) return false;
-        if (problem) {
-          setHostProblem(problem);
-          return false;
-        }
-        await bridge.SetMDNSName(normaliseHost(trimmed));
-        setHostProblem("");
-        return true;
-      } catch (e) {
-        setHostProblem(errorText(e));
-        return false;
-      }
-    });
-    hostSave.current = pending;
-    return pending;
-  }, []);
-
-  // Every re-check asks about the restart, not just the one straight after an
-  // install: the operator can put the restart off, and until they do it Docker
-  // cannot start, so pressing "Check again" has to keep saying so.
-  const verify = useCallback(async () => {
-    if (verifyingRef.current || leavingRef.current) return;
-    verifyingRef.current = true;
-    window.clearTimeout(hostTimer.current);
-    setVerifying(true);
-    setVerifyNote("");
-    try {
-      await pushHost(form.hostInput);
-      await recheckAll();
-      const plan = await bridge.RestartPlan();
-      setRestart(plan.needed ? plan : null);
-    } catch (e) {
-      setVerifyNote(errorText(e));
-    } finally {
-      verifyingRef.current = false;
-      setVerifying(false);
-    }
-  }, [pushHost, form.hostInput, recheckAll]);
-
-  const hostOk = hostProblem === "";
-  const adminDone =
-    adminStrength.strong && form.adminConfirm !== "" && form.adminConfirm === form.adminPassword &&
-    recovery.codes_saved;
-  const backupDone =
-    recovery.backup_verified &&
-    backupDirProblem === "";
-  const ready = overall === "ok" && hostOk && backupDone && adminDone;
-
-  useEffect(() => setStepDone("checks", overall === "ok"), [overall, setStepDone]);
-  useEffect(() => setStepDone("backup", backupDone), [backupDone, setStepDone]);
-  useEffect(() => setStepDone("admin", adminDone), [adminDone, setStepDone]);
-
-  // Persist the address and refresh its live availability check.
-  const applyHost = useCallback(
-    async (raw: string) => {
-      if (await pushHost(raw)) void checkMDNS();
-    },
-    [pushHost, checkMDNS],
-  );
-
-  // Save the form's default without advertising it before installation.
-  useEffect(() => {
-    void applyHost(form.hostInput);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only
-  }, []);
-
-  useEffect(() => () => window.clearTimeout(hostTimer.current), []);
-
+export function SetupScreen({ form, patch }: { form: SetupForm; patch: (values: Partial<SetupForm>) => void }) {
+  const { clearRole, log } = useCare();
+  const [status, setStatus] = useState<"starting" | "ready" | "failed">("starting");
+  const [attempt, setAttempt] = useState(0);
+  const [localBusy, setLocalBusy] = useState(false);
+  const busyRef = useRef(true);
+  const pending = useRef<Promise<void> | null>(null);
+  const update = useAppUpdate(localBusy || status !== "ready", status === "ready", () => busyRef.current);
+  const onBusy = useCallback((value: boolean) => { busyRef.current = value; setLocalBusy(value); }, []);
   useEffect(() => {
     let live = true;
-    void bridge.BackupDirSpace(form.backupDir).then(
-      (space) => live && setBackupSpace(space),
-      () => live && setBackupSpace(null),
+    pending.current ??= bridge.BeginServerSetup();
+    void pending.current.then(
+      () => { if (live) setStatus("ready"); },
+      (e) => { log(`begin setup: ${errorText(e)}`); if (live) setStatus("failed"); },
     );
-    return () => {
-      live = false;
-    };
-  }, [form.backupDir]);
-
-  const onHostChange = (value: string) => {
-    setVerifyNote("");
-    patch({ hostInput: value });
-    window.clearTimeout(hostTimer.current);
-    hostTimer.current = window.setTimeout(() => void applyHost(value), 400);
-  };
-
-  // Probe the folder before accepting it: a read-only disk image or an NTFS
-  // stick would otherwise only fail once the install is already under way.
-  const chooseBackupFolder = async () => {
-    const chosen = await bridge.ChooseFolder("Choose backup folder");
-    if (!chosen) return;
-    setVerifyNote("");
-    setBackupDirProblem(await bridge.ValidateBackupDir(chosen));
-    patch({ backupDir: chosen });
-  };
-
-  const goBack = async () => {
-    if (leavingRef.current || verifyingRef.current) return;
-    leavingRef.current = true;
-    window.clearTimeout(hostTimer.current);
-    setLeaving(true);
-    try {
-      await hostSave.current;
-      if (!(await clearRole())) leavingRef.current = false;
-    } finally {
-      setLeaving(false);
-    }
-  };
-
-  const onContinue = async () => {
-    if (verifyingRef.current || leavingRef.current) return;
-    verifyingRef.current = true;
-    window.clearTimeout(hostTimer.current);
-    setVerifying(true);
-    setVerifyNote("");
-    try {
-      if (!(await pushHost(form.hostInput))) return;
-      const [state, dirProblem] = await Promise.all([
-        recheckAll(),
-        bridge.ValidateBackupDir(form.backupDir),
-      ]);
-      setBackupDirProblem(dirProblem);
-      if (state !== "ok" || !hostOk || !adminDone || !backupDone || dirProblem !== "") {
-        setVerifyNote("A step is no longer met — fix it and try again.");
-        return;
-      }
-      // Record the pass before this screen unmounts and its mirroring effect stops.
-      setStepDone("checks", true);
-      startInstall({
-        host,
-        adminPassword: form.adminPassword,
-        backupDir: form.backupDir,
-      });
-    } catch (e) {
-      setVerifyNote(errorText(e));
-    } finally {
-      verifyingRef.current = false;
-      setVerifying(false);
-    }
-  };
-
-  const issues = checks.filter((c) => c.state === "bad").length;
-  const note = fixing
-    ? "Wait for the current fix to finish…"
-    : verifying || checking
-      ? "Re-checking your computer…"
-    : verifyNote ||
-      (overall !== "ok"
-        ? "Waiting for your computer to be ready…"
-        : !hostOk
-          ? "Fix the clinic address to continue."
-          : backupDirProblem
-            ? "Choose a backup folder this computer can write to."
-            : !backupDone
-              ? "Save and verify your backup recovery file to continue."
-              : !adminDone
-                ? "Set your admin password and save the six recovery codes to continue."
-                : "Ready. This takes about 10 to 20 minutes.");
-
-  return (
-    <Screen>
-      <RestartDialog plan={restart} onDismiss={() => setRestart(null)} />
-      <ScreenHead
-        title="Set up your clinic"
-        subtitle="One time, on this computer. About 15 minutes."
-        onBack={() => void goBack()}
-        backDisabled={leaving || verifying || fixing || savingRecovery}
-      />
-
-      <ScreenBody>
-        {recoveryProblem ? <Alert variant="danger">{recoveryProblem}</Alert> : null}
-        <Accordion
-          type="single"
-          collapsible
-          value={expanded}
-          onValueChange={(value) => {
-            setExpanded(value);
-            // Closing a section leaves the rail pointing at it, the way the
-            // guided flow reads: you are still on that step.
-            if (value) setOpenStep(value as SetupStep);
-          }}
-        >
-          <AccordionItem
-            value="checks"
-            className={cn(overall === "bad" && "border-danger-line")}
-          >
-            <AccordionTrigger>
-              <StepDot done={overall === "ok"}>1</StepDot>
-              <SectionTitle
-                title="Computer check"
-                summary={
-                  overall === "wait"
-                    ? "Checking this computer"
-                    : overall === "ok"
-                      ? "Everything this clinic needs is ready"
-                      : "Open to see what failed"
-                }
-              />
-              <Badge variant={overall === "wait" ? "default" : overall}>
-                {overall === "wait"
-                  ? "Checking"
-                  : overall === "ok"
-                    ? "All good"
-                    : `${issues} issue${issues > 1 ? "s" : ""}`}
-              </Badge>
-            </AccordionTrigger>
-            <AccordionContent forceMount>
-              <Field
-                label="Clinic address"
-                htmlFor="mdnsname"
-                info={ADDRESS_INFO}
-                infoTitle="The address staff type in their browser"
-                messages={
-                  <span className={hostOk ? undefined : "text-danger-ink"}>
-                    {hostOk ? `Staff will open https://${host}` : hostProblem}
-                  </span>
-                }
-              >
-                <InputBox tone={hostOk ? "neutral" : "bad"}>
-                  <Input
-                    id="mdnsname"
-                    value={form.hostInput}
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    autoComplete="off"
-                    disabled={leaving || verifying}
-                    onChange={(e) => onHostChange(e.target.value)}
-                    className="h-full flex-1 rounded-none border-none bg-transparent px-0 focus-visible:border-none"
-                  />
-                  <BoxNote>.local</BoxNote>
-                </InputBox>
-              </Field>
-
-              <CheckRows
-                checks={checks}
-                onDone={() => void verify()}
-                locked={leaving || verifying || checking}
-                onBusyChange={setFixing}
-              />
-
-              <div className="flex items-center gap-2.5">
-                <Button
-                  disabled={leaving || verifying || checking || fixing}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setVerifyNote("");
-                    void verify();
-                  }}
-                >
-                  {verifying || checking ? "Checking…" : "Check again"}
-                </Button>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="backup">
-            <AccordionTrigger>
-              <StepDot done={backupDone}>2</StepDot>
-              <SectionTitle
-                title="Backup"
-                summary={
-                  backupDone
-                    ? `${form.backupDir || "Desktop (default)"}, recovery file verified`
-                    : "Choose a backup drive and save your recovery file"
-                }
-              />
-              <Badge variant={backupDone ? "ok" : "default"}>
-                {backupDone ? "Done" : "To do"}
-              </Badge>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div
-                className={cn(
-                  "flex items-center gap-3 rounded-lg border bg-background px-3.5 py-[13px]",
-                  backupDirProblem ? "border-danger-line" : "border-line",
-                )}
-              >
-                <span className="flex size-[30px] flex-none items-center justify-center rounded-sm bg-brand-bg text-brand-ink">
-                  <Server className="size-4" strokeWidth={2} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold tracking-[0.04em] text-muted-foreground uppercase">
-                    Drive
-                  </div>
-                  <div className="truncate font-mono text-[13.5px] font-semibold text-ink">
-                    {form.backupDir || "Desktop (default)"}
-                  </div>
-                </div>
-                <Button disabled={savingRecovery} onClick={() => void chooseBackupFolder()}>Choose</Button>
-              </div>
-              {backupDirProblem ? (
-                <div className="-mt-2 text-[12.5px] leading-[1.5] text-danger-ink">
-                  {backupDirProblem}
-                </div>
-              ) : backupSpace && backupSpace.total > 0 ? (
-                <div className="-mt-2 text-[12.5px] leading-[1.5] text-muted-foreground">
-                  <span className={backupSpace.level === "low" ? "text-warn-ink" : undefined}>
-                    {diskSize(backupSpace.free)} free on this drive. Each backup needs about{" "}
-                    {diskSize(backupSpace.need)} to start with, and grows with the clinic.
-                  </span>
-                  {backupSpace.shares_docker_drive ? (
-                    <div className="mt-0.5">
-                      This is the same drive as the clinic&apos;s data. A USB drive keeps the
-                      backups safe if this computer&apos;s drive fails.
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className="overflow-hidden rounded-xl border border-line">
-                <RecoveryStep
-                  icon={<FileKey className="size-5" />}
-                  title={recovery.backup_saved ? "Recovery file saved" : "Save your backup recovery file"}
-                  detail={recovery.backup_saved
-                    ? "Keep this file secure, outside the clinic computer."
-                    : "No backup password to remember. This file unlocks your encrypted backups."}
-                  done={recovery.backup_saved}
-                  working={recoveryAction === "backup"}
-                  status="Saved"
-                  action={!recovery.backup_saved ? (
-                    <Button variant="primary" disabled={savingRecovery}
-                      onClick={() => void saveRecovery("backup", () => bridge.SaveSetupBackupRecovery(form.backupDir))}>
-                      <Download className="size-4" /> {recoveryAction === "backup" ? "Saving..." : "Save file"}
-                    </Button>
-                  ) : null}
-                />
-                <RecoveryStep
-                  icon={<ShieldCheck className="size-5" />}
-                  title={recovery.backup_verified ? "Recovery file verified" : "Check the file you saved"}
-                  detail={recovery.backup_verified
-                    ? "The file matches this clinic. You are ready to continue."
-                    : "Select the saved file so CARE can confirm it is the right one."}
-                  done={recovery.backup_verified}
-                  working={recoveryAction === "verify"}
-                  status="Verified"
-                  action={
-                    <Button variant={recovery.backup_verified ? "default" : "primary"}
-                      disabled={savingRecovery || !recovery.backup_saved}
-                      onClick={() => void saveRecovery("verify", () => bridge.VerifySetupBackupRecovery(form.backupDir))}>
-                      {recoveryAction === "verify" ? "Checking..." : recovery.backup_verified ? "Check again" : "Select saved file"}
-                    </Button>
-                  }
-                />
-              </div>
-              <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-                Keep a second secure copy, separate from your backups. Anyone with both can
-                read patient data. <strong className="font-semibold text-ink2">If every copy of
-                this file is lost, old backups cannot be unlocked.</strong> CARE does not keep
-                a private copy.
-              </p>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="admin">
-            <AccordionTrigger>
-              <StepDot done={adminDone}>3</StepDot>
-              <SectionTitle
-                title="Admin password and recovery codes"
-                summary={adminDone ? "Password set, recovery codes saved" : "Protect Desktop administration and set the initial CARE login"}
-              />
-              <Badge variant={adminDone ? "ok" : "default"}>{adminDone ? "Done" : "To do"}</Badge>
-            </AccordionTrigger>
-            <AccordionContent>
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs font-semibold tracking-[0.04em] text-muted-foreground uppercase">
-                  Username
-                </span>
-                <span className="rounded-full bg-brand-bg px-3 py-1 font-mono text-[13.5px] font-semibold text-brand-ink">
-                  admin
-                </span>
-              </div>
-
-              <div>
-                <Label htmlFor="adminpw" className="mb-2 block">
-                  Initial admin password
-                </Label>
-                <PasswordPair
-                  id="adminpw"
-                  password={form.adminPassword}
-                  confirm={form.adminConfirm}
-                  strength={adminStrength}
-                  onPasswordChange={(v) => {
-                    setVerifyNote("");
-                    patch({ adminPassword: v });
-                  }}
-                  onConfirmChange={(v) => {
-                    setVerifyNote("");
-                    patch({ adminConfirm: v });
-                  }}
-                />
-              </div>
-              <div className="overflow-hidden rounded-xl border border-line">
-                <RecoveryStep
-                  icon={<KeyRound className="size-5" />}
-                  title={recovery.codes_saved ? "Your six recovery codes are saved" : "Save Desktop admin recovery codes"}
-                  detail={recovery.codes_saved
-                    ? "Keep the sheet safe, or print a copy. Each code can be used once."
-                    : "Use an unused code to reset a forgotten Desktop password, even offline."}
-                  done={recovery.codes_saved}
-                  working={recoveryAction === "codes"}
-                  status="Saved"
-                  action={!recovery.codes_saved ? (
-                    <Button variant="primary" disabled={savingRecovery}
-                      onClick={() => void saveRecovery("codes", () => bridge.SaveAdminRecoveryCodes("", form.backupDir))}>
-                      <Download className="size-4" /> {recoveryAction === "codes" ? "Saving..." : "Save codes"}
-                    </Button>
-                  ) : null}
-                />
-              </div>
-              <p className="text-[13px] text-muted-foreground">
-                You can print the saved sheet. Each code resets the Desktop admin password
-                once; it does not change the CARE web login or unlock backups.
-              </p>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </ScreenBody>
-
-      <ScreenFoot>
-        <Button
-          variant="primary"
-          size="lg"
-          className="shadow-lift disabled:shadow-none"
-          disabled={!ready || verifying || leaving || checking || fixing || savingRecovery}
-          onClick={() => void onContinue()}
-        >
-          <Download className="size-[17px]" strokeWidth={2.2} />
-          Install and start
-        </Button>
-        <FootNote>{note}</FootNote>
-      </ScreenFoot>
-    </Screen>
-  );
+    return () => { live = false; };
+  }, [attempt, log]);
+  if (status === "ready") return <SetupWizard form={form} patch={patch} update={update} onBusy={onBusy} />;
+  return <SetupLayout steps={ALL_STEPS} page="space" done={{}} working={status === "starting" || localBusy}
+    title="Room for the clinic" subtitle="Preparing this computer for CARE." note={status === "starting" ? "Preparing setup…" : "Try again before continuing."}
+    back={() => { setLocalBusy(true); void clearRole().finally(() => setLocalBusy(false)); }} update={update}>
+    {status === "starting" ? <div className="on-card on-pad on-row" role="status"><Spinner />Preparing setup…</div>
+      : <Callout tone="danger" title="Couldn't start setup">CARE Desktop couldn't prepare setup on this computer. Try again. If it keeps happening, share the log file.
+        <div className="on-actions"><Button disabled={localBusy} onClick={() => { pending.current = null; setStatus("starting"); setAttempt((n) => n + 1); }}>Try again</Button><LogButton /></div>
+      </Callout>}
+  </SetupLayout>;
 }
 
-function RecoveryStep({
-  icon, title, detail, done, working, status, action,
-}: {
-  icon: ReactNode;
-  title: string;
-  detail: string;
-  done: boolean;
-  working: boolean;
-  status: string;
-  action: ReactNode;
+function SetupWizard({ form, patch, update, onBusy }: {
+  form: SetupForm; patch: (values: Partial<SetupForm>) => void; update: AppUpdateController; onBusy: (busy: boolean) => void;
 }) {
+  const care = useCare();
+  const requirements = useSetupChecks();
+  const [page, setPage] = useState<SetupPage>("space");
+  const pageRef = useRef<SetupPage>("space");
+  const [editing, setEditing] = useState(false);
+  const editingRef = useRef(false);
+  const [done, setDone] = useState<Partial<Record<SetupPage, boolean>>>({});
+  const [operation, setOperation] = useState("preparing");
+  const workRef = useRef(false);
+  const [tool, setTool] = useState("");
+  const [download, setDownload] = useState<PrereqDownloadProgress | null>(null);
+  const [problem, setProblem] = useState("");
+  const [actionNote, setActionNote] = useState("");
+  const [cleanupBefore, setCleanupBefore] = useState<ResidueReport | null>(null);
+  const [restart, setRestartState] = useState<RestartPlan | null>(null);
+  const restartRef = useRef<RestartPlan | null>(null);
+  const [recovery, setRecovery] = useState(EMPTY_RECOVERY);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [space, setSpace] = useState<BackupSpace | null>(null);
+  const [folderError, setFolderError] = useState("");
+  const [address, setAddress] = useState<AddressResult>({ name: "", state: "waiting", message: "" });
+  const [addressPending, setAddressPending] = useState(0);
+  const [addressQueued, setAddressQueued] = useState(false);
+  const addressQueuedRef = useRef(false);
+  const addressSequence = useRef(0);
+  const addressTimer = useRef(0);
+  const addressTasks = useRef(new Set<Promise<boolean>>());
+  const addressWrite = useRef(Promise.resolve());
+  const [issues, setIssues] = useState<SetupIssue[]>([]);
+  const [verified, setVerified] = useState(false);
+  const [autoPoll, setAutoPoll] = useState<RequirementPage | null>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
+  const mounted = useRef(false);
+  const initialise = useRef<Promise<void> | null>(null);
+  const strength = usePasswordStrength(form.adminPassword);
+  const busy = operation !== "" || addressQueued || addressPending > 0 || care.busy || restart !== null;
+  const locked = busy || update.active;
+  const backupReady = !!space && !folderError && recovery.backup_verified && !recovery.backup_problem && !recoveryError;
+  const adminReady = strength.strong && !!form.adminConfirm && form.adminPassword === form.adminConfirm && !passwordError && !folderError && recovery.codes_saved && !recovery.codes_problem && !recoveryError;
+  const addressReady = address.state === "ready" && address.name === normaliseHost(form.hostInput) && isClinicName(form.hostInput);
+  const engine = care.platform === "linux" ? "Docker" : "Rancher Desktop";
+  const syncBusy = useCallback(() => {
+    onBusy(workRef.current || addressQueuedRef.current || addressTasks.current.size > 0 || restartRef.current !== null);
+  }, [onBusy]);
+  const setRestart = (value: RestartPlan | null) => {
+    restartRef.current = value;
+    setRestartState(value);
+    syncBusy();
+  };
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      addressSequence.current++;
+      window.clearTimeout(addressTimer.current);
+    };
+  }, []);
+  useEffect(() => onCareEvent("prereq-download-progress", (value: PrereqDownloadProgress) => {
+    if (workRef.current) setDownload(value);
+  }), []);
+  useEffect(() => care.setStepDone("backup", backupReady), [backupReady, care.setStepDone]);
+  useEffect(() => care.setStepDone("admin", adminReady), [adminReady, care.setStepDone]);
+
+  const stepsNow = (): SetupPage[] => ALL_STEPS.filter((step) => {
+    const values = requirements.current.current;
+    if (step === "windows") return values.windows.value?.status.applicable !== false;
+    if (step === "network") return values.network.value?.applicable !== false;
+    if (step === "cleanup") return care.platform === "windows" || requirements.hadResidue.current || values.cleanup.value?.clean !== true;
+    return true;
+  });
+  const steps = stepsNow();
+  const markDone = (step: SetupPage, value: boolean) => setDone((prev) => ({ ...prev, [step]: value }));
+  const changeForm = (values: Partial<SetupForm>) => {
+    formRef.current = { ...formRef.current, ...values };
+    patch(values);
+    setVerified(false);
+    if (values.adminPassword !== undefined || values.adminConfirm !== undefined) setPasswordError("");
+  };
+  const loadRecovery = async () => {
+    const status = await bridge.GetSetupRecoveryStatus();
+    setRecovery(status);
+    setRecoveryError("");
+    return status;
+  };
+  const checkFolder = async (dir: string) => {
+    try {
+      const [raw, result] = await Promise.all([bridge.ValidateBackupDir(dir), bridge.BackupDirSpace(dir)]);
+      if (raw) care.log(`backup location: ${raw}`);
+      setFolderError(backupProblem(raw));
+      setSpace(result);
+      return raw === "";
+    } catch (e) {
+      setSpace(null);
+      setFolderError("That location couldn't be checked. Check it again, or choose a different location.");
+      throw e;
+    }
+  };
+
+  const checkAddress = useCallback((raw: string): Promise<boolean> => {
+    const sequence = ++addressSequence.current;
+    const name = normaliseHost(raw);
+    onBusy(true);
+    setAddress({ name, state: "checking", message: "Checking whether this name is free on your network…" });
+    setAddressPending((n) => n + 1);
+    const task = (async () => {
+      const current = () => mounted.current && sequence === addressSequence.current;
+      try {
+        if (!isClinicName(raw)) {
+          if (current()) setAddress({ name, state: "bad", message: "Use a name of 1 to 63 letters, numbers or hyphens. Start and end with a letter or number." });
+          return false;
+        }
+        const invalid = await bridge.ValidateDomain(raw.trim());
+        if (!current()) return false;
+        if (invalid) {
+          care.log(`clinic address: ${invalid}`);
+          setAddress({ name, state: "bad", message: "Choose a name with letters, numbers or hyphens. Start and end with a letter or number." });
+          return false;
+        }
+        const result = await bridge.MDNSStatus(name);
+        if (!current()) return false;
+        if (!result.ok) {
+          care.log(`clinic address: ${result.message}`);
+          const taken = /already in use|already taken/i.test(result.message);
+          setAddress({ name, state: taken ? "bad" : "failed", message: taken
+            ? `${name} is already taken on this network — type a different name.`
+            : "Couldn't check this name on the network. Keep this computer connected and check again." });
+          return false;
+        }
+        const saved = addressWrite.current.then(async () => {
+          if (!current()) return false;
+          await bridge.SetMDNSName(name);
+          return current();
+        });
+        addressWrite.current = saved.then(() => {}, () => {});
+        if (!(await saved)) return false;
+        setAddress({ name, state: "ready", message: `${name} is free to use on this network.` });
+        return true;
+      } catch (e) {
+        care.log(`clinic address: ${errorText(e)}`);
+        if (current()) setAddress({ name, state: "failed", message: "Couldn't check or save this clinic address. Try again, or share the log file with your support contact." });
+        return false;
+      } finally { if (mounted.current) setAddressPending((n) => n - 1); }
+    })();
+    addressTasks.current.add(task);
+    void task.then(() => { addressTasks.current.delete(task); syncBusy(); });
+    return task;
+  }, [care.log, onBusy, syncBusy]);
+
+  const validateReview = async () => {
+    setVerified(false);
+    const latest = formRef.current;
+    const [status, backup] = await Promise.all([bridge.GetSetupRecoveryStatus(), bridge.BackupDirSpace(latest.backupDir)]);
+    setRecovery(status);
+    setSpace(backup);
+    const found = await bridge.ValidateSetup(latest.hostInput.trim(), latest.adminPassword, latest.backupDir);
+    const result = [...found];
+    if (!isClinicName(latest.hostInput) && !result.some((issue) => issue.step === "address")) {
+      result.push({ step: "address", message: "Choose a valid clinic name before installing." });
+    }
+    if (latest.adminPassword !== latest.adminConfirm && !result.some((issue) => issue.step === "admin")) {
+      result.push({ step: "admin", message: "Both passwords must match before installing." });
+    }
+    if (result.some((issue) => issue.step === "cleanup")) requirements.hadResidue.current = true;
+    setIssues(result);
+    setVerified(true);
+    setRecoveryError("");
+    care.setStepDone("checks", !result.some((issue) => isRequirement(issue.step) || issue.step === "address"));
+    for (const issue of result) markDone(issue.step, false);
+    return result;
+  };
+
+  const nextAfter = (from: SetupPage) => stepsNow().find((candidate) => ALL_STEPS.indexOf(candidate) > ALL_STEPS.indexOf(from)) ?? "review";
+
+  const visit = async (destination: SetupPage, mode: "forward" | "back" | "edit" = "forward") => {
+    setAutoPoll(null);
+    setActionNote("");
+    let target = destination;
+    for (;;) {
+      if (!mounted.current) return;
+      pageRef.current = target;
+      editingRef.current = mode === "edit" && target !== "review";
+      setPage(target);
+      setEditing(editingRef.current);
+      care.setOpenStep(isRequirement(target) || target === "address" ? "checks" : target === "review" ? "install" : target === "backup" ? "backup" : "admin");
+      if (isRequirement(target)) {
+        const ok = await requirements.check(target);
+        markDone(target, ok);
+        if (target === "windows" && requirements.current.current.windows.value?.restart.needed) {
+          setRestart(requirements.current.current.windows.value.restart);
+        }
+        if (!ok || mode === "back") return;
+        target = mode === "edit" ? "review" : nextAfter(target);
+        continue;
+      }
+      if (target === "address") { await checkAddress(formRef.current.hostInput); return; }
+      if (target === "backup") { await loadRecovery(); await checkFolder(formRef.current.backupDir); return; }
+      if (target === "admin") { await loadRecovery(); return; }
+      if (target === "review") { await validateReview(); return; }
+      return;
+    }
+  };
+
+  const execute = async (name: string, fn: () => Promise<void>, recoveryAction = false) => {
+    if (workRef.current || addressQueuedRef.current || addressTasks.current.size || restartRef.current || update.isActive() || care.busy) return;
+    workRef.current = true;
+    onBusy(true);
+    setOperation(name);
+    setProblem("");
+    if (recoveryAction) setRecoveryError("");
+    try { await fn(); } catch (e) {
+      care.log(`setup ${name}: ${errorText(e)}`);
+      if (recoveryAction) setRecoveryError(recoveryProblem(errorText(e)));
+      else setProblem("This step couldn't finish. Try again. If it keeps happening, share the log file with your support contact.");
+    } finally {
+      workRef.current = false;
+      syncBusy();
+      if (mounted.current) { setOperation(""); setTool(""); }
+    }
+  };
+
+  useEffect(() => {
+    // One bootstrap across StrictMode effect replay. All mutations wait for
+    // BeginServerSetup in the parent; these applicability checks are read-only.
+    initialise.current ??= (async () => {
+      workRef.current = true;
+      try {
+        await Promise.all([requirements.check("windows"), requirements.check("network")]);
+        await visit("space");
+      } catch (e) {
+        care.log(`prepare setup: ${errorText(e)}`);
+        setProblem("Couldn't read the saved setup. Check this step again before continuing.");
+      } finally { workRef.current = false; syncBusy(); if (mounted.current) setOperation(""); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const recheck = () => void execute("checking", async () => {
+    if (isRequirement(pageRef.current)) {
+      const target = pageRef.current;
+      const ok = await requirements.check(target);
+      markDone(target, ok);
+      if (ok) await visit(editingRef.current ? "review" : nextAfter(target));
+      else if (target === "windows" && requirements.current.current.windows.value?.restart.needed) setRestart(requirements.current.current.windows.value.restart);
+    }
+  });
+
+  const perform = (action: RequirementAction) => void execute(action, async () => {
+    setAutoPoll(null);
+    setDownload(null);
+    setActionNote("");
+    const target = pageRef.current;
+    if (!isRequirement(target)) return;
+    try {
+      if (action === "windows") { setTool("windows"); await bridge.InstallWSL(); }
+      else if (action === "network") { setTool("network"); await bridge.FixNetwork(); }
+      else if (action === "cleanup") {
+        setTool("cleanup");
+        setCleanupBefore(requirements.current.current.cleanup.value);
+        await bridge.PurgeResidue(true);
+        await loadRecovery();
+        setDone((prev) => ({ ...prev, backup: false, admin: false }));
+      } else {
+        const runTool = async (id: "docker" | "git", plan: ToolPlan | null) => {
+          if (!plan || !plan.action) throw new Error(`No supported action for ${id}.`);
+          setTool(id);
+          setDownload(null);
+          if (plan.action === "manual") {
+            await bridge.OpenURL(plan.url);
+            setActionNote(`Follow the instructions that opened to install ${id === "docker" ? engine : "Git"}, then check again.`);
+          } else if (id === "docker") {
+            if (plan.action === "open") await bridge.OpenDocker();
+            else await bridge.InstallDocker();
+          } else {
+            await bridge.InstallGit();
+            if (care.platform === "darwin") setActionNote("Your Mac may have opened an installation window. Choose Install there. CARE checks again automatically.");
+          }
+        };
+        let status = requirements.current.current.software.value;
+        if (!status) throw new Error("The required software has not been checked.");
+        if (!status.docker.ok && action !== "git") {
+          await runTool("docker", status.dockerPlan);
+          await requirements.check("software");
+          status = requirements.current.current.software.value;
+          if (!status?.docker.ok) {
+            const plan = await bridge.RestartPlan();
+            if (plan.needed) setRestart(plan);
+            setAutoPoll("software");
+            return;
+          }
+        }
+        if (status && !status.git.ok && action !== "docker") await runTool("git", status.gitPlan);
+      }
+      setTool("");
+      const ok = await requirements.check(target);
+      markDone(target, ok);
+      if (ok) await visit(editingRef.current ? "review" : nextAfter(target));
+      else if (target === "software") setAutoPoll("software");
+      else if (target === "windows" && requirements.current.current.windows.value?.restart.needed) setRestart(requirements.current.current.windows.value.restart);
+    } catch (e) {
+      care.log(`setup ${action}: ${errorText(e)}`);
+      const text = errorText(e);
+      setProblem(action === "cleanup" ? "Cleanup didn't finish. Check what's still listed and try again. Approve the request if your computer asks for permission."
+        : /sha.?256|checksum|hash mismatch/i.test(text) ? "The downloaded file isn't the one this version of CARE expects. It wasn't installed. Try again; if it happens twice, share the log file."
+        : /no progress|stopped making progress|download.*timed out/i.test(text) ? "The download stopped making progress. Check the internet connection and try again. The part already downloaded is discarded; the download starts again."
+        : /cancel|denied|permission|-128/i.test(text) ? "Your computer didn't approve the change. Try again and approve the request when your computer asks."
+        : "The required change couldn't finish. Try again. If it keeps failing, send the log file to your support contact.");
+      await requirements.check(target);
+      if (action === "cleanup") await loadRecovery();
+    }
+  });
+
+  useEffect(() => {
+    if (!autoPoll || page !== autoPoll || update.active) return;
+    const timer = window.setInterval(() => {
+      if (!workRef.current) recheck();
+    }, 5_000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPoll, page, update.active]);
+
+  const changeHost = (value: string) => {
+    changeForm({ hostInput: value });
+    addressQueuedRef.current = true;
+    onBusy(true);
+    setAddressQueued(true);
+    addressSequence.current++;
+    window.clearTimeout(addressTimer.current);
+    setAddress({ name: normaliseHost(value), state: "checking", message: "Checking whether this name is free on your network…" });
+    markDone("address", false);
+    addressTimer.current = window.setTimeout(() => {
+      addressQueuedRef.current = false;
+      setAddressQueued(false);
+      void checkAddress(value);
+    }, 350);
+  };
+
+  const goBack = () => void execute("back", async () => {
+    window.clearTimeout(addressTimer.current);
+    await Promise.all(addressTasks.current);
+    if (editingRef.current) { await visit("review"); return; }
+    const visible = stepsNow();
+    const index = visible.indexOf(pageRef.current);
+    if (index <= 0) await care.clearRole();
+    else await visit(visible[index - 1], "back");
+  });
+
+  const continueSetup = () => void execute("continue", async () => {
+    window.clearTimeout(addressTimer.current);
+    const target = pageRef.current;
+    const latest = formRef.current;
+    if (target === "review") {
+      if ((await validateReview()).length) return;
+      try {
+        await care.startInstall({
+          host: normaliseHost(latest.hostInput),
+          adminPassword: latest.adminPassword,
+          backupDir: latest.backupDir,
+          pages: stepsNow(),
+        });
+      } catch (e) {
+        care.log(`start installation: ${errorText(e)}`);
+        const failures = await validateReview();
+        if (!failures.length) setProblem("Installation hasn't started. CARE couldn't accept the request. Wait a moment and try again, or share the log file.");
+      }
+      return;
+    }
+    let ok = false;
+    if (isRequirement(target)) ok = await requirements.check(target);
+    else if (target === "address") ok = await checkAddress(latest.hostInput);
+    else if (target === "backup") {
+      const folderOk = await checkFolder(latest.backupDir);
+      const status = await loadRecovery();
+      ok = folderOk && status.backup_verified && !status.backup_problem;
+      if (!ok && folderOk) setRecoveryError("Save and check the correct recovery file before continuing.");
+    } else if (target === "admin") {
+      const invalid = await bridge.ValidatePassword(latest.adminPassword);
+      const status = await loadRecovery();
+      ok = !invalid && latest.adminPassword === latest.adminConfirm && status.codes_saved && !status.codes_problem;
+      if (invalid || latest.adminPassword !== latest.adminConfirm) setPasswordError("Choose and confirm a valid password before continuing.");
+      else if (!ok) setRecoveryError("Save your recovery codes before continuing.");
+    }
+    markDone(target, ok);
+    if (ok) await visit(editingRef.current ? "review" : nextAfter(target));
+  });
+
+  const chooseFolder = () => void execute("choose-folder", async () => {
+    const chosen = await bridge.ChooseFolder("Choose backup folder");
+    if (!chosen) return;
+    changeForm({ backupDir: chosen });
+    setSpace(null);
+    await checkFolder(chosen);
+  });
+  const saveRecovery = (kind: "save-backup" | "verify-backup" | "replace-backup" | "save-codes") => void execute(kind, async () => {
+    const latest = formRef.current;
+    if (!(await checkFolder(latest.backupDir))) return;
+    if (kind === "save-codes") {
+      const invalid = await bridge.ValidatePassword(latest.adminPassword);
+      if (invalid || latest.adminPassword !== latest.adminConfirm) {
+        setPasswordError("Choose and confirm a valid password before saving the recovery codes.");
+        return;
+      }
+    }
+    const changed = kind === "save-backup" ? await bridge.SaveSetupBackupRecovery(latest.backupDir)
+      : kind === "replace-backup" ? await bridge.ReplaceSetupBackupRecovery(latest.backupDir)
+      : kind === "verify-backup" ? await bridge.VerifySetupBackupRecovery(latest.backupDir)
+      : await bridge.SaveAdminRecoveryCodes("", latest.backupDir);
+    if (changed) await loadRecovery();
+  }, true);
+  const reloadRecovery = () => void execute("read-recovery", async () => { await loadRecovery(); }, true);
+  const edit = (target: SetupPage) => void execute("edit", () => visit(target, "edit"));
+
+  const titles: Record<SetupPage, [string, string]> = {
+    space: ["Room for the clinic", requirements.checks.space.value?.need ? `CARE needs about ${diskSize(requirements.checks.space.value.need)} on this computer — the software, your clinic's records, and room for the backups it makes.` : "Checking room for the software, your clinic's records, and the backups CARE makes."],
+    windows: ["Getting Windows ready", "Windows needs two changes before CARE can run, and CARE makes both for you. This is the first."],
+    software: ["Installing what CARE needs", `CARE needs ${engine} and Git. Keep this computer connected and awake — you can leave it running and come back.`],
+    cleanup: ["Removing stale files from an earlier setup", "A previous CARE setup left files or settings behind. They have to go before a new clinic can be installed here."],
+    network: ["Setting this network to Private", "The second of the two Windows changes. Staff computers, phones and tablets open CARE from here."],
+    address: ["Choosing the clinic address", "Staff type this into their browser to open CARE. Short and easy to say out loud works best."],
+    backup: ["Setting up backups", "CARE makes an encrypted backup automatically, once every 24 hours. Choose where the backups go, then save the file that unlocks them."],
+    admin: ["Creating the admin password", "This password protects CARE Desktop on this computer and is the first sign-in for CARE itself."],
+    review: ["Review before installing", "Here's what CARE will set up."],
+    install: ["Installing CARE", ""],
+  };
+  const ready = isRequirement(page) ? requirements.checks[page].state === "ready"
+    : page === "address" ? addressReady : page === "backup" ? backupReady : page === "admin" ? adminReady
+    : verified && issues.length === 0;
+  const note = busy ? page === "review" ? "Checking everything before installation…" : tool ? "Keep this window open while the change finishes…" : "Checking…"
+    : problem ? "Check this step again before continuing."
+    : editing ? "Return straight to Review when this step is ready."
+    : page === "address" ? addressReady ? "Next: backups." : "Pick an address that is free to continue."
+    : page === "backup" ? backupReady ? "Backups will be made every 24 hours." : "Save and check your recovery file to continue."
+    : page === "admin" ? adminReady ? "Almost done — one last look before installing." : "Choose a password and save your recovery codes to continue."
+    : page === "review" ? issues.length ? "Fix the highlighted step; you come back to this screen." : "Nothing has been installed yet."
+    : ready ? "Ready to continue." : `Finish ${SETUP_LABELS[page].toLowerCase()} to continue.`;
+  const blocked = [...issues.map((issue) => issue.step)];
+  if (isRequirement(page) && ["blocked", "failed"].includes(requirements.checks[page].state)) blocked.push(page);
+
   return (
-    <div className={cn(
-      "flex flex-wrap items-center gap-3 border-t border-line p-4 first:border-t-0",
-      done ? "bg-brand-bg/50" : "bg-card",
-    )}>
-      <span className={cn(
-        "flex size-10 shrink-0 items-center justify-center rounded-xl",
-        done ? "bg-brand text-white" : "bg-hair text-muted-foreground",
-      )}>
-        {working ? <Spinner className="size-5" /> : done ? <Check className="size-5" strokeWidth={2.5} /> : icon}
-      </span>
-      <div className="min-w-[160px] flex-1" role="status">
-        <div className="text-[13.5px] font-semibold text-ink">{title}</div>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{detail}</p>
-      </div>
-      {done ? <Badge variant="ok"><Check className="mr-1 size-3" />{status}</Badge> : null}
-      {action}
-    </div>
+    <SetupLayout steps={steps} page={page} done={done} blocked={blocked} working={busy}
+      title={titles[page][0]} subtitle={titles[page][1]} note={note} back={page === "review" ? undefined : goBack}
+      next={continueSetup} nextDisabled={!ready} editing={editing} update={update}>
+      <RestartDialog plan={restart} onDismiss={() => setRestart(null)} />
+      {isRequirement(page) ? <RequirementStep page={page} checks={requirements.checks} busy={locked} tool={tool} download={download}
+        actionError={problem} actionNote={actionNote} cleanupBefore={cleanupBefore} onAction={perform} onCheck={recheck}
+        onRestart={() => setRestart(requirements.current.current.windows.value?.restart ?? null)} />
+        : page === "address" ? <AddressStep value={form.hostInput} result={address} disabled={operation !== "" || update.active || care.busy} onChange={changeHost} onCheck={() => void checkAddress(formRef.current.hostInput)} />
+        : page === "backup" ? <BackupStep form={form} space={space} folderProblem={folderError} recovery={recovery} recoveryError={recoveryError} busy={locked} action={operation}
+          onChoose={chooseFolder} onCheck={() => void execute("check-folder", async () => { await checkFolder(formRef.current.backupDir); })}
+          onSave={() => saveRecovery("save-backup")} onVerify={() => saveRecovery("verify-backup")} onReplace={() => saveRecovery("replace-backup")} onReload={reloadRecovery} />
+        : page === "admin" ? <AdminStep form={form} patch={changeForm} strength={strength} passwordError={passwordError} folderProblem={folderError} recovery={recovery} recoveryError={recoveryError} busy={locked} action={operation}
+          onSave={() => saveRecovery("save-codes")} onPrint={() => void execute("open-codes", () => bridge.OpenSetupRecoveryCodes(), true)} onReload={reloadRecovery}
+          onBackups={() => void execute("backup-location", () => visit("backup", editingRef.current ? "edit" : "back"))} />
+        : <ReviewStep steps={steps} form={form} backupPath={space?.dir || form.backupDir} issues={issues} verified={verified} busy={locked} onEdit={edit} />}
+      {problem && !isRequirement(page) ? <Callout tone="danger" title={page === "review" ? "Nothing has been installed yet" : "This step couldn't finish"}>{problem}
+        <div className="on-actions"><Button disabled={locked} onClick={() => void execute("checking", () => visit(pageRef.current, editingRef.current ? "edit" : "back"))}>Try again</Button><LogButton /></div>
+      </Callout> : null}
+    </SetupLayout>
   );
 }

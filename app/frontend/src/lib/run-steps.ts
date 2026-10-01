@@ -1,15 +1,15 @@
-// The install is a long stream of build output; these patterns turn it into the
-// steps the operator actually sees. First match wins, and progress only
-// ever moves forward, so a late line from an earlier stage can't rewind the bar.
+// These log milestones are ordered, not measured progress. The legacy pct field
+// is only a monotonic weight for the store; never display it as a percentage.
+// Anchor to native messages so an error mentioning a stage can't advance it.
 export type RunStep = { re: RegExp; pct: number; label: string };
 
 export const RUN_STEPS: RunStep[] = [
-  { re: /backup encryption/i, pct: 5, label: "Securing the backups" },
-  { re: /secret key/i, pct: 8, label: "Preparing the configuration" },
-  { re: /Building CARE's images/i, pct: 15, label: "Building CARE" },
-  { re: /secure gateway so this computer|Setting up this computer/i, pct: 25, label: "Setting up this computer" },
-  { re: /finish building/i, pct: 45, label: "Building CARE (the longest step)" },
-  { re: /Starting CARE/i, pct: 90, label: "Starting the services" },
-  { re: /database migrations/i, pct: 94, label: "Setting up the database" },
-  { re: /become healthy|CARE is up/i, pct: 97, label: "Waiting for CARE to answer" },
+  { re: /^Backup encryption ready;/i, pct: 5, label: "Protecting your backups" },
+  { re: /^Generated a random DJANGO_SECRET_KEY in backend\.env/i, pct: 8, label: "Preparing settings" },
+  { re: /^Building CARE's images/i, pct: 15, label: "Starting CARE builds" },
+  { re: /^(?:Starting the secure gateway so this computer|Setting up this computer to open)/i, pct: 25, label: "Setting up this computer" },
+  { re: /^Waiting for the backend and app images to finish building/i, pct: 45, label: "Building CARE — the longest step" },
+  { re: /^Starting CARE\.\.\./i, pct: 90, label: "Starting the clinic" },
+  { re: /^Applying database migrations/i, pct: 94, label: "Preparing the database" },
+  { re: /^(?:Waiting for CARE to become healthy|CARE is up ->)/i, pct: 97, label: "Checking the clinic" },
 ];

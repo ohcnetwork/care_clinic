@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CARE Desktop - automated test fixture</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module">
+    if (!import.meta.env.DEV || import.meta.env.MODE !== "test") {
+      throw new Error("The simulated host is only available to automated tests.");
+    }
+    const { installTestHost } = await import("./host");
+    installTestHost();
+    await import("../../src/main");
+  </script>
+</body>
+</html>

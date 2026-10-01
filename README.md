@@ -2,7 +2,7 @@
 
 Self-contained, offline [CARE](https://github.com/ohcnetwork/care) for a small clinic.
 One installer on one computer runs the whole EMR — backend, web app, database, file
-storage and nightly encrypted backups — and staff connect from other computers
+storage and automatic daily encrypted backups — and staff connect from other computers
 using CARE Desktop in client mode on the clinic Wi-Fi. No cloud account, and no internet
 needed after the first install.
 
@@ -14,29 +14,53 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
 
 ## What it does
 
-- **First-run choice** — choose **Server** to host a clinic or **Client** to
-  connect to one. The role is saved; ordinary use does not switch roles.
-- **Server setup wizard** — checks the computer (Docker, Git, network), takes a backup
-  folder and password and an admin login, then builds and starts CARE.
-- **Server control panel** — start/stop/restart, start at login, and the clinic address.
+- **First-run choice** — **Start setup** to host a clinic, or **Connect to an
+  existing server on the local network**. The start screen and its buttons save
+  nothing: the server role is recorded when the setup screen begins, before any
+  setup settings are saved. The client role is recorded only when a connection
+  is attempted. Once written, ordinary use does not switch roles.
+- **Server setup wizard** — platform-aware, sequential computer checks, clinic
+  address, backup location and verified recovery file, admin password and six
+  recovery codes, then Review. Review rechecks all requirements before accepting
+  Install. Installation shows real activity rather than an invented percentage
+  and opens the control panel directly when it succeeds.
+- **Server control panel** — start/stop/restart, start at login, clinic address and
+  phone/tablet setup QR, with dedicated Backups, Storage, Updates and Advanced
+  pages. Plugins retains its reviewed catalog/table layout.
 - **Native client setup** — enter the clinic's `.local` address shown on its
-  server. No Docker, Git, or mDNS advertising runs on the client. CARE downloads
-  and validates the public certificate, verifies the server's TLS hostname
-  before installation, requests OS administrator approval when needed, and
-  automatically checks HTTPS before opening CARE. Later connections use the
-  saved certificate pin rather than silently downloading a replacement.
-- **Back** — on the server setup and client screens, returns to the Server/Client
-  choice after a misclick. It is only offered while nothing has been installed
-  or connected; after that, uninstall is the way back.
+  server. **Find clinic** checks it and changes nothing on the computer;
+  **Connect** is the step that does. No Docker, Git, or mDNS advertising runs on
+  the client. CARE downloads and validates the public certificate, verifies the
+  server's TLS hostname before installation, requests OS administrator approval
+  when needed, and automatically checks HTTPS before opening CARE. Later
+  connections use the saved certificate pin rather than silently downloading a
+  replacement.
+- **Connecting cleans up after the last time** — it removes CARE's leftover
+  address overrides and every other `CARE Desktop Local CA` certificate this
+  computer trusts, then installs the current clinic's. No extra confirmation:
+  your computer asks for permission once (on a Mac, sometimes twice — once for
+  the address, once for the certificate). A computer that used to host a clinic
+  can therefore become an ordinary client without a separate cleanup, and the
+  certificate being installed is never removed by its own cleanup, so
+  reconnecting to the same clinic changes nothing.
+- **Connected screen** — once connected, CARE Desktop keeps a light check on
+  whether the clinic is answering, so staff can see at a glance that it is up
+  before they click through. It only looks; it changes nothing.
+- **Back** — walks through earlier setup steps; from the first step it can undo
+  an unused setup. Client Back remains available until connected. Running work
+  blocks navigation; the backend rejects clearing a setup or connection already
+  in use. Review's Edit/Fix actions return directly to Review.
 - **Disconnect** — disconnect a client and remove only the certificate
   it installed, without touching server data. Successful uninstall clears its role
   and returns to the Server/Client choice, as does successful server uninstall.
   Remove access before connecting to another clinic or uninstalling the desktop
-  app through the operating system. Pre-existing trusted certificates remain
-  and may still permit browser access. Uninstall the setup in CARE Desktop before
-  removing the executable through the operating system.
-- **Backups** — nightly encrypted backups of the database and uploaded files,
-  back up now, restore from the backup folder or an imported file.
+  app through the operating system. Trusted certificates that did not come from
+  CARE remain and may still permit browser access. Uninstall the setup in CARE
+  Desktop before removing the executable through the operating system.
+- **Backups** — encrypted backups every 24 hours, with actual configured retention,
+  backup-now and one explicit **Restore from a backup file** path for local or
+  imported files. Restoring requires the Desktop admin password, a recovery file
+  for encrypted backups, and acknowledgement that clinic records will be replaced.
 - **Advanced** — plain-language clinic settings (backups, sign-in, patient SMS
   codes, email, branding, languages, visits, billing), backend plugins, log, uninstall.
 
@@ -113,5 +137,19 @@ Desktop, the container images and WebView2 are covered by their own privacy
 policies.
 
 Build with `cd app && node frontend/scripts/stage-install.mjs && wails build`
-(needs Go, Node 22 and the Wails CLI). MIT
-licensed — see [LICENSE](LICENSE). Part of the [Open Healthcare Network](https://ohc.network).
+(needs Go, Node 22 and the Wails CLI).
+
+Run `cd app && wails dev` to review the real desktop application. This uses the
+native backend and can operate an existing clinic on this computer; use an
+isolated environment for destructive installation, restore and removal tests.
+
+Run `cd app/frontend && npm run test:ui` for the Playwright scenarios
+(requires Playwright's Chromium browser; install it with `npx playwright install chromium`
+if it is missing). They cover navigation, native-contract gates, recovery,
+installation and update events, panel actions, settings/plugins, errors,
+keyboard access, and layout at 1100×700 and 720×560 using a simulated host under
+`app/frontend/tests/fixtures/`. The runner starts its own loopback server on port
+41783. These fixtures require Vite test mode, perform no native operations, and
+are excluded from the production entry point.
+
+MIT licensed — see [LICENSE](LICENSE). Part of the [Open Healthcare Network](https://ohc.network).

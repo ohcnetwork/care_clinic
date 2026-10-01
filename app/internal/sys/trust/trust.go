@@ -235,7 +235,7 @@ func removeTrustedRootsDarwin(confirm func(string, string) bool, fp string) (boo
 		return removed, nil
 	}
 	if confirm == nil || !confirm("Remove CARE's certificate?",
-		"Remove CARE's security certificate from this computer's System keychain?\n\nThis needs administrator approval.") {
+		"Remove CARE's security certificate from this computer. Approve the system permission prompt to continue.") {
 		return removed, nil
 	}
 	cmds := make([]string, 0, len(hashes))
@@ -413,7 +413,7 @@ func removeLinuxAnchors(anchors, bundles []string, confirm func(string, string) 
 		return true, nil
 	}
 	if confirm == nil || !confirm("Remove CARE's certificate?",
-		"Remove CARE's security certificate from this computer?\n\nThis needs administrator approval.") {
+		"Remove CARE's security certificate from this computer. Approve the system permission prompt to continue.") {
 		return false, nil
 	}
 	if err := run(sh, true); err != nil {

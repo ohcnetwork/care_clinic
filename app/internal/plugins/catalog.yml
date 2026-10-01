@@ -8,7 +8,7 @@
       url: https://ohcnetwork.github.io/care_onboarding_fe/assets/remoteEntry.js
       meta:
         config:
-          auto_onboarding: true
+          redirect_after_login: true
 
 - description: Appointment confirmations, reminders, cancellations and reschedule notices by SMS and web push.
   plugin:

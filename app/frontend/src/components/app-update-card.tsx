@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { bridge, onCareEvent } from "@/lib/bridge";
-import { errorText, firstLine, megabytes } from "@/lib/format";
-import { useCare } from "@/state/care-store";
-import type { AppUpdate, AppUpdateProgress } from "@/types";
+import { useAppUpdate } from "@/hooks/use-app-update";
+import { bridge } from "@/lib/bridge";
+import { megabytes } from "@/lib/format";
+import type { AppUpdateProgress } from "@/types";
 
 const phaseText = (phase: AppUpdateProgress["phase"], version: string) =>
   ({
@@ -17,62 +15,13 @@ const phaseText = (phase: AppUpdateProgress["phase"], version: string) =>
   })[phase];
 
 export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
-  const { busy, busyLabel, version, installAppUpdate } = useCare();
-  const [update, setUpdate] = useState<AppUpdate | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [error, setError] = useState("");
-  const [progress, setProgress] = useState<AppUpdateProgress | null>(null);
-  const [starting, setStarting] = useState(false);
-
-  const check = useCallback(async () => {
-    setChecking(true);
-    setError("");
-    try {
-      setUpdate(await bridge.CheckAppUpdate());
-    } catch (e) {
-      setError(firstLine(errorText(e)));
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void check();
-  }, [check]);
-
-  useEffect(() => {
-    const offProgress = onCareEvent("app-update-progress", (next: AppUpdateProgress) => {
-      setStarting(false);
-      setProgress(next);
-    });
-    const offDone = onCareEvent("care-done", (code: number, label?: string) => {
-      if (label !== "app-update" || code === 0) return;
-      setStarting(false);
-      setProgress(null);
-      setError("CARE Desktop could not finish updating. Your current version was kept. Try again.");
-    });
-    return () => {
-      offProgress();
-      offDone();
-    };
-  }, []);
-
-  const updating = busy && busyLabel === "Updating CARE Desktop";
-
-  useEffect(() => {
-    if (!updating && progress?.phase !== "restarting" && progress?.phase !== "installer") {
-      setProgress(null);
-      setStarting(false);
-    }
-  }, [updating, progress?.phase]);
-
-  const install = async () => {
-    setError("");
-    setStarting(true);
-    if (!(await installAppUpdate())) setStarting(false);
-  };
-
-  const active = starting || updating || progress !== null;
+  const { update, version, checking, problem, progress, active, check, install, disabled: blocked } =
+    useAppUpdate(disabled);
+  const error = !problem ? "" : problem.kind === "install" || problem.kind === "download"
+    ? "CARE Desktop could not finish updating. Your current version was kept. Try again."
+    : problem.kind === "unavailable"
+      ? "There is no installer for this computer yet. Check again another day."
+      : "Couldn't check for updates. Check your internet connection and try again.";
 
   return (
     <div className="rounded-xl border border-line bg-card px-[18px] py-4 shadow-card">
@@ -94,7 +43,7 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
             Update this application without setting up a server or connecting to a clinic.
           </p>
         </div>
-        <Button disabled={disabled || checking || busy || active} onClick={() => void check()}>
+        <Button disabled={blocked || checking || active} onClick={() => void check()}>
           {checking ? "Checking..." : "Check now"}
         </Button>
       </div>
@@ -113,7 +62,7 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
           {update.notes_url ? (
             <Button onClick={() => void bridge.OpenURL(update.notes_url)}>Release notes</Button>
           ) : null}
-          <Button variant="primary" disabled={disabled || busy} onClick={() => void install()}>
+          <Button variant="primary" disabled={blocked || checking || active} onClick={() => void install()}>
             Update CARE Desktop
           </Button>
         </div>

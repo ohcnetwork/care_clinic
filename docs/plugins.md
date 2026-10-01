@@ -124,7 +124,7 @@ When the file does not exist, `ReadPlugins` builds the list from `ADDITIONAL_PLU
 
 New-clinic `Clinic.Setup` calls `InitializeDefaults` before building images. If `plugins.json` is absent, it preserves those legacy backend entries, adds catalog entries marked `default: true` (without replacing an existing ID), and persists the list. If a list already exists, it is left untouched, including an empty list. Reads, restarts, rebuilds and upgrades never initialize defaults. Existing clinics must explicitly add CARE Onboarding; removing it and saving keeps it removed.
 
-CARE Onboarding uses the hosted GitHub Pages remote with `{"config":{"auto_onboarding":true}}`. Automatic pre-login setup also requires compatible CARE frontend/backend builds; see [facility setup](onboarding.md#care-compatibility-and-startup).
+CARE Onboarding uses the hosted GitHub Pages remote with `{"config":{"redirect_after_login":true}}`. After normal login, it redirects a superuser from the home dashboard to setup only when no facility exists. The CARE frontend must be built with `UserDashboard` included in `REACT_MFE_REGISTERED_COMPONENTS`; the bundled frontend environment sets this for new installations. Existing installations must update their preserved frontend environment and rebuild the frontend. No CARE source changes or new backend endpoint are needed; see [facility setup](onboarding.md#care-compatibility-and-startup).
 
 ### `ADDITIONAL_PLUGS`
 

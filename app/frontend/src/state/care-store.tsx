@@ -14,19 +14,21 @@ import {
 
 import { toast } from "@/components/ui/sonner";
 import { bridge, logToHost, onCareEvent } from "@/lib/bridge";
-import { errorText, firstLine } from "@/lib/format";
+import { errorText } from "@/lib/format";
+import { operationError as describeOperationError, type OperationError } from "@/lib/operation-errors";
 import { RUN_STEPS, type RunStep } from "@/lib/run-steps";
-import type { Backup, CareUpdate, StorageReport } from "@/types";
+import type { AppUpdateProgress, Backup, CareUpdate, SetupPage, StorageReport } from "@/types";
 
 export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
-export type PanelTab = "overview" | "backups" | "plugins" | "updates" | "advanced";
+export type PanelTab = "overview" | "storage" | "backups" | "plugins" | "updates" | "advanced";
 export type SystemState = "running" | "partial" | "stopped" | "unknown";
 
 export type InstallParams = {
   host: string;
   adminPassword: string;
   backupDir: string;
+  pages?: SetupPage[];
 };
 
 export type RunState = {
@@ -36,6 +38,7 @@ export type RunState = {
   startedAt: number;
   finished: boolean;
   failMessage: string;
+  pages: SetupPage[];
 };
 
 const IDLE_RUN: RunState = {
@@ -45,6 +48,7 @@ const IDLE_RUN: RunState = {
   startedAt: 0,
   finished: false,
   failMessage: "",
+  pages: ["space", "software", "address", "backup", "admin", "review", "install"],
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -79,7 +83,7 @@ type CareStore = {
   flow: Flow;
   mdnsName: string;
   clientURL: string;
-  selectRole: (role: "server" | "client") => Promise<void>;
+  selectRole: (role: "server" | "client") => void;
   clearRole: () => Promise<boolean>;
 
   /** Which setup section is expanded — the rail highlights the same one. */
@@ -89,7 +93,8 @@ type CareStore = {
   setStepDone: (step: SetupStep, done: boolean) => void;
 
   run: RunState;
-  startInstall: (params: InstallParams) => void;
+  setupReset: number;
+  startInstall: (params: InstallParams) => Promise<void>;
   retryInstall: () => Promise<void>;
   restartSetup: () => void;
   openPanel: () => void;
@@ -98,6 +103,8 @@ type CareStore = {
   setTab: (tab: PanelTab) => void;
   busy: boolean;
   busyLabel: string;
+  operationError: OperationError | null;
+  clearOperationError: () => void;
   system: SystemState;
   systemDetail: string;
   /** The clinic is down and nobody asked for that - the panel says so. */
@@ -105,17 +112,25 @@ type CareStore = {
   careUpdate: CareUpdate | null;
   applyCareUpdate: () => Promise<void>;
   dismissCareUpdate: () => Promise<void>;
-  installAppUpdate: () => Promise<boolean>;
+  installAppUpdate: () => Promise<void>;
+  acknowledgeAppUpdate: () => boolean;
   restorePending: boolean;
   version: string;
+  platform: string;
   backups: Backup[];
   backupsError: string;
   autostart: boolean;
+  autostartReady: boolean;
+  autostartSaving: boolean;
+  autostartError: string;
+  recheckAutostart: () => Promise<boolean>;
   storage: StorageReport | null;
+  storageError: string;
   recheckStorage: () => Promise<void>;
   refresh: () => Promise<void>;
   reloadBackups: () => Promise<void>;
-  runAction: (action: string, adminPassword?: string) => Promise<void>;
+  /** Resolves true when the native job is accepted; care-done reports completion. */
+  runAction: (action: string, adminPassword?: string) => Promise<boolean>;
   setAutostart: (on: boolean) => Promise<void>;
   restore: (backup: Backup, recoveryFile: string, adminPassword: string) => Promise<void>;
   restoreFile: (path: string, recoveryFile: string, adminPassword: string) => Promise<void>;
@@ -125,7 +140,7 @@ type CareStore = {
     removeRancher: boolean,
     adminPassword: string,
     removeApp?: boolean,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   log: (line: string) => void;
 };
 
@@ -145,19 +160,26 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const [openStep, setOpenStep] = useState<SetupStep>("checks");
   const [stepsDone, setStepsDone] = useState(NO_STEPS_DONE);
   const [run, setRunState] = useState<RunState>(IDLE_RUN);
+  const [setupReset, setSetupReset] = useState(0);
   const [tab, setTab] = useState<PanelTab>("overview");
   const [busy, setBusyState] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
+  const [operationError, setOperationError] = useState<OperationError | null>(null);
   const [system, setSystem] = useState<SystemState>("unknown");
   const [systemDetail, setSystemDetail] = useState("");
   const [restorePending, setRestorePending] = useState(false);
   const [version, setVersion] = useState("");
+  const [platform, setPlatform] = useState("");
   const [backups, setBackups] = useState<Backup[]>([]);
   const [backupsError, setBackupsError] = useState("");
   const [autostart, setAutostartState] = useState(false);
+  const [autostartReady, setAutostartReady] = useState(false);
+  const [autostartSaving, setAutostartSaving] = useState(false);
+  const [autostartError, setAutostartError] = useState("");
   const [trouble, setTrouble] = useState(false);
   const [careUpdate, setCareUpdate] = useState<CareUpdate | null>(null);
   const [storage, setStorage] = useState<StorageReport | null>(null);
+  const [storageError, setStorageError] = useState("");
   const [bootError, setBootError] = useState<Error | null>(null);
 
   // Refs shadow the state the event handlers and the poll timer read, so they
@@ -172,6 +194,18 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const logRef = useRef<string[]>([]);
   const lastErrorRef = useRef("");
   const removeAppRef = useRef(false);
+  const uninstalledRef = useRef(false);
+  const uninstallEndedRef = useRef(false);
+  const activeActionRef = useRef("");
+  const refreshPendingRef = useRef(false);
+  const refreshEpochRef = useRef(0);
+  const autostartPendingRef = useRef(false);
+  const setupEndedRef = useRef(false);
+  const bootStartedRef = useRef(false);
+  const stopIntentBeforeRef = useRef(false);
+  const stateRefreshNeededRef = useRef(false);
+  const appUpdatePhaseRef = useRef<AppUpdateProgress["phase"] | null>(null);
+  const appUpdateHandoffRef = useRef(false);
 
   // Three things stand between "health check failed" and alarming the operator.
   // Stopping the clinic is a legitimate thing to do, Docker takes about a minute
@@ -186,8 +220,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
     setFlowState(next);
   }, []);
 
-  const selectRole = useCallback(async (role: "server" | "client") => {
-    await bridge.SelectRole(role);
+  const selectRole = useCallback((role: "server" | "client") => {
+    if (busyRef.current || flowRef.current !== "role") return;
     setFlow(role === "client" ? "client" : "setup");
   }, [setFlow]);
 
@@ -197,10 +231,13 @@ export function CareProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setBusy = useCallback((next: boolean, label = "") => {
+    if (next) refreshEpochRef.current++;
     busyRef.current = next;
     setBusyState(next);
     setBusyLabel(label);
   }, []);
+
+  const clearOperationError = useCallback(() => setOperationError(null), []);
 
   const setStepDone = useCallback((step: SetupStep, done: boolean) => {
     setStepsDone((prev) => (prev[step] === done ? prev : { ...prev, [step]: done }));
@@ -248,9 +285,12 @@ export function CareProvider({ children }: { children: ReactNode }) {
       await bridge.ClearRole();
     } catch (e) {
       log(`role: ${errorText(e)}`);
-      toast(firstLine(errorText(e)));
+      toast(/already set up|uninstall/i.test(errorText(e))
+        ? "This computer already has a saved setup. Disconnect or remove it before going back."
+        : "Couldn't go back. Try again, or share the log file with your support contact.");
       return false;
     }
+    setClientURL("");
     setFlow("role");
     return true;
   }, [log, setFlow]);
@@ -267,10 +307,18 @@ export function CareProvider({ children }: { children: ReactNode }) {
 
   // --- panel ------------------------------------------------------------
   const refresh = useCallback(async () => {
-    if (busyRef.current || flowRef.current !== "panel") return;
+    if (busyRef.current || flowRef.current !== "panel" || refreshPendingRef.current) return;
+    refreshPendingRef.current = true;
+    const epoch = refreshEpochRef.current;
     let next: SystemState;
     let detail = "";
     try {
+      if (stateRefreshNeededRef.current) {
+        const state = await bridge.GetState();
+        restorePendingRef.current = state.restore_pending;
+        setRestorePending(state.restore_pending);
+        stateRefreshNeededRef.current = false;
+      }
       const health = await bridge.ClinicHealth();
       if (health.active) next = "running";
       else {
@@ -279,10 +327,12 @@ export function CareProvider({ children }: { children: ReactNode }) {
       }
     } catch (e) {
       next = "unknown";
-      detail = firstLine(errorText(e));
-      const docker = await bridge.DockerStatus().catch(() => null);
-      if (docker && !docker.ok) detail = docker.message;
+      detail = "CARE couldn't check the clinic. Check the required software or open the log file for support.";
+      log(`clinic status: ${errorText(e)}`);
+    } finally {
+      refreshPendingRef.current = false;
     }
+    if (epoch !== refreshEpochRef.current || flowRef.current !== "panel") return;
     setSystem(next);
     setSystemDetail(detail);
 
@@ -291,14 +341,14 @@ export function CareProvider({ children }: { children: ReactNode }) {
     setTrouble(
       downStreakRef.current >= 2 && settled && !stoppedOnPurposeRef.current && !busyRef.current,
     );
-  }, []);
+  }, [log]);
 
   const reloadBackups = useCallback(async () => {
     try {
       setBackups((await bridge.ListBackups()) ?? []);
       setBackupsError("");
     } catch (e) {
-      setBackupsError(firstLine(errorText(e)));
+      setBackupsError("The backup list couldn't be read. Check the backup location and try again.");
       log(`backups: ${errorText(e)}`);
     }
   }, [log]);
@@ -306,21 +356,31 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const recheckStorage = useCallback(async () => {
     try {
       setStorage(await bridge.RecheckStorage());
+      setStorageError("");
     } catch (e) {
       log(`storage: ${errorText(e)}`);
+      setStorageError("Storage couldn't be checked. The last reading may be out of date. Try again.");
     }
   }, [log]);
 
   const runAction = useCallback(
     async (action: string, adminPassword = "") => {
-      if (busyRef.current) return;
+      if (busyRef.current) {
+        setOperationError(describeOperationError(action, "something else is still running"));
+        return false;
+      }
+      if (stateRefreshNeededRef.current && action !== "start" && action !== "stop") {
+        setOperationError({ action, title: "Check the clinic's status first", message: "CARE couldn't check whether a restore needs recovery. Check again before making changes." });
+        return false;
+      }
       if (restorePendingRef.current && action !== "start" && action !== "stop") {
-        toast(RESTORE_PENDING_NOTICE);
-        return;
+        setOperationError(describeOperationError(action, "a restore is unfinished"));
+        return false;
       }
       // What the operator asked for, which is what makes a stopped clinic either
       // a fault or a choice. Not persisted: the panel starts the clinic on every
       // launch, so the intent dies with the session, same as the state it describes.
+      stopIntentBeforeRef.current = stoppedOnPurposeRef.current;
       if (action === "stop") stoppedOnPurposeRef.current = true;
       if (action === "start" || action === "restart") {
         stoppedOnPurposeRef.current = false;
@@ -330,85 +390,128 @@ export function CareProvider({ children }: { children: ReactNode }) {
         setTrouble(false);
       }
       setBusy(true, ACTION_LABELS[action] ?? "Working");
+      activeActionRef.current = action;
+      lastErrorRef.current = "";
+      setOperationError(null);
       log(`\n$ care ${action}`);
       try {
         await bridge.ClinicAction(action, adminPassword);
+        return true;
       } catch (e) {
         log(`error: ${errorText(e)}`);
+        setOperationError(describeOperationError(action, e));
+        if (action === "stop") stoppedOnPurposeRef.current = stopIntentBeforeRef.current;
+        activeActionRef.current = "";
         setBusy(false);
+        return false;
       }
     },
     [log, setBusy],
   );
 
   const applyCareUpdate = useCallback(async () => {
-    setCareUpdate(null);
     await runAction("update");
   }, [runAction]);
 
   const installAppUpdate = useCallback(async () => {
-    if (busyRef.current) return false;
+    if (busyRef.current) throw new Error("Something else is still running.");
+    appUpdatePhaseRef.current = null;
+    appUpdateHandoffRef.current = false;
     lastErrorRef.current = "";
     setBusy(true, "Updating CARE Desktop");
+    activeActionRef.current = "app-update";
     log("\n$ care-desktop update");
     try {
       await bridge.InstallAppUpdate();
-      return true;
     } catch (e) {
       log(`error: ${errorText(e)}`);
-      toast(firstLine(errorText(e)));
+      if (flowRef.current !== "role") {
+        toast.error("CARE Desktop couldn't finish updating. Your current version was kept. Try again.");
+      }
       setBusy(false);
-      return false;
+      activeActionRef.current = "";
+      throw e;
     }
   }, [log, setBusy]);
 
+  const acknowledgeAppUpdate = useCallback(() => {
+    if (!appUpdateHandoffRef.current || appUpdatePhaseRef.current !== "installer") {
+      return !busyRef.current;
+    }
+    appUpdateHandoffRef.current = false;
+    appUpdatePhaseRef.current = null;
+    activeActionRef.current = "";
+    setBusy(false);
+    return true;
+  }, [setBusy]);
+
   const dismissCareUpdate = useCallback(async () => {
-    setCareUpdate(null);
+    if (busyRef.current) return;
     try {
       await bridge.DismissCareUpdate();
+      setCareUpdate(null);
     } catch (e) {
       log(`update: ${errorText(e)}`);
+      setOperationError(describeOperationError("dismiss-update", e));
     }
   }, [log]);
 
   const syncAutostart = useCallback(async () => {
     try {
       setAutostartState(await bridge.AutostartEnabled());
-    } catch {
-      /* the host decides; leave the last known value alone */
+      setAutostartReady(true);
+      setAutostartError("");
+      return true;
+    } catch (e) {
+      log(`read startup setting: ${errorText(e)}`);
+      setAutostartReady(false);
+      setAutostartError("The startup setting couldn't be checked. Try again.");
+      return false;
     }
-  }, []);
+  }, [log]);
 
   const setAutostart = useCallback(
     async (on: boolean) => {
+      if (busyRef.current || autostartPendingRef.current) return;
+      autostartPendingRef.current = true;
+      setAutostartSaving(true);
+      setAutostartError("");
       try {
         await bridge.SetAutostart(on);
-        toast(on ? "Start at login on" : "Start at login off");
+        if (await syncAutostart()) toast(on ? "Start at login on" : "Start at login off");
       } catch (e) {
         log(`autostart error: ${errorText(e)}`);
+        setAutostartError("The startup setting couldn't be saved. Try again.");
+      } finally {
+        autostartPendingRef.current = false;
+        setAutostartSaving(false);
       }
-      await syncAutostart();
     },
     [log, syncAutostart],
   );
 
   const restore = useCallback(
     async (backup: Backup, recoveryFile: string, adminPassword: string) => {
-      if (busyRef.current) return;
+      if (busyRef.current) throw new Error("something else is still running");
       if (restorePendingRef.current) {
-        toast(RESTORE_PENDING_NOTICE);
-        return;
+        throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
       }
+      if (stateRefreshNeededRef.current) throw new Error("CARE couldn't check the restore status. Check the clinic again.");
       setBusy(true, "Restoring");
+      activeActionRef.current = "restore";
+      lastErrorRef.current = "";
+      setOperationError(null);
       log(
         `\n$ care restore ${backup.db_dump}${backup.files_archive ? ` ${backup.files_archive}` : ""}`,
       );
-      toast("Restore started — data will be replaced");
       try {
         await bridge.RestoreBackup(backup.db_dump, backup.files_archive, recoveryFile, adminPassword);
       } catch (e) {
         log(`error: ${errorText(e)}`);
         setBusy(false);
+        activeActionRef.current = "";
+        setOperationError(describeOperationError("restore", e));
+        throw e;
       }
     },
     [log, setBusy],
@@ -416,18 +519,24 @@ export function CareProvider({ children }: { children: ReactNode }) {
 
   const restoreFile = useCallback(
     async (path: string, recoveryFile: string, adminPassword: string) => {
-      if (busyRef.current) return;
+      if (busyRef.current) throw new Error("something else is still running");
       if (restorePendingRef.current) {
-        toast(RESTORE_PENDING_NOTICE);
-        return;
+        throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
       }
+      if (stateRefreshNeededRef.current) throw new Error("CARE couldn't check the restore status. Check the clinic again.");
       setBusy(true, "Restoring");
+      activeActionRef.current = "restore";
+      lastErrorRef.current = "";
+      setOperationError(null);
       log("\n$ care restore imported backup");
       try {
         await bridge.RestoreFromFile(path, recoveryFile, adminPassword);
       } catch (e) {
         log(`error: ${errorText(e)}`);
         setBusy(false);
+        activeActionRef.current = "";
+        setOperationError(describeOperationError("restore", e));
+        throw e;
       }
     },
     [log, setBusy],
@@ -441,17 +550,30 @@ export function CareProvider({ children }: { children: ReactNode }) {
       adminPassword: string,
       removeApp = false,
     ) => {
-      if (busyRef.current) return;
+      if (busyRef.current) {
+        setOperationError(describeOperationError("uninstall", "something else is still running"));
+        return false;
+      }
       removeAppRef.current = removeApp;
+      uninstalledRef.current = false;
+      uninstallEndedRef.current = false;
       setBusy(true, "Uninstalling");
+      activeActionRef.current = "uninstall";
+      lastErrorRef.current = "";
+      setOperationError(null);
       log(
         `\n$ care uninstall${removeImages ? " --images" : ""}${removeBackups ? " --backups" : ""}${removeRancher ? " --rancher" : ""} --yes`,
       );
       try {
         await bridge.RunUninstall(removeImages, removeBackups, removeRancher, adminPassword);
+        return true;
       } catch (e) {
         log(`error: ${errorText(e)}`);
         setBusy(false);
+        activeActionRef.current = "";
+        setOperationError(describeOperationError("uninstall", e));
+        removeAppRef.current = false;
+        return false;
       }
     },
     [log, setBusy],
@@ -478,7 +600,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
       return;
     }
     setTab("overview");
-    void bridge.StorageStatus().then(setStorage, (e) => log(`storage: ${errorText(e)}`));
+    void bridge.StorageStatus().then((report) => { setStorage(report); setStorageError(""); }, (e) => {
+      log(`storage: ${errorText(e)}`);
+      setStorageError("Storage couldn't be checked. Try again.");
+    });
     await reloadBackups();
     await refresh();
     await syncAutostart();
@@ -494,8 +619,9 @@ export function CareProvider({ children }: { children: ReactNode }) {
         );
         await runAction("start");
       }
-    } catch {
-      /* can't tell whether it's up — leave it to the operator */
+    } catch (e) {
+      log(`startup status: ${errorText(e)}`);
+      setSystemDetail("CARE couldn't check whether the clinic is running. Check again or open the log file for support.");
     }
   }, [log, refresh, reloadBackups, runAction, syncAutostart, setFlow]);
 
@@ -506,7 +632,13 @@ export function CareProvider({ children }: { children: ReactNode }) {
 
   // --- setup flow -------------------------------------------------------
   const startInstall = useCallback(
-    (params: InstallParams) => {
+    async (params: InstallParams) => {
+      if (busyRef.current || flowRef.current !== "setup") {
+        throw new Error("Something else is still running. Wait for it to finish.");
+      }
+      setBusy(true, "Checking setup");
+      activeActionRef.current = "setup";
+      setupEndedRef.current = false;
       logRef.current = [];
       lastErrorRef.current = "";
       setMdnsName(params.host);
@@ -517,22 +649,29 @@ export function CareProvider({ children }: { children: ReactNode }) {
         startedAt: Date.now(),
         finished: false,
         failMessage: "",
+        pages: params.pages ?? IDLE_RUN.pages,
       });
-      setFlow("installing");
-      log("Starting one-time setup...");
-      void bridge
-        .RunSetup(
+      try {
+        await bridge.RunSetup(
           params.host,
           params.adminPassword,
           params.backupDir,
-        )
-        .catch((e) => {
-          lastErrorRef.current = errorText(e);
-          log(`error: ${errorText(e)}`);
-          failInstall();
-        });
+        );
+        if (flowRef.current === "setup") {
+          setFlow("installing");
+          setBusy(true, "Installing CARE");
+        }
+        log("Starting one-time setup...");
+      } catch (e) {
+        log(`setup validation: ${errorText(e)}`);
+        if (activeActionRef.current === "setup") {
+          activeActionRef.current = "";
+          setBusy(false);
+        }
+        throw e;
+      }
     },
-    [failInstall, log, setFlow, setRun],
+    [log, setBusy, setFlow, setRun],
   );
 
   const restartSetup = useCallback(() => {
@@ -545,15 +684,63 @@ export function CareProvider({ children }: { children: ReactNode }) {
   }, [setFlow, setRun]);
 
   const retryInstall = useCallback(async () => {
+    if (busyRef.current) throw new Error("something else is still running");
+    setBusy(true, "Clearing the unfinished installation");
+    activeActionRef.current = "cleanup-failed";
     try {
       await bridge.CleanupFailedInstall();
+      setSetupReset((value) => value + 1);
+      restartSetup();
     } catch (e) {
       log(`cleanup: ${errorText(e)}`);
-      toast(firstLine(errorText(e)));
+      throw e;
+    } finally {
+      activeActionRef.current = "";
+      setBusy(false);
+    }
+  }, [log, restartSetup, setBusy]);
+
+  const finishUninstall = useCallback(() => {
+    if (!uninstalledRef.current || !uninstallEndedRef.current) return;
+    uninstalledRef.current = false;
+    uninstallEndedRef.current = false;
+    activeActionRef.current = "";
+    if (flowRef.current === "remove") {
+      void bridge.ExitUninstall().catch((e) => {
+        log(`finish uninstall: ${errorText(e)}`);
+        setBusy(false);
+        toast.error("The clinic was removed, but the uninstaller couldn't close. Close this window to finish.");
+      });
       return;
     }
-    restartSetup();
-  }, [log, restartSetup]);
+    const removeApp = removeAppRef.current;
+    removeAppRef.current = false;
+    setMdnsName("care.local");
+    setClientURL("");
+    setBackups([]);
+    setBackupsError("");
+    setStorage(null);
+    setStorageError("");
+    setCareUpdate(null);
+    setOperationError(null);
+    restorePendingRef.current = false;
+    stateRefreshNeededRef.current = false;
+    setRestorePending(false);
+    setStepsDone(NO_STEPS_DONE);
+    setRun(IDLE_RUN);
+    setSetupReset((value) => value + 1);
+    setFlow("role");
+    setBusy(removeApp, removeApp ? "Removing CARE Desktop" : "");
+    if (removeApp) {
+      void bridge.RemoveApp().catch((e) => {
+        log(`remove app: ${errorText(e)}`);
+        setBusy(false);
+        toast.error("The clinic was removed, but CARE Desktop couldn't remove itself. Close it and remove the application using this computer's settings.");
+      });
+    } else {
+      toast("The clinic was removed. Backups you chose to keep are still in their folder.");
+    }
+  }, [log, setBusy, setFlow, setRun]);
 
   // --- host events ------------------------------------------------------
   useEffect(() => {
@@ -564,11 +751,56 @@ export function CareProvider({ children }: { children: ReactNode }) {
         }
         logFromHost(line);
       }),
+      onCareEvent("care-error", (title: string, detail: string) => {
+        if (title === "The CARE Desktop update didn't finish") return;
+        lastErrorRef.current = detail;
+        if (flowRef.current === "panel") {
+          const error = describeOperationError(activeActionRef.current || "operation", detail);
+          setOperationError({ ...error, title });
+        }
+      }),
+      onCareEvent("app-update-progress", (progress: AppUpdateProgress) => {
+        if (activeActionRef.current && activeActionRef.current !== "app-update") return;
+        appUpdatePhaseRef.current = progress.phase;
+        // A reloaded UI may attach while the native updater is already running.
+        if (!activeActionRef.current) {
+          activeActionRef.current = "app-update";
+          setBusy(true, "Updating CARE Desktop");
+        }
+      }),
       onCareEvent("care-done", (code: number, label?: string) => {
         if (label === "app-update") {
+          if (activeActionRef.current && activeActionRef.current !== label) return;
+          if (code === 0 && (appUpdatePhaseRef.current === "installer" || appUpdatePhaseRef.current === "restarting")) {
+            appUpdateHandoffRef.current = true;
+            activeActionRef.current = "app-update";
+            setBusy(true, "Finish the CARE Desktop update");
+            return;
+          }
+          appUpdatePhaseRef.current = null;
+          appUpdateHandoffRef.current = false;
+          activeActionRef.current = "";
           setBusy(false);
-          if (code !== 0) {
-            toast(firstLine(lastErrorRef.current || "CARE Desktop couldn't update. Try again."));
+          if (code !== 0 && flowRef.current !== "role") {
+            toast.error("CARE Desktop couldn't finish updating. Your current version was kept. Try again.");
+          }
+          return;
+        }
+        if (label === "uninstall" && (flowRef.current === "panel" || flowRef.current === "remove")) {
+          if (code === 0) {
+            uninstallEndedRef.current = true;
+            finishUninstall();
+          } else {
+            uninstalledRef.current = false;
+            uninstallEndedRef.current = false;
+            removeAppRef.current = false;
+            activeActionRef.current = "";
+            setBusy(false);
+            const error = describeOperationError("uninstall", lastErrorRef.current);
+            setOperationError(error);
+            if (flowRef.current === "remove") toast.error(error.title);
+            stateRefreshNeededRef.current = true;
+            void refresh();
           }
           return;
         }
@@ -576,34 +808,39 @@ export function CareProvider({ children }: { children: ReactNode }) {
         if (flowRef.current === "remove") {
           setBusy(false);
           if (code !== 0) {
-            toast(
-              lastErrorRef.current
-                ? firstLine(lastErrorRef.current)
-                : "Uninstall didn't complete.",
-            );
+            toast.error(describeOperationError("uninstall", lastErrorRef.current).message);
           }
           return;
         }
         if (flowRef.current !== "panel") {
-          if (code !== 0) {
-            log(`\n× Setup failed (exit ${code}).`);
-            failInstall();
+          if (label === "setup") {
+            activeActionRef.current = "";
+            setupEndedRef.current = true;
+            setBusy(false);
+            if (code !== 0) {
+              log(`\n× Setup failed (exit ${code}).`);
+              failInstall();
+            } else if (runRef.current.finished) {
+              openPanel();
+            }
           }
           return;
         }
+        if (activeActionRef.current && label !== activeActionRef.current) return;
         log(`— done (exit ${code}) —`);
         if (code !== 0) {
-          toast(
-            lastErrorRef.current
-              ? firstLine(lastErrorRef.current)
-              : "That action didn't complete.",
-          );
+          setOperationError(describeOperationError(label ?? "operation", lastErrorRef.current));
+          if (label === "stop") stoppedOnPurposeRef.current = stopIntentBeforeRef.current;
+        } else if (label === "update") {
+          setCareUpdate(null);
         }
+        activeActionRef.current = "";
         setBusy(false);
         void refresh();
         void reloadBackups();
         void recheckStorage();
         void bridge.GetState().then((state) => {
+          stateRefreshNeededRef.current = false;
           restorePendingRef.current = state.restore_pending;
           setRestorePending(state.restore_pending);
           if (!state.setup_done) {
@@ -611,9 +848,14 @@ export function CareProvider({ children }: { children: ReactNode }) {
             setOpenStep("checks");
             setFlow("setup");
           }
-        }).catch((e) => log(`state: ${errorText(e)}`));
+        }).catch((e) => {
+          stateRefreshNeededRef.current = true;
+          log(`state: ${errorText(e)}`);
+          setOperationError({ action: "status", title: "The clinic's status couldn't be refreshed", message: "CARE couldn't check whether a restore needs recovery. Check again before making changes." });
+        });
       }),
       onCareEvent("setup-done", () => {
+        if (flowRef.current !== "setup" && flowRef.current !== "installing") return;
         const current = runRef.current;
         setRun({
           ...current,
@@ -622,31 +864,19 @@ export function CareProvider({ children }: { children: ReactNode }) {
           finished: true,
         });
         setStepDone("install", true);
+        if (setupEndedRef.current) openPanel();
       }),
       onCareEvent("care-update", (update: CareUpdate) => {
         setCareUpdate(update);
       }),
       onCareEvent("care-storage", (report: StorageReport) => {
         setStorage(report);
+        setStorageError("");
       }),
       onCareEvent("uninstalled", () => {
-        if (flowRef.current === "remove") {
-          void bridge.ExitUninstall();
-          return;
-        }
-        if (removeAppRef.current) {
-          removeAppRef.current = false;
-          void bridge.RemoveApp().catch((e) => {
-            log(`remove app: ${errorText(e)}`);
-            toast(firstLine(errorText(e)));
-            window.location.reload();
-          });
-          return;
-        }
-        toast("Uninstalled");
-        setBusy(false);
-        setFlow("role");
-        window.location.reload();
+        if (flowRef.current !== "panel" && flowRef.current !== "remove") return;
+        uninstalledRef.current = true;
+        finishUninstall();
       }),
     ];
     return () => unsubscribes.forEach((off) => off?.());
@@ -660,14 +890,19 @@ export function CareProvider({ children }: { children: ReactNode }) {
     setRun,
     setStepDone,
     setFlow,
+    openPanel,
+    finishUninstall,
   ]);
 
   // --- boot + status poll ----------------------------------------------
   useEffect(() => {
+    if (bootStartedRef.current) return;
+    bootStartedRef.current = true;
     void (async () => {
       try {
         const state = await bridge.GetState();
         setVersion(state.version);
+        setPlatform(state.platform);
         setMdnsName(state.mdns_name || "care.local");
         setClientURL(state.client_url || "");
         if (await bridge.UninstallRequested()) {
@@ -710,6 +945,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       stepsDone,
       setStepDone,
       run,
+      setupReset,
       startInstall,
       retryInstall,
       restartSetup,
@@ -718,6 +954,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
       setTab,
       busy,
       busyLabel,
+      operationError,
+      clearOperationError,
       system,
       systemDetail,
       trouble,
@@ -725,12 +963,19 @@ export function CareProvider({ children }: { children: ReactNode }) {
       applyCareUpdate,
       dismissCareUpdate,
       installAppUpdate,
+      acknowledgeAppUpdate,
       restorePending,
       version,
+      platform,
       backups,
       backupsError,
       autostart,
+      autostartReady,
+      autostartSaving,
+      autostartError,
+      recheckAutostart: syncAutostart,
       storage,
+      storageError,
       recheckStorage,
       refresh,
       reloadBackups,
@@ -743,10 +988,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
-      run, startInstall, retryInstall, restartSetup, openPanel,
-      tab, busy, busyLabel, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
-      installAppUpdate, restorePending, version, backups, backupsError, autostart, storage, recheckStorage,
-      refresh, reloadBackups,
+      run, setupReset, startInstall, retryInstall, restartSetup, openPanel,
+      tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
+      installAppUpdate, acknowledgeAppUpdate, restorePending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
+      refresh, reloadBackups, syncAutostart,
       runAction, setAutostart, restore, restoreFile, uninstall, log,
     ],
   );

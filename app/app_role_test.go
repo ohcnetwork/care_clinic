@@ -243,8 +243,11 @@ func TestClientRejectsServerMutations(t *testing.T) {
 		},
 		"set address": func() error { return a.SetMDNSName("clinic") },
 		"cleanup":     a.CleanupFailedInstall,
-		"purge":       a.PurgeResidue,
-		"remove":      a.beginRemoval,
+		"purge": func() error {
+			_, err := a.PurgeResidue(true)
+			return err
+		},
+		"remove": a.beginRemoval,
 		"install Docker": func() error {
 			_, err := a.InstallDocker()
 			return err
@@ -295,21 +298,74 @@ func TestNonClientsRejectClientOperations(t *testing.T) {
 			if err := a.saveConfig(before); err != nil {
 				t.Fatal(err)
 			}
-			for name, action := range map[string]func() error{
-				"connect":    func() error { return a.ConnectClient("clinic.local") },
-				"disconnect": a.DisconnectClient,
-			} {
-				t.Run(name, func(t *testing.T) {
-					if err := action(); err == nil {
-						t.Fatal("non-client bypassed the client role guard")
-					}
-					cfg, err := loadConfig(a.configPath())
-					if err != nil || cfg != before || a.loadConfig() != before {
-						t.Fatalf("rejected client operation changed settings: %+v, %v", cfg, err)
-					}
-				})
+			if err := a.DisconnectClient(); err == nil {
+				t.Fatal("non-client bypassed the clinic access removal guard")
+			}
+			cfg, err := loadConfig(a.configPath())
+			if err != nil || cfg != before || a.loadConfig() != before {
+				t.Fatalf("rejected client operation changed settings: %+v, %v", cfg, err)
 			}
 		})
+	}
+}
+
+// The first screen only asks a question. Nothing it can reach may write to the
+// settings file, or a computer that was merely looked at comes back with a role.
+func TestStartPageOperationsWriteNothing(t *testing.T) {
+	a := roleApp(t)
+	if _, err := a.FindClinic("not a clinic address"); err == nil {
+		t.Fatal("accepted an invalid clinic address")
+	}
+	if err := a.ConnectClient("not a clinic address"); err == nil {
+		t.Fatal("accepted an invalid clinic address")
+	}
+	if _, err := os.Stat(a.configPath()); !os.IsNotExist(err) {
+		t.Fatalf("looking for a clinic saved settings: %v", err)
+	}
+	if a.loadConfig() != (Config{}) {
+		t.Fatalf("looking for a clinic recorded a role: %+v", a.loadConfig())
+	}
+	if err := a.clientRoleAvailable(); err != nil {
+		t.Fatalf("a computer with no role cannot connect: %v", err)
+	}
+}
+
+func TestBeginServerSetupRecordsTheServerRole(t *testing.T) {
+	a := roleApp(t)
+	if err := a.BeginServerSetup(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfig(a.configPath())
+	if err != nil || cfg.Role != roleServer {
+		t.Fatalf("setup did not record the server role: %+v, %v", cfg, err)
+	}
+	if err := a.BeginServerSetup(); err != nil {
+		t.Fatalf("re-entering setup should be idempotent: %v", err)
+	}
+	if err := a.clientRoleAvailable(); err == nil || err.Error() != unfinishedServerSetup {
+		t.Fatalf("an unfinished clinic setup allowed a client connection: %v", err)
+	}
+	if err := a.ConnectClient("care.local"); err == nil || err.Error() != unfinishedServerSetup {
+		t.Fatalf("connect bypassed the unfinished clinic setup: %v", err)
+	}
+	if _, err := a.FindClinic("care.local"); err == nil || err.Error() != unfinishedServerSetup {
+		t.Fatalf("find bypassed the unfinished clinic setup: %v", err)
+	}
+}
+
+func TestInstalledFilesBlockConnectingWithoutASavedRole(t *testing.T) {
+	a := roleApp(t)
+	if err := os.MkdirAll(a.installDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(a.installDir(), "earlier-installation"), []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ConnectClient("care.local"); err == nil || err.Error() != unfinishedServerSetup {
+		t.Fatalf("a half-installed clinic accepted a client connection: %v", err)
+	}
+	if a.loadConfig() != (Config{}) {
+		t.Fatalf("the refused connection recorded a role: %+v", a.loadConfig())
 	}
 }
 

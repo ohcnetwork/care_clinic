@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ type Config struct {
 	BackupDir              string    `json:"backup_dir"`
 	AdminPwHash            string    `json:"admin_pw_hash"`
 	AdminRecoveryHashes    [6]string `json:"admin_recovery_hashes"`
+	AdminRecoveryPath      string    `json:"admin_recovery_path,omitempty"`
 	RecoveryFailures       int       `json:"recovery_failures,omitempty"`
 	RecoveryRetryAfter     int64     `json:"recovery_retry_after,omitempty"`
 	BackupCertificate      string    `json:"backup_certificate,omitempty"`
@@ -198,7 +200,7 @@ func (a *App) installDirInUse() (bool, error) {
 	return false, nil
 }
 
-func (a *App) ClearRole() error {
+func (a *App) ClearRole() (err error) {
 	return a.withJob(func() error {
 		cfg := a.loadConfig()
 		if cfg.Role == "" {
@@ -218,16 +220,32 @@ func (a *App) ClearRole() error {
 	})
 }
 
-func (a *App) SelectRole(role string) error {
+// BeginServerSetup records the server role when the operator actually enters
+// setup. The first screen only asks a question, so it writes nothing: a
+// computer that is only being looked at keeps an empty settings file.
+func (a *App) BeginServerSetup() (err error) {
+	return a.selectRole(roleServer)
+}
+
+// SelectRole is the older entry point and stays for compatibility with an
+// interface that still announces the choice up front.
+func (a *App) SelectRole(role string) (err error) {
 	if role != roleServer && role != roleClient {
 		return fmt.Errorf("choose server or client")
 	}
+	return a.selectRole(role)
+}
+
+func (a *App) selectRole(role string) error {
 	return a.withJob(func() error {
 		if err := a.inferInstalledRole(); err != nil {
 			return err
 		}
 		cfg := a.loadConfig()
 		if cfg.Role != "" && cfg.Role != role {
+			if role == roleClient {
+				return errors.New(unfinishedServerSetup)
+			}
 			return fmt.Errorf("this computer is already a %s; its role cannot be changed", cfg.Role)
 		}
 		cfg.Role = role

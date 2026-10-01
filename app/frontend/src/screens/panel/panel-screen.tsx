@@ -1,158 +1,119 @@
-import { ArrowDownToLine, ArrowUpRight, HardDrive, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowDownToLine, ArrowUpRight, HardDrive, TriangleAlert, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { Rail } from "@/components/rail";
 import { Screen, ScreenBody } from "@/components/screen";
 import { Button } from "@/components/ui/button";
+import { useAppUpdate, type AppUpdateController } from "@/hooks/use-app-update";
 import { bridge } from "@/lib/bridge";
-import { useCare, type PanelTab } from "@/state/care-store";
-import type { StorageReport } from "@/types";
+import { useCare } from "@/state/care-store";
 import { AdvancedTab } from "./advanced-tab";
 import { BackupsTab } from "./backups-tab";
 import { OverviewTab } from "./overview-tab";
-import { TroubleDialog } from "./trouble-dialog";
+import { PanelRequirementsProvider, usePanelRequirements } from "./panel-requirements";
+import { storageProblem } from "./panel-status";
+import { PanelLogButton, usePanelTask } from "./panel-ui";
+import { PanelUpdateLockProvider } from "./panel-update-lock";
 import { PluginTable } from "./plugin-table";
+import { StorageTab } from "./storage-tab";
+import { TroubleDialog } from "./trouble-dialog";
 import { UpdatePanel } from "./update-panel";
 
-const TAB_META: Record<PanelTab, { title: string; subtitle: string }> = {
-  overview: { title: "Overview", subtitle: "Your clinic server at a glance." },
-  backups: { title: "Backups", subtitle: "Safe copies of your patient data." },
-  plugins: { title: "Plugins", subtitle: "Manage extra features for your clinic." },
-  updates: { title: "Updates", subtitle: "Keep CARE and CARE Desktop up to date." },
-  advanced: { title: "Advanced", subtitle: "Technical options for this clinic." },
-};
+import "./panel.css";
 
 export function PanelScreen() {
-  const {
-    tab,
-    setTab,
-    mdnsName,
-    reloadBackups,
-    trouble,
-    careUpdate,
-    applyCareUpdate,
-    dismissCareUpdate,
-    busy,
-    storage,
-  } = useCare();
+  const care = useCare();
+  const [requirementsWorking, setRequirementsWorking] = useState(false);
+  const appUpdate = useAppUpdate(care.restorePending || requirementsWorking);
+  return <PanelUpdateLockProvider active={appUpdate.active} isActive={appUpdate.isActive}>
+    <PanelRequirementsProvider onWorkingChange={setRequirementsWorking}>
+      <PanelContent appUpdate={appUpdate} />
+    </PanelRequirementsProvider>
+  </PanelUpdateLockProvider>;
+}
+
+function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
+  const care = useCare();
+  const requirements = usePanelRequirements();
+  const task = usePanelTask();
   const [diagnosing, setDiagnosing] = useState(false);
-  const meta = TAB_META[tab];
+  const panel = useRef<HTMLDivElement>(null);
+  const pluginLayout = care.tab === "plugins";
+  const trouble = care.trouble && !care.busy;
+  const problem = storageProblem(care.storage);
+  const locked = care.busy || requirements.working || appUpdate.active || task.working;
+  const mutate = (run: () => Promise<unknown>, message: string) => {
+    if (locked || appUpdate.isActive()) return;
+    void task.run(run, message);
+  };
+  const updateCount = (care.careUpdate ? 1 : 0) + (appUpdate.update?.available && !appUpdate.active ? 1 : 0);
 
-  // Opening the tab is the refresh gesture, as it was before.
   useEffect(() => {
-    if (tab === "backups") void reloadBackups();
-  }, [tab, reloadBackups]);
+    if (care.tab === "backups") void care.reloadBackups();
+  }, [care.tab, care.reloadBackups]);
+  useLayoutEffect(() => {
+    panel.current?.querySelector(".panel-tab-body")?.scrollTo({ top: 0 });
+  }, [care.tab]);
 
-  return (
-    <Screen>
-      {diagnosing ? <TroubleDialog onClose={() => setDiagnosing(false)} /> : null}
-
-      {/* A banner, not a pop-up: this panel often sits minimised on a shelf PC,
-          and a window that steals focus on a blip gets dismissed unread. It
-          stays until the clinic answers again - there is nothing to dismiss. */}
-      {trouble ? (
-        <div className="flex items-center gap-3 border-b border-danger-bg bg-danger-tint px-[34px] py-3">
-          <TriangleAlert className="size-4 flex-none text-danger-ink" strokeWidth={2.2} />
-          <div className="min-w-0 flex-1 text-[13px] leading-[1.45] text-danger-ink">
-            Staff can&apos;t reach the clinic right now.
-          </div>
-          <Button variant="primary" onClick={() => setDiagnosing(true)}>
-            See what&apos;s wrong
-          </Button>
+  return <div className="care-panel" ref={panel}>
+    <Rail variant="panel" locked={requirements.working} updateCount={updateCount} />
+    <Screen className={pluginLayout ? undefined : "care-panel-main"}>
+      {care.operationError ? <div className="panel-banner panel-tone-danger" role="alert">
+        <TriangleAlert aria-hidden="true" />
+        <div className="panel-grow"><strong>{care.operationError.title}. </strong>{care.operationError.message}</div>
+        <PanelLogButton />
+        <Button variant="ghost" size="icon" aria-label="Dismiss operation message" onClick={care.clearOperationError}><X aria-hidden="true" /></Button>
+      </div> : appUpdate.active && care.tab !== "updates" ? <div className="panel-banner" role="status">
+        <ArrowDownToLine aria-hidden="true" />
+        <div className="panel-grow"><strong>CARE Desktop is updating. </strong>
+          {appUpdate.progress?.phase === "installer" ? "Finish the installer, then acknowledge it in Updates."
+            : "Wait until it finishes before making other changes."}</div>
+        <Button size="sm" onClick={() => care.setTab("updates")}>View update</Button>
+      </div> : trouble ? <div className="panel-banner panel-tone-danger" role="alert">
+        <TriangleAlert aria-hidden="true" />
+        <div className="panel-grow"><strong>Staff can&apos;t reach the clinic right now.</strong> Check what the clinic needs on this computer.</div>
+        <Button variant="primary" size="sm" onClick={() => setDiagnosing(true)}>See what&apos;s wrong</Button>
+      </div> : problem ? <div className={`panel-banner panel-tone-${problem.tone}`} role="status">
+        <HardDrive aria-hidden="true" />
+        <div className="panel-grow"><strong>{problem.title} </strong>{care.storageError
+          ? "This is from the last successful check. Check Storage again for current information."
+          : problem.detail}</div>
+        {care.tab !== problem.tab ? <Button size="sm" onClick={() => care.setTab(problem.tab)}>See details</Button> : null}
+      </div> : care.careUpdate && care.tab !== "updates" ? <div className="panel-banner" role="status">
+        <ArrowDownToLine aria-hidden="true" />
+        <div className="panel-grow"><strong>A CARE software update is ready to install. </strong>
+          {care.careUpdate.backend ? "Staff will be signed out briefly." : "CARE will reload when it is applied."}</div>
+        <div className="panel-actions">
+          <Button size="sm" disabled={locked || care.restorePending} onClick={() => mutate(care.dismissCareUpdate,
+            "Couldn't save this choice. Try again, or open the log file for support.")}>Later</Button>
+          <Button size="sm" variant="primary" disabled={locked || care.restorePending} onClick={() => mutate(care.applyCareUpdate,
+            "Couldn't start the CARE update. Try again, or open the log file for support.")}>Install now</Button>
         </div>
-      ) : null}
-
-      {/* The update is already downloaded and built - this asks for a moment of
-          downtime, not for a wait. "Later" defers it to the next start, where
-          it costs nothing, so neither answer is the wrong one. */}
-      {storage?.level === "critical" && storage.headline && !trouble ? (
-        <div className="flex items-center gap-3 border-b border-danger-bg bg-danger-tint px-[34px] py-3">
-          <HardDrive className="size-4 flex-none text-danger-ink" strokeWidth={2.2} />
-          <div className="min-w-0 flex-1 text-[13px] leading-[1.45] text-danger-ink">
-            {storage.headline}{" "}
-            <span className="text-muted-foreground">{storageAdvice(storage)}</span>
-          </div>
-          {tab !== storageTab(storage) ? (
-            <Button variant="primary" onClick={() => setTab(storageTab(storage))}>
-              See details
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {careUpdate && !trouble ? (
-        <div className="flex items-center gap-3 border-b border-line bg-brand-bg px-[34px] py-3">
-          <ArrowDownToLine className="size-4 flex-none text-brand-ink" strokeWidth={2.2} />
-          <div className="min-w-0 flex-1 text-[13px] leading-[1.45] text-brand-ink">
-            A CARE update is ready to install.{" "}
-            <span className="text-muted-foreground">
-              {careUpdate.backend
-                ? "Takes about a minute; staff are signed out briefly."
-                : "Takes a few seconds."}
-            </span>
-          </div>
-          <Button disabled={busy} onClick={() => void dismissCareUpdate()}>
-            Later
-          </Button>
-          <Button variant="primary" disabled={busy} onClick={() => void applyCareUpdate()}>
-            Install now
-          </Button>
-        </div>
-      ) : null}
-
-      <div className="flex items-center gap-4 px-[34px] pt-[26px] pb-[18px]">
+      </div> : null}
+      {task.error && !care.operationError ? <div className="panel-banner panel-tone-danger" role="alert">
+        <span className="panel-grow">{task.error}</span><PanelLogButton />
+      </div> : null}
+      {pluginLayout ? <div className="flex items-center gap-4 px-[34px] pt-[26px] pb-[18px]">
         <div className="min-w-0 flex-1">
-          <h1 className="text-[23px] font-bold tracking-[-0.015em] text-ink">{meta.title}</h1>
-          <p className="mt-[5px] text-[13.5px] text-muted-foreground">{meta.subtitle}</p>
+          <h1 className="text-[23px] font-bold tracking-[-0.015em] text-ink">Plugins</h1>
+          <p className="mt-[5px] text-[13.5px] text-muted-foreground">Manage extra features for your clinic.</p>
         </div>
-        <Button variant="soft" onClick={() => void bridge.OpenURL(`https://${mdnsName}/`)}>
-          <span className="font-mono">{mdnsName}</span>
+        <Button variant="soft" onClick={() => void task.run(() => bridge.OpenURL(`https://${care.mdnsName}/`),
+          "Couldn't open CARE in your browser. Try again.")}>
+          <span className="font-mono">{care.mdnsName}</span>
           <ArrowUpRight className="size-3.5" strokeWidth={2.2} />
         </Button>
-      </div>
-
-      {/* Keep panels mounted so half-finished edits survive a tab switch. */}
-      <ScreenBody>
-        <div hidden={tab !== "overview"}>
-          <OverviewTab />
-        </div>
-        <div hidden={tab !== "backups"}>
-          <BackupsTab />
-        </div>
-        <div hidden={tab !== "plugins"}>
-          <PluginTable />
-        </div>
-        <div hidden={tab !== "updates"}>
-          <UpdatePanel />
-        </div>
-        <div hidden={tab !== "advanced"}>
-          <AdvancedTab />
-        </div>
+      </div> : null}
+      <ScreenBody className={pluginLayout ? "panel-tab-body" : "panel-tab-body care-panel-content"}>
+        {/* Keep component instances stable; each tab controls its own deactivation. */}
+        <div hidden={care.tab !== "overview"}><OverviewTab onDiagnose={() => setDiagnosing(true)} /></div>
+        <div hidden={care.tab !== "backups"}><BackupsTab /></div>
+        <div hidden={care.tab !== "storage"}><StorageTab /></div>
+        <div data-panel-tab="plugins" hidden={care.tab !== "plugins"}><PluginTable disabled={locked} /></div>
+        <div hidden={care.tab !== "updates"}><UpdatePanel appUpdate={appUpdate} /></div>
+        <div data-panel-tab="advanced" hidden={care.tab !== "advanced"}><AdvancedTab disabled={locked} /></div>
       </ScreenBody>
     </Screen>
-  );
-}
-
-function backupProblem(storage: StorageReport): boolean {
-  return (
-    storage.last_run.state === "failed" || storage.stale || storage.backup.level === "critical"
-  );
-}
-
-function storageTab(storage: StorageReport): PanelTab {
-  const driveFull = (storage.drives ?? []).some((d) => d.level === "critical");
-  return !driveFull && backupProblem(storage) ? "backups" : "overview";
-}
-
-function storageAdvice(storage: StorageReport): string {
-  if ((storage.drives ?? []).some((d) => d.level === "critical")) {
-    return "Free up space now, or the clinic will stop saving data.";
-  }
-  const run = storage.last_run;
-  if (run.state === "failed" && run.reason !== "disk_full") {
-    return run.message ? `Cause: ${run.message}. Try Back up now.` : "Try Back up now.";
-  }
-  if (run.state === "failed" || storage.backup.level === "critical") {
-    return "Free up space on the backup drive or choose another folder.";
-  }
-  return "Check the backup folder is plugged in and CARE is running.";
+    {diagnosing ? <TroubleDialog onClose={() => setDiagnosing(false)} /> : null}
+  </div>;
 }

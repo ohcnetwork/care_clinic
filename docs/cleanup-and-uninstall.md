@@ -72,7 +72,7 @@ settings may be forgotten.
 | Pause the clinic | `ClinicAction("stop", ...)` delegates to `Clinic.Stop()`. | Compose stops services. | Containers, all volumes, images/cache, installed files, backups, keys, saved settings, and native configuration. |
 | Remove an installed clinic | `RunUninstall(...)` delegates to `Clinic.Uninstall(options)`. | Live project containers, volumes, and networks; native changes; installed files. Optional known images/cache and owned backup files. Optional Rancher Desktop removal (see below). App also handles autostart and saved state. | Backups when not selected for removal; images/cache when not selected; Rancher Desktop when not selected; normal diagnostic logs. |
 | Recover from failed first setup | `CleanupFailedInstall()` delegates to a specific `Clinic.Uninstall` option set. | Partial project resources, native changes, installed files, saved secret/config. A matching exported certificate is removed only if it is unused and the final file-deletion phase is reached. | Downloaded images/cache and backup data. Required backup certificates remain. |
-| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue()`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
+| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue(confirmed)`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
 
 ### Removing the desktop app
 
@@ -668,12 +668,13 @@ The public [`PurgeResidue`](../app/app_residue.go) flow:
 3. If the report is already `Clean`, return without purging. Images and firewall
    rules alone are nonblocking: **this UI path does not remove cached images or
    undo network repair when no blocking residue exists**.
-4. Require a live desktop context and explicit destructive confirmation through
-   `askToProceed`. Canceling is a normal no-op, so this step must distinguish a
-   real refusal from an answer it merely failed to recognize: matching the
-   operator's approval against this path's own `Remove everything` label alone
-   turns every Windows confirmation into that silent no-op. See
+4. Require the `confirmed` argument. The destructive confirmation is asked in
+   the window, next to the list of traces the scan just produced, rather than in
+   a native message box: it is a long explanation with an itemized list, which a
+   two-button OS dialog renders badly and, on Windows, answers with labels it
+   was never given. See
    [native dialog answers](wails-application.md#native-dialog-answers-are-not-the-button-labels).
+   An unconfirmed call is refused rather than silently doing nothing.
 5. Discover the earlier install directory. Check that the retained backup
    location is safe relative to the log folder that will be deleted.
 6. Preserve the backup certificate and persist `Removing`.
@@ -681,8 +682,9 @@ The public [`PurgeResidue`](../app/app_residue.go) flow:
 8. Run `reportUninstall(true)`, requiring removal of reported non-config,
    non-secret resources, including the known image tags.
 9. Purge the old log folder and forget saved configuration.
-10. Preserve only an eligible previously chosen wizard name, then scan again
-    and display the final report. A non-clean or failed scan is not success.
+10. Preserve only an eligible previously chosen wizard name, then scan again and
+    return that report to the caller, which shows it. A non-clean or failed scan
+    is not success, and is also returned as an error.
 
 The early images-only return and the strict post-purge image check are not
 contradictory: cached images do not prevent a new installation, but once a

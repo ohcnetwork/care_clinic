@@ -6,11 +6,12 @@
 
 CARE Desktop runs a clinic's CARE installation on one computer without requiring the operator to administer a server. Staff use a browser to access the clinic on the local network. The desktop application is the installation and operations console, not the medical record server.
 
-The first-run Server/Client choice is persisted, not an ordinary role switch.
+The first-run Server/Client choice is persisted when the work behind it starts,
+not when the question is asked, and it is not an ordinary role switch.
 Server mode owns the stack and advertises the clinic's `.local` name. Client
-mode connects to the address shown on the server, installs certificate trust
-through native OS approval, verifies HTTPS, and opens the clinical browser
-application. It does not provision Docker/Git or advertise mDNS. See
+mode connects to the address shown on the server, removes what an earlier CARE
+left on the computer, installs certificate trust through native OS approval,
+verifies HTTPS, and opens the clinical browser application. It does not provision Docker/Git or advertise mDNS. See
 [native bootstrap and its trust-on-first-use limitation](native-integrations.md#native-client-setup-and-trust-on-first-use).
 Multiple separately named servers are valid; this is not a network-wide
 single-clinic enforcement system.

@@ -65,13 +65,18 @@ export const bridge = new Proxy({} as CareBridge, {
 export type CareEvent =
   | "care-log"
   | "care-done"
+  | "care-error"
   | "setup-done"
   | "uninstalled"
   | "care-update"
   | "care-check"
   | "care-storage"
   | "app-update-progress"
-  | "prereq-download-progress";
+  | "prereq-download-progress"
+  | "client-connect-progress"
+  | "quit-requested"
+  | "confirmation-requested"
+  | "confirmation-cancelled";
 
 /** Subscribe to a Wails event, waiting out a runtime that isn't injected yet. */
 export function onCareEvent(

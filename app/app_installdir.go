@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
-
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func (a *App) installDir() string {
@@ -85,16 +83,4 @@ func (a *App) engineForUpdate() *clinic.Clinic {
 	e := a.engine()
 	e.Abandon = func() bool { return !a.updatesAllowed() }
 	return e
-}
-
-func (a *App) confirmDialog(title, message string) bool {
-	sel, err := wruntime.MessageDialog(a.ctx, wruntime.MessageDialogOptions{
-		Type:          wruntime.QuestionDialog,
-		Title:         title,
-		Message:       message,
-		Buttons:       []string{"Yes", "No"},
-		DefaultButton: "Yes",
-		CancelButton:  "No",
-	})
-	return err == nil && affirmative(sel, "Yes")
 }

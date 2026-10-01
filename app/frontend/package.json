@@ -4,9 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:ui": "playwright test",
     "build": "node scripts/stage-install.mjs && node scripts/check-bindings.mjs && tsc && vite build && node scripts/prune-fonts.mjs"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.5.0",
     "@types/react": "^19.2.18",
@@ -34,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.43.0",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "sonner": "^2.0.8",

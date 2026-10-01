@@ -9,11 +9,13 @@ import (
 	"strings"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/backup"
+	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-func (a *App) ListBackups() ([]backup.Backup, error) {
+func (a *App) ListBackups() (list []backup.Backup, err error) {
+	defer a.logError(&err)
 	info, err := os.Stat(filepath.Join(a.installDir(), "docker-compose.yml"))
 	if os.IsNotExist(err) {
 		return []backup.Backup{}, nil
@@ -41,13 +43,21 @@ func (a *App) RestoreBackup(dbDump, filesArchive, recoveryFile, adminPassword st
 
 func (a *App) GetBackupDir() string { return a.engine().BackupDirPath() }
 
-func (a *App) SetBackupDir(dir string) (string, error) {
+func (a *App) GetBackupPolicy() (policy clinic.BackupPolicy, err error) {
+	defer a.logError(&err)
+	if err := a.requireSetup(); err != nil {
+		return policy, err
+	}
+	return a.engine().BackupPolicy()
+}
+
+func (a *App) SetBackupDir(dir string) (target string, err error) {
+	defer a.logError(&err)
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return "", errors.New("choose a folder for the backups")
 	}
-	var target string
-	err := a.withJob(func() error {
+	err = a.withJob(func() error {
 		if err := a.requireStableClinic(); err != nil {
 			return err
 		}
@@ -99,8 +109,8 @@ type ImportedBackup struct {
 	Encrypted    bool   `json:"encrypted"`
 }
 
-func (a *App) InspectBackupFile(path string) (ImportedBackup, error) {
-	var out ImportedBackup
+func (a *App) InspectBackupFile(path string) (out ImportedBackup, err error) {
+	defer a.logError(&err)
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return out, errors.New("no file chosen")
@@ -111,9 +121,9 @@ func (a *App) InspectBackupFile(path string) (ImportedBackup, error) {
 		return out, errors.New("that isn't a CARE database backup. Choose a file named like " +
 			"care-20260101-020000.dump.enc - the one from the clinic's backup folder.")
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return out, errors.New("couldn't open that file: " + err.Error())
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		return out, errors.New("couldn't open that file: " + statErr.Error())
 	}
 	if !info.Mode().IsRegular() {
 		return out, errors.New("choose a regular backup file")
@@ -162,7 +172,8 @@ func (a *App) RestoreFromFile(path, recoveryFile, adminPassword string) error {
 	}, false, "restore")
 }
 
-func (a *App) ChooseBackupFile() string {
+func (a *App) ChooseBackupFile() (chosen string, err error) {
+	defer a.logError(&err)
 	opts := wruntime.OpenDialogOptions{
 		Title:            "Choose a backup file",
 		DefaultDirectory: a.engine().BackupDirPath(),
@@ -171,9 +182,5 @@ func (a *App) ChooseBackupFile() string {
 			{DisplayName: "All files", Pattern: "*"},
 		},
 	}
-	path, err := wruntime.OpenFileDialog(a.ctx, opts)
-	if err != nil {
-		return ""
-	}
-	return path
+	return wruntime.OpenFileDialog(a.ctx, opts)
 }

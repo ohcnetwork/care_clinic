@@ -49,17 +49,18 @@ export const GROUPS: Group[] = [
   {
     id: "backups",
     title: "Backups",
-    summary: "The nightly backup and how long its files are kept",
+    summary: "Automatic backups every 24 hours, and how long their files are kept",
     settings: [
       {
         key: "DB_BACKUP_RETENTION_PERIOD",
         file: "backend",
         kind: "int",
         label: "Keep backups for",
-        help: "Older backup files, including ones made with Back up now, are deleted after each nightly backup. 0 keeps every backup forever.",
+        help: "Older files, including manual backups, are deleted after each automatic backup. 0 keeps every backup forever.",
         unit: "days",
         min: 0,
         max: 3650,
+        fallback: "0",
         required: true,
       },
     ],
@@ -67,14 +68,14 @@ export const GROUPS: Group[] = [
   {
     id: "signin",
     title: "Staff sign-in and security",
-    summary: "Password protection, idle sign-out and the web firewall",
+    summary: "Password protection, idle sign-out and suspicious web requests",
     settings: [
       {
         key: "DISABLE_RATELIMIT",
         file: "backend",
         kind: "radio",
         label: "Slow down repeated wrong passwords",
-        help: "On, a device gets 5 sign-in attempts per 10 minutes. Recommended once the clinic is live.",
+        help: "A device gets 5 tries per 10 minutes. Recommended once the clinic is live.",
         options: [
           { value: "False", label: "On" },
           { value: "True", label: "Off" },
@@ -86,7 +87,7 @@ export const GROUPS: Group[] = [
         file: "backend",
         kind: "int",
         label: "Sign staff out after being idle for",
-        help: "While someone keeps using CARE the session continues. Raise it if people complain about being signed out; lower it for shared computers.",
+        help: "Raise it if people complain about being signed out; lower it for shared computers.",
         unit: "minutes",
         min: 5,
         max: 43200,
@@ -96,11 +97,11 @@ export const GROUPS: Group[] = [
         key: "CORAZA_MODE",
         file: "backend",
         kind: "radio",
-        label: "Web firewall",
-        help: "Detect only logs suspicious requests but lets them through; start there if you want to try it. Block can stop legitimate use if a rule misfires.",
+        label: "Protect against suspicious web requests",
+        help: "Watch only notes them in the log. Block can stop legitimate use if a rule misfires.",
         options: [
           { value: "Off", label: "Off" },
-          { value: "DetectionOnly", label: "Detect only" },
+          { value: "DetectionOnly", label: "Watch only" },
           { value: "On", label: "Block" },
         ],
         fallback: "Off",
@@ -110,7 +111,7 @@ export const GROUPS: Group[] = [
   {
     id: "patients",
     title: "Patient sign-in",
-    summary: "Whether patients can sign in themselves, and the SMS codes that need",
+    summary: "Whether patients can sign in themselves, and the SMS codes they need",
     settings: [
       {
         key: "REACT_DISABLE_PATIENT_LOGIN",
@@ -151,7 +152,7 @@ export const GROUPS: Group[] = [
       {
         key: "SNS_ACCESS_KEY",
         file: "backend",
-        kind: "text",
+        kind: "secret",
         label: "Amazon SNS access key",
         placeholder: "From your Amazon account",
         blank: PLACEHOLDER,
@@ -612,9 +613,8 @@ export const GROUPS: Group[] = [
 export const SETTINGS: Setting[] = GROUPS.flatMap((g) => g.settings);
 export const SETTING_BY_KEY = new Map(SETTINGS.map((s) => [s.key, s]));
 
-// Keys the friendly list never shows. Internal wiring between the containers,
-// values CARE Desktop rewrites on every start, and developer/hosting knobs.
-// Adding one of these under "Other settings" overwrites the shipped line.
+// Internal wiring and hosting settings are preserved, never editable through
+// the friendly controls or the custom settings form.
 const HIDDEN_KEYS = new Set([
   "DJANGO_SETTINGS_MODULE", "DATABASE_URL", "REDIS_URL", "CELERY_BROKER_URL",
   "DJANGO_SECRET_KEY", "DJANGO_DEBUG", "DJANGO_ALLOWED_HOSTS", "DJANGO_ADMIN_URL",
@@ -635,13 +635,13 @@ export function isHiddenKey(key: string): boolean {
   return HIDDEN_KEYS.has(key) || HIDDEN_PREFIXES.some((p) => key.startsWith(p));
 }
 
-/** Keys CARE Desktop owns, and what to tell someone about to override one. */
+/** Keys CARE Desktop owns, and where their configuration belongs. */
 export const MANAGED_NOTES: Record<string, string> = {
-  DJANGO_SECRET_KEY: "Generated once at setup. Changing it signs everyone out.",
-  CSRF_TRUSTED_ORIGINS: "Set to the clinic address on every start; a value here will not stick.",
-  BUCKET_EXTERNAL_ENDPOINT: "Set to the clinic address on every start; a value here will not stick.",
-  REACT_CARE_API_URL: "Set to the clinic address on every start; a value here will not stick.",
-  ADDITIONAL_PLUGS: "Use the Plugins section below instead.",
+  DJANGO_SECRET_KEY: "Generated and protected by CARE Desktop.",
+  CSRF_TRUSTED_ORIGINS: "The clinic address is managed by CARE Desktop.",
+  BUCKET_EXTERNAL_ENDPOINT: "The clinic address is managed by CARE Desktop.",
+  REACT_CARE_API_URL: "The clinic address is managed by CARE Desktop.",
+  ADDITIONAL_PLUGS: "Use the Plugins tab instead.",
 };
 
 /** Every frontend key is REACT_-prefixed; anything else belongs to the server. */

@@ -6,6 +6,8 @@ install/*
 !install/.gitkeep
 # frontend
 frontend/node_modules/
+frontend/test-results/
+frontend/.care-playwright-runtime/
 frontend/dist/*
 !frontend/dist/.gitkeep
 # wails-generated (bindings + dep hash are regenerated each build/dev)

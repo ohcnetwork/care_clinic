@@ -59,6 +59,26 @@ func (e *Clinic) BackupKeepsForever() bool {
 	return v == "" || (err == nil && n == 0)
 }
 
+type BackupPolicy struct {
+	IntervalSeconds int `json:"interval_seconds"`
+	RetentionDays   int `json:"retention_days"`
+}
+
+func (e *Clinic) BackupPolicy() (BackupPolicy, error) {
+	env, err := e.readBackendEnv()
+	if err != nil {
+		return BackupPolicy{}, fmt.Errorf("couldn't read backup settings: %w", err)
+	}
+	days := 0
+	if value := strings.TrimSpace(env["DB_BACKUP_RETENTION_PERIOD"]); value != "" {
+		days, err = strconv.Atoi(value)
+		if err != nil || days < 0 {
+			return BackupPolicy{}, errors.New("the backup retention setting must be a non-negative number of days")
+		}
+	}
+	return BackupPolicy{IntervalSeconds: int(24 * time.Hour / time.Second), RetentionDays: days}, nil
+}
+
 func (e *Clinic) DockerDiskFree() (free, total uint64, err error) {
 	out, err := e.Runner().CaptureIn(15*time.Second, nil, "docker", "compose", "exec", "-T", "backup", "df", "-Pk", "/")
 	if err != nil {

@@ -33,18 +33,21 @@ type CareUpdate struct {
 }
 
 type CareCheck struct {
-	Running bool `json:"running"`
-	Found   bool `json:"found"`
+	Running bool   `json:"running"`
+	Found   bool   `json:"found"`
+	Error   string `json:"error,omitempty"`
 }
 
-func (a *App) CareUpdateStatus() (clinic.ChannelStatus, error) {
+func (a *App) CareUpdateStatus() (status clinic.ChannelStatus, err error) {
+	defer a.logError(&err)
 	if err := a.requireSetup(); err != nil {
 		return clinic.ChannelStatus{}, err
 	}
 	return a.engine().ChannelStatus(), nil
 }
 
-func (a *App) CheckCareUpdate() error {
+func (a *App) CheckCareUpdate() (err error) {
+	defer a.logError(&err)
 	if err := a.requireSetup(); err != nil {
 		return err
 	}
@@ -58,7 +61,8 @@ func (a *App) CheckCareUpdate() error {
 	return nil
 }
 
-func (a *App) DismissCareUpdate() error {
+func (a *App) DismissCareUpdate() (err error) {
+	defer a.logError(&err)
 	if err := a.requireSetup(); err != nil {
 		return err
 	}
@@ -73,7 +77,7 @@ func (a *App) checkCareUpdate() {
 	update, err := a.engineForUpdate().CheckForUpdate()
 	if err != nil {
 		a.logln("update check: " + err.Error())
-		a.emit("care-check", CareCheck{})
+		a.emit("care-check", CareCheck{Error: "CARE updates couldn't be checked. Try again, or open the log file for support."})
 		return
 	}
 	a.emit("care-check", CareCheck{Found: update.Any()})
@@ -174,7 +178,8 @@ type ghRelease struct {
 	Assets  []ghAsset `json:"assets"`
 }
 
-func (a *App) CheckAppUpdate() (AppUpdate, error) {
+func (a *App) CheckAppUpdate() (update AppUpdate, err error) {
+	defer a.logError(&err)
 	out := AppUpdate{Current: a.pins.AppVersion}
 	rel, err := latestRelease()
 	if err != nil {

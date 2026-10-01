@@ -290,8 +290,11 @@ error. There is no implicit rollback of earlier successful steps.
 
 Default plugins are not initialized by ordinary reads, startup, rebuilds or upgrades.
 CARE Onboarding is loaded from its hosted remote, not bundled into Desktop.
-Its automatic pre-login flow also requires compatible CARE frontend/backend
-builds; see [facility setup](onboarding.md#care-compatibility-and-startup).
+Its post-login redirect uses CARE's existing dashboard override, enabled by
+`REACT_MFE_REGISTERED_COMPONENTS=UserDashboard` in the bundled frontend environment.
+Existing installations preserve their frontend environment and need to add that
+registration before rebuilding the frontend. No CARE source patches are required;
+see [facility setup](onboarding.md#care-compatibility-and-startup).
 
 Recovery-file generation uses Go's standard cryptographic library before
 installation. OpenSSL inside the backup image encrypts and decrypts backups;

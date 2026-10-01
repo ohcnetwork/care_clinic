@@ -5,10 +5,16 @@ import type {
   AppState,
   AppUpdate,
   Backup,
+  BackupPolicy,
   BackupSpace,
   CarePlugin,
   PluginCatalogEntry,
+  QuitRequest,
   ChannelStatus,
+  ClientPreflight,
+  ClientReachability,
+  ClinicInfo,
+  ConfirmationRequest,
   DiskStatus,
   DockerStatus,
   DownloadInfo,
@@ -18,6 +24,8 @@ import type {
   NetworkStatus,
   ResidueReport,
   RestartPlan,
+  SetupIssue,
+  SetupRecoveryStatus,
   StorageReport,
   ToolPlan,
   WSLStatus,
@@ -30,7 +38,11 @@ declare global {
         App: {
           GetState(): Promise<AppState>;
           SelectRole(role: "server" | "client"): Promise<void>;
+          BeginServerSetup(): Promise<void>;
           ClearRole(): Promise<void>;
+          FindClinic(address: string): Promise<ClinicInfo>;
+          ClientPreflight(): Promise<ClientPreflight>;
+          ClientReachable(): Promise<ClientReachability>;
           ConnectClient(address: string): Promise<void>;
           DisconnectClient(): Promise<void>;
           DockerStatus(): Promise<DockerStatus>;
@@ -47,7 +59,7 @@ declare global {
           InstallGit(): Promise<string>;
           OpenDocker(): Promise<void>;
           ScanResidue(): Promise<ResidueReport>;
-          PurgeResidue(): Promise<void>;
+          PurgeResidue(confirmed: boolean): Promise<ResidueReport>;
           RestartPlan(): Promise<RestartPlan>;
           RestartNow(): Promise<void>;
           ClinicHealth(): Promise<Health>;
@@ -60,11 +72,14 @@ declare global {
           RecheckStorage(): Promise<StorageReport>;
           SetMDNSName(name: string): Promise<void>;
           VerifyAdminPassword(pw: string): Promise<boolean>;
-          GetSetupRecoveryStatus(): Promise<{ backup_saved: boolean; backup_verified: boolean; codes_saved: boolean }>;
+          GetSetupRecoveryStatus(): Promise<SetupRecoveryStatus>;
           SaveSetupBackupRecovery(backupDir: string): Promise<boolean>;
+          ReplaceSetupBackupRecovery(backupDir: string): Promise<boolean>;
           VerifySetupBackupRecovery(backupDir: string): Promise<boolean>;
           ChooseRecoveryFile(): Promise<string>;
           SaveAdminRecoveryCodes(adminPassword: string, backupDir: string): Promise<boolean>;
+          OpenSetupRecoveryCodes(): Promise<void>;
+          ValidateSetup(name: string, password: string, backupDir: string): Promise<SetupIssue[]>;
           ChangeAdminPassword(currentPassword: string, newPassword: string): Promise<void>;
           ResetAdminPassword(code: string, newPassword: string): Promise<void>;
           ClinicAction(action: string, adminPassword: string): Promise<void>;
@@ -82,6 +97,7 @@ declare global {
           PluginCatalog(): Promise<PluginCatalogEntry[]>;
           ListBackups(): Promise<Backup[]>;
           GetBackupDir(): Promise<string>;
+          GetBackupPolicy(): Promise<BackupPolicy>;
           SetBackupDir(dir: string): Promise<string>;
           ChooseBackupFile(): Promise<string>;
           InspectBackupFile(path: string): Promise<ImportedBackup>;
@@ -105,6 +121,10 @@ declare global {
           DismissCareUpdate(): Promise<void>;
           CheckAppUpdate(): Promise<AppUpdate>;
           InstallAppUpdate(): Promise<void>;
+          SetQuitDialogReady(ready: boolean): Promise<QuitRequest | null>;
+          RespondToQuit(id: number, quit: boolean): Promise<void>;
+          SetConfirmationDialogReady(ready: boolean): Promise<ConfirmationRequest | null>;
+          RespondToConfirmation(id: number, approved: boolean): Promise<void>;
         };
       };
     };

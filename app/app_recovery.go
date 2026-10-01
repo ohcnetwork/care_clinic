@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,20 +19,92 @@ import (
 )
 
 type SetupRecoveryStatus struct {
-	BackupSaved    bool `json:"backup_saved"`
-	BackupVerified bool `json:"backup_verified"`
-	CodesSaved     bool `json:"codes_saved"`
+	BackupSaved    bool   `json:"backup_saved"`
+	BackupVerified bool   `json:"backup_verified"`
+	CodesSaved     bool   `json:"codes_saved"`
+	BackupPath     string `json:"backup_path"`
+	CodesPath      string `json:"codes_path"`
+	BackupProblem  string `json:"backup_problem"`
+	CodesProblem   string `json:"codes_problem"`
 }
 
-func (a *App) GetSetupRecoveryStatus() (SetupRecoveryStatus, error) {
+func (a *App) GetSetupRecoveryStatus() (status SetupRecoveryStatus, err error) {
+	defer a.logError(&err)
 	if err := a.requireServer(); err != nil {
 		return SetupRecoveryStatus{}, err
 	}
 	cfg := a.loadConfig()
-	return SetupRecoveryStatus{
+	return setupRecoveryStatus(cfg), nil
+}
+
+func setupRecoveryStatus(cfg Config) SetupRecoveryStatus {
+	status := SetupRecoveryStatus{
 		BackupSaved: cfg.BackupCertificate != "", BackupVerified: cfg.BackupRecoveryVerified,
-		CodesSaved: cfg.adminRecoveryCount() == 6,
-	}, nil
+		CodesSaved: cfg.adminRecoveryCount() == 6, BackupPath: cfg.BackupRecoveryPath,
+		CodesPath: cfg.AdminRecoveryPath,
+	}
+	if status.BackupSaved {
+		data, err := backup.ReadRecoveryFile(cfg.BackupRecoveryPath)
+		switch {
+		case errors.Is(err, os.ErrNotExist) || cfg.BackupRecoveryPath == "":
+			status.BackupProblem = "missing"
+		case err != nil:
+			status.BackupProblem = "unreadable"
+		case backup.VerifyRecoveryFile([]byte(cfg.BackupCertificate), data) != nil:
+			status.BackupProblem = "mismatch"
+		}
+		if status.BackupProblem != "" {
+			status.BackupVerified = false
+		}
+	}
+	if status.CodesSaved {
+		status.CodesProblem = adminCodesProblem(cfg)
+	}
+	return status
+}
+
+func adminCodesProblem(cfg Config) (problem string) {
+	if cfg.AdminRecoveryPath == "" {
+		return "missing"
+	}
+	info, err := os.Lstat(cfg.AdminRecoveryPath)
+	if os.IsNotExist(err) {
+		return "missing"
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64*1024 {
+		return "unreadable"
+	}
+	file, err := os.Open(cfg.AdminRecoveryPath)
+	if err != nil {
+		return "unreadable"
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			problem = "unreadable"
+		}
+	}()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return "unreadable"
+	}
+	data, err := io.ReadAll(io.LimitReader(file, 64*1024+1))
+	if err != nil || len(data) > 64*1024 {
+		return "unreadable"
+	}
+	found := make(map[string]bool)
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "[ ] ") {
+			found[recoveryHash(strings.TrimSpace(strings.TrimPrefix(line, "[ ] ")))] = true
+		}
+	}
+	expected := make(map[string]bool)
+	for _, hash := range cfg.AdminRecoveryHashes {
+		if hash == "" || expected[hash] || !found[hash] {
+			return "mismatch"
+		}
+		expected[hash] = true
+	}
+	return ""
 }
 
 func (a *App) requireRecoverySetup() error {
@@ -77,13 +150,23 @@ func saveRecoveryFile(path string, data []byte) error {
 }
 
 func (a *App) SaveSetupBackupRecovery(backupDir string) (bool, error) {
+	return a.saveSetupBackupRecovery(backupDir, false)
+}
+
+// Replacement is explicit: the private key is never retained by CARE, so a
+// lost export can only be replaced with a new key before installation begins.
+func (a *App) ReplaceSetupBackupRecovery(backupDir string) (bool, error) {
+	return a.saveSetupBackupRecovery(backupDir, true)
+}
+
+func (a *App) saveSetupBackupRecovery(backupDir string, replace bool) (bool, error) {
 	saved := false
 	err := a.withServerJob(func() error {
 		if err := a.requireRecoverySetup(); err != nil {
 			return err
 		}
 		cfg := a.loadConfig()
-		if cfg.BackupCertificate != "" {
+		if cfg.BackupCertificate != "" && !replace {
 			return errors.New("the recovery file has already been saved; select it using Verify saved file")
 		}
 		path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
@@ -115,7 +198,8 @@ func (a *App) SaveSetupBackupRecovery(backupDir string) (bool, error) {
 	return saved, err
 }
 
-func (a *App) ChooseRecoveryFile() (string, error) {
+func (a *App) ChooseRecoveryFile() (chosen string, err error) {
+	defer a.logError(&err)
 	path, err := wruntime.OpenFileDialog(a.ctx, wruntime.OpenDialogOptions{
 		Title:   "Choose your backup recovery file",
 		Filters: []wruntime.FileFilter{{DisplayName: "CARE backup recovery file", Pattern: "*.pem"}},
@@ -230,11 +314,25 @@ func (a *App) saveAdminRecoveryCodes(path string) error {
 		return err
 	}
 	cfg.AdminRecoveryHashes = hashes
+	cfg.AdminRecoveryPath = path
 	cfg.RecoveryFailures, cfg.RecoveryRetryAfter = 0, 0
 	if err := a.saveConfig(cfg); err != nil {
 		return fmt.Errorf("could not activate the new recovery codes; keep the previous sheet and retry: %w", err)
 	}
 	return nil
+}
+
+func (a *App) OpenSetupRecoveryCodes() error {
+	return a.withReadJob(func() error {
+		if err := a.requireRecoverySetup(); err != nil {
+			return err
+		}
+		cfg := a.loadConfig()
+		if cfg.adminRecoveryCount() != 6 || adminCodesProblem(cfg) != "" {
+			return errors.New("the recovery codes file is unavailable; save a fresh set before continuing")
+		}
+		return openDocument(cfg.AdminRecoveryPath)
+	})
 }
 
 func (a *App) ChangeAdminPassword(currentPassword, newPassword string) error {

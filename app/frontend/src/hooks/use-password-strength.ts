@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { bridge } from "@/lib/bridge";
+import { bridge, logToHost } from "@/lib/bridge";
 
 export const DEFAULT_PW_MESSAGE =
   "Use 8 to 20 characters with an uppercase letter, a lowercase letter and a number.";
@@ -13,14 +13,15 @@ export type PasswordStrength = { strong: boolean; message: string };
  * dropped rather than painted.
  */
 export function usePasswordStrength(value: string): PasswordStrength {
-  const [strength, setStrength] = useState<PasswordStrength>({
+  const [strength, setStrength] = useState<PasswordStrength & { value: string }>({
+    value: "",
     strong: false,
     message: DEFAULT_PW_MESSAGE,
   });
 
   useEffect(() => {
     if (value === "") {
-      setStrength({ strong: false, message: DEFAULT_PW_MESSAGE });
+      setStrength({ value, strong: false, message: DEFAULT_PW_MESSAGE });
       return;
     }
     let live = true;
@@ -29,12 +30,15 @@ export function usePasswordStrength(value: string): PasswordStrength {
         (reason) => {
           if (!live) return;
           setStrength({
+            value,
             strong: reason === "",
             message: reason === "" ? "Strong password." : reason,
           });
         },
         () => {
-          /* the host is the only judge; leave the last verdict standing */
+          if (!live) return;
+          logToHost("password validation failed");
+          setStrength({ value, strong: false, message: "Couldn't check the password. Try typing it again." });
         },
       );
     }, 180);
@@ -44,5 +48,5 @@ export function usePasswordStrength(value: string): PasswordStrength {
     };
   }, [value]);
 
-  return strength;
+  return strength.value === value ? strength : { strong: false, message: value ? "Checking password…" : DEFAULT_PW_MESSAGE };
 }

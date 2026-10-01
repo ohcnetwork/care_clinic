@@ -1,5 +1,5 @@
-// The setup form lives above its screen so that bouncing off a failed install
-// never loses what the operator already typed.
+// Choices survive step navigation. Successful failed-install cleanup resets
+// this form because it invalidates the saved recovery material.
 export type SetupForm = {
   /** Without the ".local" suffix, which the field shows as a fixed adornment. */
   hostInput: string;

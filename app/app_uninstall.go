@@ -8,7 +8,8 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/autostart"
 )
 
-func (a *App) RunUninstall(removeImages, removeBackups, removeRancher bool, adminPassword string) error {
+func (a *App) RunUninstall(removeImages, removeBackups, removeRancher bool, adminPassword string) (err error) {
+	defer a.logError(&err)
 	return a.run(func() error {
 		if err := a.requireAdmin(adminPassword); err != nil {
 			return err
