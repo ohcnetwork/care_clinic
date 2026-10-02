@@ -79,9 +79,9 @@ function AdvancedContent() {
   return <div className="care-advanced" data-page={groupId ? "group" : "overview"} data-panel-blocked={disabled} tabIndex={-1}>
     <div className="advanced-heading" ref={headingRef} tabIndex={-1}>
       {groupId ? <div className="advanced-kicker">Advanced · Clinic settings</div> : null}
-      <PanelPageHeader title={group?.title ?? (groupId === "other" ? "Other settings" : "Advanced")}
-        subtitle={group?.summary ?? (groupId === "other" ? "Only change these settings with help from the person who supports CARE."
-          : "Settings for the person who looks after this clinic's computer.")}>
+      <PanelPageHeader title={group?.title ?? (groupId === "other" ? "Extra settings (for support)" : "Advanced")}
+        subtitle={group?.summary ?? (groupId === "other" ? "Only use this page with help from your CARE support person."
+          : "Clinic preferences and tools for your administrator.")}>
         {adminPassword !== null ? <div className="advanced-unlocked">
           <span>Locks after 15 minutes</span>
           <Button type="button" variant="ghost" size="sm" aria-label="Lock Advanced settings"

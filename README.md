@@ -62,10 +62,13 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   backup-now and one explicit **Restore from a backup file** path for local or
   imported files. Restoring requires the Desktop admin password, a recovery file
   for encrypted backups, and acknowledgement that clinic records will be replaced.
-- **Advanced** — plain-language clinic settings (backups, sign-in, patient SMS
-  codes, email, branding, languages, visits, billing), Desktop password recovery,
-  log, rebuild and uninstall. It locks 15 minutes after unlocking, or sooner
+- **Advanced** — ten everyday choices grouped into Clinic details, Patients and
+  visits, Billing, Backups and Staff access, plus Desktop password recovery,
+  log, rebuild and uninstall. Less-used local options keep their defaults or saved
+  values and can be overridden in **Extra settings (for support)**.
+  Advanced locks 15 minutes after unlocking, or sooner
   when you leave the tab; protected native actions still check the password.
+  Email, SMS/patient sign-in and MFA configuration are not exposed in this editor.
 - **Short permission prompts** — CARE's in-window confirmations explain the
   next action without a technical checklist. System password and certificate
   approvals still appear in the operating system's own dialogs.

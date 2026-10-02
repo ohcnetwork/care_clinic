@@ -155,6 +155,9 @@ func headline(r *Report, failed bool) string {
 		if r.LastRun.Reason == "disk_full" {
 			return "The last backup failed: the backup drive is full."
 		}
+		if r.LastRun.Reason == "database_unavailable" {
+			return "The last backup could not start: the database was not ready."
+		}
 		return "The last backup failed."
 	}
 	for _, d := range r.Drives {

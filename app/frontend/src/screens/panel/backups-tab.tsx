@@ -12,6 +12,7 @@ import {
   type BackupProblem,
 } from "./backup-ui";
 import { PanelPageHeader } from "./panel-ui";
+import { backupFailureDetail } from "./panel-status";
 import { usePanelUpdateLock } from "./panel-update-lock";
 import { RestoreBackupFile } from "./restore-backup-dialog";
 import "./backups.css";
@@ -287,12 +288,12 @@ export function BackupsTab() {
       {run?.state === "failed" && !backingUp && !automaticRunning ? (
         <BackupNotice title={run.reason === "disk_full" ? "The last backup didn't finish — there wasn't enough space" : "The last backup didn't finish"}
           actions={<>
-            <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button>
+            {run.reason !== "database_unavailable" ? <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button> : null}
             <Button disabled={disabled} onClick={() => void backUpNow()}>Try again now</Button>
           </>}>
           {run.reason === "disk_full"
             ? `${run.need_bytes > 0 ? `It needed about ${diskSize(run.need_bytes)} and ${diskSize(run.free_bytes)} was free. ` : ""}Free up space or choose another folder.`
-            : "Check that the backup folder is available and has enough space. Try again, or open the log file for support."}
+            : backupFailureDetail(run.reason)}
           {lastRun ? ` Last attempt: ${lastRun}.` : ""}
         </BackupNotice>
       ) : storage?.stale && !backingUp && !automaticRunning ? (

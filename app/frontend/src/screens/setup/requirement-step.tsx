@@ -89,8 +89,9 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
               const name = id === "docker" ? engine : "Git";
               const active = tool === id;
               const plan = id === "docker" ? software?.dockerPlan : software?.gitPlan;
+              const tone = status?.ok ? "ok" : tool ? "" : "bad";
               return <div className="on-data-row" key={id}>
-                <span className="on-tile">{active ? <Spinner /> : status?.ok ? <Check /> : <Download />}</span>
+                <span className={tone === "bad" ? "on-tile on-bad" : "on-tile"}>{active ? <Spinner /> : status?.ok ? <Check /> : <Download />}</span>
                 <div className="on-grow"><strong>{name}</strong>
                   <p>{active ? download?.phase === "downloading" ? `${diskSize(download.done)}${download.total > 0 ? ` of ${diskSize(download.total)}` : ""} downloaded`
                     : download?.phase === "verifying" ? "Checking the downloaded file"
@@ -99,7 +100,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
                     : status?.ok ? "Ready" : plan?.action === "open" ? "Installed, but not running" : "Not ready yet"}</p>
                   {active && download ? <Progress className="on-progress" aria-label={`${name} download progress`} value={download.total > 0 ? Math.max(0, Math.min(100, download.done / download.total * 100)) : null} /> : null}
                 </div>
-                <StatusBadge tone={status?.ok ? "ok" : ""}>{active ? "Working" : status?.ok ? "Ready" : tool ? "Waiting" : "Action required"}</StatusBadge>
+                <StatusBadge tone={tone}>{active ? "Working" : status?.ok ? "Ready" : tool ? "Waiting" : "Action required"}</StatusBadge>
               </div>;
             })}
           </div>

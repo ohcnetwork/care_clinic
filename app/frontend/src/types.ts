@@ -201,7 +201,7 @@ export type BackupSpace = {
 
 export type BackupRun = {
   state: "" | "ok" | "failed" | "running";
-  reason: "" | "disk_full" | "error";
+  reason: "" | "disk_full" | "database_unavailable" | "error";
   at: number;
   need_bytes: number;
   free_bytes: number;

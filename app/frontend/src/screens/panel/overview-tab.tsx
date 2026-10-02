@@ -10,7 +10,7 @@ import { diskSize } from "@/lib/format";
 import { RESTORE_PENDING_NOTICE, useCare } from "@/state/care-store";
 import { PhoneDialog } from "./phone-dialog";
 import { RequirementsCard, usePanelRequirements } from "./panel-requirements";
-import { panelStatus } from "./panel-status";
+import { backupFailureDetail, panelStatus } from "./panel-status";
 import { PanelBadge, PanelLogButton, PanelNotice, PanelPageHeader, usePanelTask } from "./panel-ui";
 import { usePanelUpdateLock } from "./panel-update-lock";
 
@@ -161,9 +161,7 @@ function BackupSummary({ locked, available, onBackup }: { locked: boolean; avail
     </div>
     <h2>{title}</h2>
     <p className="panel-small">{backupsError ? "Check the backup folder, then try again from Backups."
-      : failed ? storage?.last_run.reason === "disk_full"
-        ? "Make room in the backup folder or choose another location."
-        : "Check the backup folder, then try Back up now."
+      : failed ? backupFailureDetail(storage.last_run.reason)
         : stale ? "Leave CARE running and check that the backup folder is available."
           : latest ? details : working ? "Keep CARE running while it finishes."
             : "Backups run automatically while CARE is running. You can also start one now."}</p>

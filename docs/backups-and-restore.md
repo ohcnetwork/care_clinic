@@ -339,13 +339,25 @@ The script refuses to start without `/keys/backup-cert.pem` or a nonempty
 `POSTGRES_PASSWORD`. It defaults other database connection values to host `db`,
 port `5432`, user `postgres`, and database `care`.
 
+Both scheduled and manual backups wait for PostgreSQL to accept connections
+before dumping. Docker can restart the sidecar before the database after a
+runtime reboot, without reapplying Compose's initial `depends_on` ordering.
+Readiness uses the configured database connection values, with at most 30
+`pg_isready` checks, each bounded to five seconds and separated by five seconds.
+A scheduled attempt remains `running` while waiting. If the database never
+becomes ready, it records `database_unavailable`, skips all dump/archive and
+retention work, and reports the database problem rather than blaming the backup
+folder. Existing backup files remain untouched. A later successful scheduled or
+manual backup clears the failure status.
+
 ### Locking and publication
 
 ```mermaid
 flowchart TD
     Request["Scheduled cycle or manual once"] --> Lock["Acquire exclusive flock on .backup.lock"]
     Lock --> Collision["Reject existing final paths, including dangling links"]
-    Collision --> Dump["pg_dump -Fc into hidden plaintext file"]
+    Collision --> Ready["Wait for PostgreSQL to accept connections"]
+    Ready --> Dump["pg_dump -Fc into hidden plaintext file"]
     Dump --> Verify["pg_restore --list"]
     Verify --> Encrypt["CMS encrypt into hidden encrypted file"]
     Encrypt --> Remove["Remove plaintext; fail if removal fails"]

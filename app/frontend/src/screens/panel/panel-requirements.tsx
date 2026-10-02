@@ -24,6 +24,7 @@ type Fix = {
   label: string;
   run: () => Promise<unknown>;
   preview?: boolean;
+  progress?: string;
 };
 export type PanelCheck = {
   id: CheckId;
@@ -67,7 +68,10 @@ function useChecks() {
       run: () => bridge.OpenURL(plan.url),
     } : undefined;
     if (plan.action === "open") return id === "docker"
-      ? { label: "Start Rancher Desktop", run: () => bridge.OpenDocker() }
+      ? {
+        label: "Start Rancher Desktop", run: () => bridge.OpenDocker(),
+        progress: "Starting Rancher Desktop — this can take a minute.",
+      }
       : undefined;
     return {
       label: `Install ${id === "docker" ? "Rancher Desktop" : "Git"}`,
@@ -328,8 +332,9 @@ export function RequirementActions({ check }: { check: PanelCheck }) {
 }
 
 export function RequirementProgress({ checkId }: { checkId?: CheckId } = {}) {
-  const { running, target, previewing, download, failure } = usePanelRequirements();
+  const { checks, running, target, previewing, download, failure } = usePanelRequirements();
   if (checkId && target !== checkId) return null;
+  const progress = checks.find((check) => check.id === running)?.action?.progress;
   const percent = download?.phase === "downloading" && download.total > 0
     ? Math.max(0, Math.min(100, Math.round(download.done / download.total * 100))) : undefined;
   const label = previewing ? "Checking the download size…"
@@ -338,7 +343,7 @@ export function RequirementProgress({ checkId }: { checkId?: CheckId } = {}) {
         : download?.phase === "verifying" ? "Checking the downloaded file…"
           : download?.phase === "complete" ? "Installing — keep CARE Desktop open."
             : download?.phase === "failed" ? "The download didn't finish."
-              : "Working — keep CARE Desktop open.";
+              : progress ?? "Working — keep CARE Desktop open.";
   return <>
     {running || previewing ? <div className="panel-fix-progress" role="status">
       <div className="panel-row"><Spinner /><span>{label}</span></div>

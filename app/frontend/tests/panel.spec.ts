@@ -409,6 +409,38 @@ test("a failed startup-preference read has a safe read-only retry", async ({ pag
   expect(await calls(page, "SetAutostart")).toBe(2);
 });
 
+test("reopening stopped Rancher waits for native readiness, then unlocks clinic startup", async ({ page }) => {
+  await page.clock.install();
+  await openPanel(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.health.active = false;
+    window.careTest.fixtures.clinicStatus = "";
+    window.careTest.fixtures.docker = { ok: false, message: "Rancher Desktop is installed but not running." };
+    window.careTest.respond("DockerPlan", {
+      action: "open", label: "Open Rancher Desktop", detail: "", url: "", download_preview: false,
+    });
+    window.careTest.hold("OpenDocker");
+  });
+  await page.clock.fastForward(95_000);
+  await page.clock.runFor(5_100);
+  await page.locator(".panel-banner").getByRole("button", { name: "See what's wrong", exact: true }).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByRole("button", { name: "Start Rancher Desktop", exact: true }).dblclick();
+  await expect.poll(() => calls(page, "OpenDocker")).toBe(1);
+  const progress = dialog.getByRole("status").filter({ hasText: "Starting Rancher Desktop" });
+  await expect(progress).toContainText("this can take a minute");
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+  await page.clock.fastForward(60_000);
+  await expect(progress).toBeVisible();
+  expect(await calls(page, "OpenDocker")).toBe(1);
+  await page.evaluate(() => window.careTest.release("OpenDocker"));
+  await expect(dialog.getByText("Runs the clinic on this computer.", { exact: true })).toBeVisible();
+  await expect(progress).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Start clinic", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeEnabled();
+  expect(await calls(page, "ClinicAction")).toBe(0);
+});
+
 test("troubleshooting remains readable and keyboard accessible at minimum size", async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 560 });
   await page.clock.install();
@@ -524,6 +556,32 @@ test("the backup summary omits filesystem paths but keeps useful backup details"
   await expect(backup).not.toContainText("saved to");
   await expect(backup).toContainText("encrypted");
   await expect(backup.getByRole("button", { name: "View backups", exact: true })).toBeVisible();
+});
+
+test("database startup backup failures explain that saved backups are unaffected", async ({ page }) => {
+  await openPanel(page);
+  await page.evaluate(() => {
+    const report = window.careTest.fixtures.storage;
+    report.last_run = { ...report.last_run, state: "failed", reason: "database_unavailable" };
+    window.careTest.emit("care-storage", { ...report });
+  });
+  await expect(page.locator(".panel-banner")).toContainText("The database wasn't ready");
+  const backup = overview(page).getByRole("region", { name: "Backup summary", exact: true });
+  await expect(backup).toContainText("Saved backups are unaffected");
+  await expect(backup).not.toContainText("Check the backup folder");
+  await section(page, "Backups").click();
+  const backups = page.locator(".care-backups");
+  await expect(backups.getByRole("alert")).toContainText("The database wasn't ready");
+  await expect(backups.getByRole("region", { name: "Saved backups", exact: true })).toBeVisible();
+  await expect(backups.getByRole("button", { name: "Choose another folder", exact: true })).toHaveCount(0);
+  await expect(backups.getByRole("button", { name: "Try again now", exact: true })).toBeEnabled();
+  await page.evaluate(() => {
+    const report = window.careTest.fixtures.storage;
+    report.last_run = { ...report.last_run, state: "ok", reason: "" };
+    window.careTest.emit("care-storage", { ...report });
+  });
+  await expect(backups.getByRole("alert")).toHaveCount(0);
+  await expect(backups).toContainText("Last completed backup");
 });
 
 test("a failed storage read does not present old backup health or location as current", async ({ page }) => {

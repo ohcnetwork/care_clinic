@@ -35,8 +35,8 @@ screen's time estimate is not a deadline or measured installation progress.
    installation files, and the applicable Windows setup and network requirements.
    Passing checks can advance automatically; a failed check keeps an explanation,
    a fix where available, and a way to check again. Requirements that do not apply
-   to this operating system are omitted. **Action required** identifies a check
-   that needs intervention; **Ready** identifies a passing check.
+   to this operating system are omitted. A red **Action required** badge identifies
+   a check that needs intervention; a green **Ready** badge identifies a passing check.
 2. **Clinic address.** Choose the local clinic name. CARE validates it and checks
    for another visible server using it. Keep other clinic servers awake during
    setup: an offline or isolated computer cannot be detected. Choosing a name
@@ -146,7 +146,7 @@ and [earlier-installation recovery](client-recovery.md).
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
 | Updates | Separate CARE backend/frontend updates and CARE Desktop application updates. |
 | Plugins | Add catalog or custom plugins, edit their settings, and Save and apply. No Desktop password is required. |
-| Advanced | Password-protected clinic settings, Desktop password/recovery management, diagnostic log, rebuild and uninstall. |
+| Advanced | Ten everyday clinic settings, support-only extra overrides, Desktop password/recovery management, diagnostic log, rebuild and uninstall. |
 
 **Connect phone or tablet** displays a real QR code for
 `http://<clinic>.local/setup`. Phones and tablets still need to follow their
@@ -178,6 +178,13 @@ unfinished, use Start from Overview to run its recovery path before starting
 another restore.
 
 ### Advanced's 15-minute unlock
+
+Clinic settings are grouped into **Clinic details**, **Patients and visits**,
+**Billing**, **Backups** and **Staff access**. **Save changes** applies the
+selected preferences and may briefly interrupt staff using CARE. Less-used
+options keep their defaults or previously saved values. Only open
+**Extra settings (for support)** when your CARE support person asks you to;
+its values override the defaults. Email, SMS and MFA settings remain excluded.
 
 Advanced locks **15 minutes after a successful unlock**, even while the user is
 active. It is not an inactivity timeout. Leaving the tab or using **Lock** locks
