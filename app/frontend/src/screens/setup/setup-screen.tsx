@@ -7,6 +7,7 @@ import { useAppUpdate, type AppUpdateController } from "@/hooks/use-app-update";
 import { usePasswordStrength } from "@/hooks/use-password-strength";
 import { bridge, onCareEvent } from "@/lib/bridge";
 import { diskSize, errorText, normaliseHost } from "@/lib/format";
+import { downloadProblem, type PrerequisiteProblem } from "@/lib/prerequisite-errors";
 import { useCare } from "@/state/care-store";
 import type { SetupForm } from "@/state/forms";
 import type { BackupSpace, PrereqDownloadProgress, ResidueReport, RestartPlan, SetupIssue, SetupPage, ToolPlan } from "@/types";
@@ -62,7 +63,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
   const workRef = useRef(false);
   const [tool, setTool] = useState("");
   const [download, setDownload] = useState<PrereqDownloadProgress | null>(null);
-  const [problem, setProblem] = useState("");
+  const [problem, setProblem] = useState<PrerequisiteProblem | null>(null);
   const [actionNote, setActionNote] = useState("");
   const [cleanupBefore, setCleanupBefore] = useState<ResidueReport | null>(null);
   const [restart, setRestartState] = useState<RestartPlan | null>(null);
@@ -261,12 +262,12 @@ function SetupWizard({ form, patch, update, onBusy }: {
     workRef.current = true;
     onBusy(true);
     setOperation(name);
-    setProblem("");
+    setProblem(null);
     if (recoveryAction) setRecoveryError("");
     try { await fn(); } catch (e) {
       care.log(`setup ${name}: ${errorText(e)}`);
       if (recoveryAction) setRecoveryError(recoveryProblem(errorText(e)));
-      else setProblem("This step couldn't finish. Try again. If it keeps happening, share the log file with your support contact.");
+      else setProblem({ message: "This step couldn't finish. Try again. If it keeps happening, share the log file with your support contact." });
     } finally {
       workRef.current = false;
       syncBusy();
@@ -284,7 +285,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
         await visit("space");
       } catch (e) {
         care.log(`prepare setup: ${errorText(e)}`);
-        setProblem("Couldn't read the saved setup. Check this step again before continuing.");
+        setProblem({ message: "Couldn't read the saved setup. Check this step again before continuing." });
       } finally { workRef.current = false; syncBusy(); if (mounted.current) setOperation(""); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -355,11 +356,11 @@ function SetupWizard({ form, patch, update, onBusy }: {
     } catch (e) {
       care.log(`setup ${action}: ${errorText(e)}`);
       const text = errorText(e);
-      setProblem(action === "cleanup" ? "Cleanup didn't finish. Check what's still listed and try again. Approve the request if your computer asks for permission."
-        : /sha.?256|checksum|hash mismatch/i.test(text) ? "The downloaded file isn't the one this version of CARE expects. It wasn't installed. Try again; if it happens twice, share the log file."
-        : /no progress|stopped making progress|download.*timed out/i.test(text) ? "The download stopped making progress. Check the internet connection and try again. The part already downloaded is discarded; the download starts again."
-        : /cancel|denied|permission|-128/i.test(text) ? "Your computer didn't approve the change. Try again and approve the request when your computer asks."
-        : "The required change couldn't finish. Try again. If it keeps failing, send the log file to your support contact.");
+      setProblem(action === "cleanup"
+        ? { message: "Cleanup didn't finish. Check what's still listed and try again. Approve the request if your computer asks for permission." }
+        : downloadProblem(e) ?? { message: /cancel|denied|permission|-128/i.test(text)
+          ? "Your computer didn't approve the change. Try again and approve the request when your computer asks."
+          : "The required change couldn't finish. Try again. If it keeps failing, send the log file to your support contact." });
       await requirements.check(target);
       if (action === "cleanup") await loadRecovery();
     }
@@ -416,7 +417,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
       } catch (e) {
         care.log(`start installation: ${errorText(e)}`);
         const failures = await validateReview();
-        if (!failures.length) setProblem("Installation hasn't started. CARE couldn't accept the request. Wait a moment and try again, or share the log file.");
+        if (!failures.length) setProblem({ message: "Installation hasn't started. CARE couldn't accept the request. Wait a moment and try again, or share the log file." });
       }
       return;
     }
@@ -507,7 +508,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
           onSave={() => saveRecovery("save-codes")} onPrint={() => void execute("open-codes", () => bridge.OpenSetupRecoveryCodes(), true)} onReload={reloadRecovery}
           onBackups={() => void execute("backup-location", () => visit("backup", editingRef.current ? "edit" : "back"))} />
         : <ReviewStep steps={steps} form={form} backupPath={space?.dir || form.backupDir} issues={issues} verified={verified} busy={locked} onEdit={edit} />}
-      {problem && !isRequirement(page) ? <Callout tone="danger" title={page === "review" ? "Nothing has been installed yet" : "This step couldn't finish"}>{problem}
+      {problem && !isRequirement(page) ? <Callout tone="danger" title={page === "review" ? "Nothing has been installed yet" : "This step couldn't finish"}>{problem.message}
         <div className="on-actions"><Button disabled={locked} onClick={() => void execute("checking", () => visit(pageRef.current, editingRef.current ? "edit" : "back"))}>Try again</Button><LogButton /></div>
       </Callout> : null}
     </SetupLayout>

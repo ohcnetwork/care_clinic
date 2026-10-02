@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { bridge, onCareEvent } from "@/lib/bridge";
 import { diskSize, errorText } from "@/lib/format";
+import { downloadProblem, type PrerequisiteProblem } from "@/lib/prerequisite-errors";
 import { RestartDialog } from "@/screens/setup/restart-dialog";
 import { useCare } from "@/state/care-store";
 import type { DownloadInfo, PrereqDownloadProgress, RestartPlan, ToolPlan } from "@/types";
@@ -51,7 +52,7 @@ function useChecks() {
   const [target, setTarget] = useState<CheckId | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [confirmation, setConfirmation] = useState<{ check: PanelCheck; info: DownloadInfo } | null>(null);
-  const [failure, setFailure] = useState("");
+  const [failure, setFailure] = useState<PrerequisiteProblem | null>(null);
   const [download, setDownload] = useState<PrereqDownloadProgress | null>(null);
   const [restart, setRestart] = useState<RestartPlan | null>(null);
   const mounted = useRef(false);
@@ -201,7 +202,7 @@ function useChecks() {
     if (fixing.current) setDownload(value);
   }), []);
   useEffect(() => {
-    if (target === "clinic") setFailure(operationError?.action === "start" ? operationError.message : "");
+    if (target === "clinic") setFailure(operationError?.action === "start" ? { message: operationError.message } : null);
   }, [operationError, target]);
 
   const execute = async (check: PanelCheck) => {
@@ -209,14 +210,14 @@ function useChecks() {
     executing.current = true;
     fixing.current = true;
     setConfirmation(null);
-    setFailure("");
+    setFailure(null);
     setDownload(null);
     setRunning(check.id);
     setTarget(check.id);
     try {
       const result = await check.action.run();
       if (check.id === "clinic" && result === false) {
-        setFailure("CARE couldn't start. Try again, or open the log file for support.");
+        setFailure({ message: "CARE couldn't start. Try again, or open the log file for support." });
         return;
       }
       if (typeof result === "string" && result) log(`requirement action: ${result}`);
@@ -226,7 +227,7 @@ function useChecks() {
       }
     } catch (error) {
       log(`fix ${check.id}: ${errorText(error)}`);
-      setFailure("That didn't finish. Try again. If it keeps failing, share the log file with support.");
+      setFailure(downloadProblem(error) ?? { message: "That didn't finish. Try again. If it keeps failing, share the log file with support." });
     } finally {
       executing.current = false;
       fixing.current = false;
@@ -242,18 +243,18 @@ function useChecks() {
     setTarget(check.id);
     if (!check.action.preview) { await execute(check); return; }
     setPreviewing(true);
-    setFailure("");
+    setFailure(null);
     try {
       const info = await bridge.RancherDownloadInfo();
       if (updateLock.isActive()) {
         fixing.current = false;
-        setFailure("Finish the CARE Desktop update, then try the fix again.");
+        setFailure({ message: "Finish the CARE Desktop update, then try the fix again." });
         return;
       }
       setConfirmation({ check, info });
     } catch (error) {
       log(`Rancher Desktop download size: ${errorText(error)}`);
-      setFailure("Couldn't check the download. Connect to the internet and try again.");
+      setFailure(downloadProblem(error, true) ?? { message: "Couldn't check the download. Connect to the internet and try again." });
       fixing.current = false;
     } finally {
       setPreviewing(false);
@@ -355,7 +356,7 @@ export function RequirementProgress({ checkId }: { checkId?: CheckId } = {}) {
         </div> : null}
       </> : null}
     </div> : null}
-    {failure ? <PanelNotice title="Couldn't finish the fix" actions={<PanelLogButton />}>{failure}</PanelNotice> : null}
+    {failure ? <PanelNotice title={failure.title ?? "Couldn't finish the fix"} actions={<PanelLogButton />}>{failure.message}</PanelNotice> : null}
   </>;
 }
 

@@ -631,7 +631,7 @@ func (pr *Provisioner) download(d Download) (path string, resultErr error) {
 	defer client.CloseIdleConnections()
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("could not download %s: %w", name, err)
+		return "", fmt.Errorf("could not download %s: %w", name, downloadError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -661,10 +661,10 @@ func (pr *Provisioner) download(d Download) (path string, resultErr error) {
 	if err != nil {
 		_ = os.Remove(path)
 		if ctx.Err() != nil {
-			return "", fmt.Errorf("the download of %s stopped making progress for %s - "+
-				"check this computer's internet connection and try again", name, downloadStallTimeout)
+			return "", downloadError(fmt.Errorf("the download of %s stopped making progress for %s - "+
+				"check this computer's internet connection and try again: %w", name, downloadStallTimeout, ctx.Err()))
 		}
-		return "", fmt.Errorf("could not download %s: %w", name, err)
+		return "", fmt.Errorf("could not download %s: %w", name, downloadError(err))
 	}
 	if closeErr != nil {
 		_ = os.Remove(path)
