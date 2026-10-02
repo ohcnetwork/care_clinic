@@ -75,6 +75,8 @@ func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 		return fmt.Errorf("start %s: %w", name, err)
 	}
 	var wg sync.WaitGroup
+	var outputMu sync.Mutex
+	linesSinceNetworkFailure := networkDiagnosticTail
 
 	stream := func(rd io.Reader) {
 		defer wg.Done()
@@ -83,6 +85,13 @@ func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 		for {
 			chunk, isPrefix, err := br.ReadLine()
 			if len(chunk) > 0 && !skipping {
+				outputMu.Lock()
+				if networkFailure.Match(chunk) {
+					linesSinceNetworkFailure = 0
+				} else if linesSinceNetworkFailure < networkDiagnosticTail {
+					linesSinceNetworkFailure++
+				}
+				outputMu.Unlock()
 				r.logln(string(chunk))
 				if isPrefix {
 					r.logln("  (line too long to show in full - truncated)")
@@ -98,7 +107,11 @@ func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 	go stream(stdout)
 	go stream(stderr)
 	wg.Wait()
-	return cmd.Wait()
+	err = cmd.Wait()
+	if err != nil && linesSinceNetworkFailure < networkDiagnosticTail && (r.Ctx == nil || r.Ctx.Err() == nil) {
+		return &NetworkError{Err: err}
+	}
+	return err
 }
 
 // Capture returns trimmed stdout without streaming.

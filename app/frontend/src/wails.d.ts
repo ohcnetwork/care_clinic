@@ -89,6 +89,7 @@ declare global {
             adminPassword: string,
             backupDir: string,
           ): Promise<void>;
+          RetrySetup(): Promise<void>;
           CleanupFailedInstall(): Promise<void>;
           ReadEnv(name: string, adminPassword: string): Promise<string>;
           WriteEnv(name: string, content: string, adminPassword: string): Promise<void>;

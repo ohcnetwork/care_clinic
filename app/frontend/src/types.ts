@@ -55,6 +55,7 @@ export type SetupPage =
   | "space" | "windows" | "software" | "cleanup" | "network"
   | "address" | "backup" | "admin" | "review" | "install";
 export type SetupIssue = { step: SetupPage; message: string };
+export type SetupFailure = { can_retry: boolean; download_interrupted: boolean };
 export type SetupRecoveryStatus = {
   backup_saved: boolean;
   backup_verified: boolean;
