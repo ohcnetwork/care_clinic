@@ -443,7 +443,7 @@ uses rather than assuming one:
 | Plan action | Behavior |
 | --- | --- |
 | `""` | Docker answers; the action proceeds. |
-| `open` | Ask the operator for confirmation, then `OpenDocker()`, which launches the engine and waits up to three minutes. Declining returns the readiness message as the error. |
+| `open` | Ask the operator for confirmation, then `OpenDocker()`, which launches the engine and waits up to eight minutes. If Rancher exits during startup, retry its launch once and fail early if it does not stay running. Declining returns the readiness message as the error. |
 | anything else | Return the readiness message and point at the requirements check; the engine is missing, not merely stopped. |
 
 `stop` is excluded deliberately: reporting that an unreachable clinic is not

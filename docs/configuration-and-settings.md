@@ -296,11 +296,37 @@ assignments are quoted and normalized individually; new values use the file's
 existing line-ending convention. Friendly controls and new custom edits require
 single-line values. This is still not a replacement for the native dotenv parser.
 
-The schema covers backups, staff sign-in, patient sign-in/SMS, email, branding, region, visits, registration, billing/pharmacy, and form behavior. Defaults are display/application defaults, not instructions to insert every absent key on save.
+The normal clinic editor exposes ten everyday choices:
 
-Undescribed non-hidden keys appear in "Other settings." New `REACT_` keys are
-directed to the frontend; other new keys go to the backend. The editor rejects
-duplicate names, names already owned by a described control, and protected keys.
+| Group | Settings |
+| --- | --- |
+| Clinic details | Clinic display name and languages for staff. |
+| Patients and visits | Usual visit type and a shorter registration form. |
+| Billing | Usual payment method, payment instructions, tax-inclusive prices and opening a bill after dispensing. |
+| Backups | How long to keep backups. |
+| Staff access | How long inactive staff stay signed in. |
+
+Less-used local options, such as logos, country defaults, enabled visit types,
+form preferences and queue refresh timing, are not part of these groups. They
+keep their existing values or CARE's defaults and can be overridden in
+**Extra settings (for support)**. Saving an everyday choice does not reset or
+insert those options. The usual visit selector still checks the clinic's saved
+enabled visit types before accepting a new choice.
+
+Email and patient sign-in/SMS controls are not offered. Their environment keys,
+along with SMTP, OTP, MFA/TOTP and reCAPTCHA configuration, are hidden from
+"Extra settings (for support)" and cannot be added there. Existing values,
+including backend placeholders needed at startup, remain untouched when other
+settings are saved.
+This is an editor restriction, not a change to CARE's authentication or existing
+MFA configuration. Local password rate limiting, idle sign-out, request
+protection and offline Desktop recovery remain available. Branding URLs can
+point to assets hosted on the clinic's local network.
+
+Undescribed non-hidden keys appear in "Extra settings (for support)." New
+`REACT_` keys are directed to the frontend; other new keys go to the backend.
+The editor rejects duplicate names, names already owned by a described control,
+and protected keys.
 
 Protected keys cannot be changed through this editor, including
 `ADDITIONAL_PLUGS`, service credentials and generated connection settings.
@@ -308,6 +334,38 @@ The editor preserves their latest file contents when saving other changes.
 This is an interface policy, not a new native security boundary: authenticated
 `WriteEnv` still validates syntax rather than an application-specific key
 allow-list, and engine-owned values may be rewritten by the engine.
+
+### Defaults and manual overrides
+
+Explicit values in the installed environment files override CARE's corresponding
+defaults. The settings panel edits those same files; it is not a separate
+configuration layer. Friendly controls replace their own keys, and the support
+editor can add or change other permitted keys. Before saving, both paths read
+the latest files and merge only the operator's edits.
+
+Frontend values are copied into CARE's `.env.local` when its image is built.
+They take effect after applying the changes and rebuilding the frontend.
+Clearing an optional friendly control removes its assignment and lets CARE's
+default apply. In the support editor, an explicitly blank `KEY=` stays blank;
+blank and missing values can behave differently depending on the CARE setting.
+The editor's fallback hints do not write defaults into the file.
+
+The new-install frontend template includes these visit/address settings:
+
+| Key | Shipped value | Meaning |
+| --- | --- | --- |
+| `REACT_DEFAULT_ENCOUNTER_TYPE` | Empty | No explicit preset. A single enabled visit type is selected automatically; otherwise staff choose. Set `hh` for Home health. |
+| `REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED` | `0` | The currently configured CARE frontend clamps this to **1 required address level**, not an optional address. |
+| `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled area. A support override must use the UUID of an existing CARE geographic organization, not its name. |
+
+The address settings are support-only. CARE's current behavior is defined in
+[`care.config.ts`](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/care.config.ts#L283-L303).
+Unlike generic extra settings, the default area cannot have a blank assignment:
+CARE's [build validator](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/scripts/validate-env.ts)
+requires a UUID when this key is present. The editor rejects blank or malformed
+area IDs; remove the setting to clear the default area.
+Existing installations preserve their `frontend.env`, so template changes do
+not replace an existing clinic's choices or migrate missing keys automatically.
 
 ## Managed values
 

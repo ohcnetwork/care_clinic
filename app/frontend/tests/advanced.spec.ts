@@ -1,21 +1,36 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
-import { editableEnvLines, mergeEnvChanges, validateSetting } from "../src/screens/panel/advanced-env";
-import { SETTING_BY_KEY } from "../src/screens/panel/env-schema";
+import { editableEnvLines, mergeEnvChanges, validateExtraSetting, validateSetting } from "../src/screens/panel/advanced-env";
+import { GROUPS, isHiddenKey, SETTING_BY_KEY, SETTINGS } from "../src/screens/panel/env-schema";
 import { getValue } from "../src/lib/env-file";
 
 const desktopPassword = "ClinicTest123";
 const nextPassword = "ClinicChanged456";
 const recoveryCode = "0123-4567-89AB-CDEF-0123-4567-89AB-CDEF";
+const unavailableSettings = [
+  "REACT_DISABLE_PATIENT_LOGIN=true", "USE_SMS=False",
+  "SMS_BACKEND=care.utils.sms.backend.console.ConsoleBackend",
+  "SNS_ACCESS_KEY=preview-sns-access", "SNS_SECRET_KEY='preview-sns-secret'", "SNS_REGION=ap-south-1",
+  "OTP_VALIDITY_MINUTES=10", "OTP_MAX_FAILURES=5", "OTP_LOCKOUT_MINUTES=60", "REACT_APP_RESEND_OTP_TIMEOUT=30",
+  "EMAIL_HOST=smtp.example.test", "EMAIL_PORT=587", "EMAIL_USER=clinic@example.test",
+  "EMAIL_PASSWORD='preview-mail-secret'", "EMAIL_FROM=clinic@example.test",
+  "DEFAULT_FROM_EMAIL=clinic@example.test", "SERVER_EMAIL=server@example.test", "SMTP_HOST=smtp.example.test",
+  "ENABLE_OTP_LOGIN=False", "ENABLE_MFA=True", "MFA_ENABLED=True", "TOTP_ISSUER=CARE",
+  "REACT_ENABLE_MFA=true", "REACT_MFA_ENABLED=true", "RECAPTCHA_SECRET_KEY='preview-captcha-secret'",
+];
+const extraSettings = [
+  "DISABLE_RATELIMIT=False", "CORAZA_MODE=DetectionOnly",
+  "REACT_DEFAULT_COUNTRY=IN", "REACT_DEFAULT_COUNTRY_NAME=India",
+  "REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED=0",
+];
 const environment = [
   "# Simulated clinic settings", "  ", "DJANGO_SECRET_KEY='test-only-secret'",
   "ADDITIONAL_PLUGS='preview-plugin-config'", "DB_BACKUP_RETENTION_PERIOD=0",
-  "DISABLE_RATELIMIT=False", "JWT_REFRESH_TOKEN_LIFETIME=30", "CORAZA_MODE=DetectionOnly",
-  "REACT_DISABLE_PATIENT_LOGIN=true", "USE_SMS=False", "EMAIL_HOST=smtp.example.test",
-  "EMAIL_PASSWORD='preview-mail-secret'", "REACT_APP_TITLE=Sunrise Clinic",
-  "REACT_ALLOWED_LOCALES=en,ml", "REACT_DEFAULT_COUNTRY=IN", "REACT_DEFAULT_COUNTRY_NAME=India",
+  "JWT_REFRESH_TOKEN_LIFETIME=30",
+  ...unavailableSettings, "REACT_APP_TITLE=Sunrise Clinic", "REACT_DEFAULT_ENCOUNTER_TYPE=",
+  "REACT_ALLOWED_LOCALES=en,ml", ...extraSettings,
   "",
 ].join("\r\n");
 const backendEnvironment = environment.split("\r\n").filter((line) => !line.startsWith("REACT_")).join("\r\n");
@@ -48,12 +63,18 @@ async function unlock(page: Page, password = desktopPassword) {
   await root(page).getByLabel("Desktop admin password", { exact: true }).fill(password);
   await root(page).getByRole("button", { name: "Unlock", exact: true }).click();
   await expect(root(page).getByRole("heading", { name: "Clinic settings", exact: true })).toBeVisible();
-  await expect(root(page).getByRole("button", { name: /Staff sign-in and security/ })).toBeEnabled();
+  await expect(root(page).getByRole("button", { name: /^Staff access/ })).toBeEnabled();
 }
 
 async function group(page: Page, name: string) {
-  await root(page).getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  await root(page).locator("[data-advanced-group]").filter({ hasText: name }).click();
   await expect(root(page).getByRole("heading", { name, exact: true })).toBeVisible();
+}
+
+async function addCustomSetting(page: Page, key: string, value: string) {
+  await root(page).getByRole("button", { name: "Add setting", exact: true }).click();
+  await root(page).getByLabel("Setting name", { exact: true }).last().fill(key);
+  await root(page).getByLabel(`Value for ${key}`, { exact: true }).fill(value);
 }
 
 async function fillNewPassword(page: Page, scope = root(page)) {
@@ -111,21 +132,98 @@ test("environment merging preserves unrelated bytes, quotes, multiline secrets a
   expect(mergeEnvChanges("A=one\n", [{ key: "A", value: " leading and trailing " }], "backend")).toBe("A=' leading and trailing '\n");
 });
 
-test("environment validators reject unsafe numbers, multiline values, malformed logos and unknown choices", () => {
+test("environment validators reject unsafe numbers, multiline values and unknown choices", () => {
   const validate = (key: string, value: string) => validateSetting(SETTING_BY_KEY.get(key)!, value);
   expect(validate("JWT_REFRESH_TOKEN_LIFETIME", "4")).toContain("at least 5");
   expect(validate("JWT_REFRESH_TOKEN_LIFETIME", "1.5")).toContain("whole number");
   expect(validate("DB_BACKUP_RETENTION_PERIOD", "0")).toBeNull();
   expect(validate("DB_BACKUP_RETENTION_PERIOD", "")).toContain("Enter a number");
-  expect(validate("EMAIL_PASSWORD", "secret\nNEW_KEY=bad")).toContain("one line");
-  expect(validate("EMAIL_PASSWORD", " leading and trailing ")).toBeNull();
-  expect(validate("REACT_DEFAULT_COUNTRY", "India")).toContain("two-letter");
-  expect(validate("CORAZA_MODE", "Unknown")).toContain("listed");
+  expect(validate("REACT_APP_TITLE", "Clinic\nNEW_KEY=bad")).toContain("one line");
+  expect(validate("REACT_APP_TITLE", "Sunrise Clinic")).toBeNull();
+  expect(validate("REACT_DEFAULT_ENCOUNTER_TYPE", "")).toBeNull();
+  expect(validate("REACT_DEFAULT_ENCOUNTER_TYPE", "hh")).toBeNull();
+  expect(validate("REACT_DEFAULT_ENCOUNTER_TYPE", "Unknown")).toContain("listed");
   expect(validate("REACT_ALLOWED_LOCALES", "")).toContain("at least one");
-  expect(validate("REACT_MAIN_LOGO", "null")).not.toBeNull();
-  expect(validate("REACT_MAIN_LOGO", '{"light":42}')).not.toBeNull();
-  expect(validate("REACT_MAIN_LOGO", '{"light":"javascript:alert(1)"}')).not.toBeNull();
-  expect(validate("REACT_MAIN_LOGO", '{"light":"https://clinic.example/logo.svg","dark":""}')).toBeNull();
+  expect(validate("REACT_ALLOWED_LOCALES", "unknown")).toContain("unlisted");
+});
+
+test("support overrides require a valid default area UUID without restricting other blank values", () => {
+  const key = "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG";
+  const areaId = "ea3f8598-3d8e-4a8b-b849-06128ae2e9a7";
+  for (const value of [
+    "", "Kerala", ` ${areaId} `, areaId.replace("-4a8b-", "-9a8b-"), areaId.replace("-b849-", "-7849-"),
+  ]) {
+    expect(validateExtraSetting(key, value), value).toContain("remove this setting");
+  }
+  for (const value of [
+    areaId, areaId.toUpperCase(), "01933cc4-e57f-785b-955f-2f00e2a241bb",
+    "00000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff",
+  ]) {
+    expect(validateExtraSetting(key, value), value).toBeNull();
+  }
+  expect(validateExtraSetting("CUSTOM_OPTION", "")).toBeNull();
+  expect(validateExtraSetting("CUSTOM_OPTION", "value\nNEW_KEY=bad")).toContain("one line");
+  expect(validateExtraSetting("REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED", "0")).toBeNull();
+});
+
+test("Advanced exposes only ten everyday clinic choices and keeps local extras overridable", () => {
+  expect(GROUPS.map((entry) => entry.id)).toEqual([
+    "branding", "visits", "billing", "backups", "signin",
+  ]);
+  expect(SETTINGS.map((setting) => setting.key)).toEqual([
+    "REACT_APP_TITLE", "REACT_ALLOWED_LOCALES", "REACT_DEFAULT_ENCOUNTER_TYPE",
+    "REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION", "REACT_DEFAULT_PAYMENT_METHOD",
+    "REACT_DEFAULT_PAYMENT_TERMS", "REACT_INVENTORY_DEFAULT_TAX_INCLUSIVE",
+    "REACT_ENABLE_AUTO_INVOICE_AFTER_DISPENSE", "DB_BACKUP_RETENTION_PERIOD", "JWT_REFRESH_TOKEN_LIFETIME",
+  ]);
+  expect(SETTINGS.every((setting) => !isHiddenKey(setting.key))).toBe(true);
+  for (const entry of unavailableSettings) {
+    const key = entry.split("=")[0];
+    expect(SETTING_BY_KEY.has(key), key).toBe(false);
+    expect(isHiddenKey(key), key).toBe(true);
+  }
+  for (const key of [
+    ...extraSettings.map((entry) => entry.split("=")[0]),
+    "TIME_ZONE", "CUSTOM_SECRET", "REACT_CARE_ENABLE_DASHBOARD", "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG",
+    "REACT_MAIN_LOGO", "REACT_AUTO_REFRESH_INTERVAL", "REACT_ALLOWED_ENCOUNTER_CLASSES",
+  ]) {
+    expect(SETTING_BY_KEY.has(key), key).toBe(false);
+    expect(isHiddenKey(key), key).toBe(false);
+  }
+});
+
+test("new clinic templates include visit and address defaults without an invalid blank area ID", async () => {
+  const contents = await readFile(new URL("../../../deployments/frontend.env", import.meta.url), "utf8");
+  const lines = editableEnvLines(contents);
+  expect(getValue(lines, "REACT_DEFAULT_ENCOUNTER_TYPE")).toBe("");
+  expect(getValue(lines, "REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED")).toBe("0");
+  expect(getValue(lines, "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG")).toBeUndefined();
+  expect(contents).toContain("# REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG=");
+});
+
+test("email, SMS, patient sign-in and MFA settings cannot reappear in support-only extras", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await expect(root(page).locator("[data-advanced-group]")).toHaveCount(6);
+  await expect(root(page).getByRole("button", { name: /^Patient sign-in/ })).toHaveCount(0);
+  await expect(root(page).getByRole("button", { name: /^Outgoing email/ })).toHaveCount(0);
+  await group(page, "Extra settings (for support)");
+  const existingNames = root(page).getByLabel("Setting name", { exact: true });
+  await expect(existingNames).toHaveCount(extraSettings.length);
+  for (const [index, entry] of extraSettings.entries()) {
+    await expect(existingNames.nth(index)).toHaveValue(entry.split("=")[0]);
+  }
+  await root(page).getByRole("button", { name: "Add setting", exact: true }).click();
+  const name = root(page).getByLabel("Setting name", { exact: true }).last();
+  const save = root(page).getByRole("button", { name: "Save changes", exact: true });
+  for (const entry of unavailableSettings) {
+    await name.fill(entry.split("=")[0]);
+    await expect(root(page)).toContainText("This setting is protected by CARE Desktop.");
+    await expect(save).toBeDisabled();
+  }
+  await save.dispatchEvent("click");
+  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ClinicAction")).toBe(0);
 });
 
 for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) {
@@ -144,7 +242,13 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     await expect(root(page)).toContainText("Keep backups forever");
     await expect(root(page)).toContainText("Sunrise Clinic");
     await screenshot(page, `advanced-overview-${size.width}x${size.height}`);
-    await group(page, "Staff sign-in and security");
+    for (const entry of GROUPS) {
+      await group(page, entry.title);
+      await expect(root(page).locator(".advanced-setting")).toHaveCount(entry.settings.length);
+      await fits(page);
+      await root(page).getByRole("button", { name: "Back to settings", exact: true }).click();
+    }
+    await group(page, "Staff access");
     await fits(page);
     await screenshot(page, `advanced-signin-${size.width}x${size.height}`);
     await root(page).getByRole("button", { name: "Back to settings", exact: true }).click();
@@ -165,7 +269,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
 test("Advanced navigation never starts writes, rebuilds, recovery resets or removals", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Staff sign-in and security");
+  await group(page, "Staff access");
   await root(page).getByRole("button", { name: "Back to settings" }).click();
   await openRemoval(page);
   await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
@@ -198,24 +302,28 @@ test("Desktop gate rejects web passwords, redacts errors and prevents duplicate 
 test("leaving Advanced clears sensitive inputs and requires a new unlock", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Outgoing email");
-  await root(page).getByLabel("Mail password", { exact: true }).fill("UnsavedPreview789");
-  await root(page).getByRole("button", { name: "Show mail password" }).click();
+  await group(page, "Extra settings (for support)");
+  await addCustomSetting(page, "CUSTOM_SECRET", "UnsavedPreview789");
+  await root(page).getByRole("button", { name: "Show value for custom_secret", exact: true }).click();
+  await expect(root(page).getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveAttribute("type", "text");
   await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await expect(page.getByLabel("Mail password", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Advanced", exact: true }).click();
   await expect(root(page).getByLabel("Desktop admin password", { exact: true })).toHaveValue("");
+  await unlock(page);
+  await group(page, "Extra settings (for support)");
+  await expect(root(page).getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveCount(0);
   expect(await count(page, "WriteEnv")).toBe(0);
 });
 
 test("group validation, discard and back confirmation never save implicitly", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Staff sign-in and security");
-  const minutes = root(page).getByRole("spinbutton", { name: "Sign staff out after being idle for" });
+  await group(page, "Staff access");
+  const minutes = root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" });
   await minutes.fill("4");
   await expect(root(page)).toContainText("Must be at least 5");
-  await expect(root(page).getByRole("button", { name: "Save and restart" })).toBeDisabled();
+  await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
   await minutes.fill("20");
   await root(page).getByRole("button", { name: "Back to settings" }).click();
   await expect(dialog(page)).toContainText("Discard unsaved settings?");
@@ -229,15 +337,15 @@ test("group validation, discard and back confirmation never save implicitly", as
 test("saving merges fresh settings once and waits for the accepted restart", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Staff sign-in and security");
-  await root(page).getByRole("spinbutton", { name: "Sign staff out after being idle for" }).fill("20");
+  await group(page, "Staff access");
+  await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" }).fill("20");
   await page.evaluate((fresh) => {
     window.careTest.fixtures.env.backend = fresh;
     window.careTest.fixtures.finishJobs = false;
     window.careTest.hold("WriteEnv");
   }, backendEnvironment.replace("preview-plugin-config", "newer-plugin-config"));
-  await root(page).getByRole("button", { name: "Save and restart" }).click();
-  await expect(root(page).getByRole("button", { name: "Save and restart" })).toBeDisabled();
+  await root(page).getByRole("button", { name: "Save changes" }).click();
+  await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
   await page.keyboard.press("Enter");
   await expect.poll(() => count(page, "WriteEnv")).toBe(1);
   await page.evaluate(() => window.careTest.release("WriteEnv"));
@@ -250,6 +358,11 @@ test("saving merges fresh settings once and waits for the accepted restart", asy
       CRLFKept: String(write.args[1]).includes("\r\n  \r\n"), passwordMatches: write.args[2] === window.careTest.fixtures.adminPassword };
   });
   expect(result).toEqual({ file: "backend", changed: true, pluginKept: true, secretsKept: true, CRLFKept: true, passwordMatches: true });
+  expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({
+    backend: backendEnvironment.replace("preview-plugin-config", "newer-plugin-config")
+      .replace("JWT_REFRESH_TOKEN_LIFETIME=30", "JWT_REFRESH_TOKEN_LIFETIME=20"),
+    frontend: frontendEnvironment,
+  });
   await expect(root(page)).toContainText("Applying settings");
   await page.evaluate(() => window.careTest.finishJob("start"));
   await expect(root(page)).toContainText("Settings applied.");
@@ -258,10 +371,10 @@ test("saving merges fresh settings once and waits for the accepted restart", asy
 test("a saved setting isn't presented as applied when restart acceptance fails", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Staff sign-in and security");
-  await root(page).getByRole("spinbutton", { name: "Sign staff out after being idle for" }).fill("20");
+  await group(page, "Staff access");
+  await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" }).fill("20");
   await page.evaluate(() => window.careTest.failNext("ClinicAction", "something else is still running"));
-  await root(page).getByRole("button", { name: "Save and restart" }).click();
+  await root(page).getByRole("button", { name: "Save changes" }).click();
   await expect(root(page)).toContainText("Settings were saved, but applying them didn't start");
   await expect(root(page).getByRole("button", { name: "Apply saved changes" })).toBeEnabled();
   await expect(root(page)).not.toContainText("Settings applied.");
@@ -272,15 +385,109 @@ test("a saved setting isn't presented as applied when restart acceptance fails",
   await expect(root(page)).toContainText("Settings applied.");
 });
 
-test("protected and described keys cannot be overridden in Other settings", async ({ page }) => {
+test("the usual visit has no preset until an admin chooses one, then applies with a frontend rebuild", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Other settings");
+  await group(page, "Patients and visits");
+  const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
+  await expect(visit).toHaveText("No preference");
+  await visit.click();
+  await page.getByRole("option", { name: "Home visit", exact: true }).click();
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(root(page)).toContainText("Settings applied.");
+  expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({
+    backend: backendEnvironment,
+    frontend: frontendEnvironment.replace("REACT_DEFAULT_ENCOUNTER_TYPE=", "REACT_DEFAULT_ENCOUNTER_TYPE=hh"),
+  });
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ClinicAction").map((call) => call.args[0])))
+    .toEqual(["rebuild-frontend"]);
+});
+
+test("usual visit choices respect the enabled visit types set by support", async ({ page }) => {
+  await openAdvanced(page);
+  await page.evaluate(() => { window.careTest.fixtures.env.frontend += "REACT_ALLOWED_ENCOUNTER_CLASSES=amb\r\n"; });
+  await unlock(page);
+  await group(page, "Patients and visits");
+  const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
+  await visit.click();
+  await page.getByRole("option", { name: "Home visit", exact: true }).click();
+  await expect(root(page)).toContainText("This visit type is not enabled for your clinic.");
+  await expect(root(page).getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
+  expect(await count(page, "WriteEnv")).toBe(0);
+  await visit.click();
+  await page.getByRole("option", { name: "Outpatient visit", exact: true }).click();
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(root(page)).toContainText("Settings applied.");
+  const contents = await page.evaluate(() => window.careTest.fixtures.env.frontend);
+  expect(getValue(editableEnvLines(contents), "REACT_DEFAULT_ENCOUNTER_TYPE")).toBe("amb");
+  expect(getValue(editableEnvLines(contents), "REACT_ALLOWED_ENCOUNTER_CLASSES")).toBe("amb");
+});
+
+test("support cannot save blank or malformed default area IDs", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await group(page, "Extra settings (for support)");
+  const key = "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG";
+  await addCustomSetting(page, key, "");
+  const area = root(page).getByLabel(`Value for ${key}`, { exact: true });
+  const save = root(page).getByRole("button", { name: "Save changes", exact: true });
+  for (const value of ["", "Kerala", "ea3f8598-3d8e-9a8b-b849-06128ae2e9a7"]) {
+    await area.fill(value);
+    await expect(root(page)).toContainText("Enter a valid geographic area ID");
+    await expect(save).toBeDisabled();
+  }
+  await save.dispatchEvent("click");
+  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ClinicAction")).toBe(0);
+});
+
+test("support can override address defaults, preserve zero and remove the default area without resetting other settings", async ({ page }) => {
+  await openAdvanced(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.env.frontend = window.careTest.fixtures.env.frontend
+      .replace("REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED=0", "REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED=3");
+  });
+  await unlock(page);
+  await group(page, "Extra settings (for support)");
+  const levels = root(page).getByLabel("Value for REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED", { exact: true });
+  const area = root(page).getByLabel("Value for REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", { exact: true });
+  await expect(levels).toHaveValue("3");
+  await expect(area).toHaveCount(0);
+  await levels.fill("0");
+  const areaId = "ea3f8598-3d8e-4a8b-b849-06128ae2e9a7";
+  await addCustomSetting(page, "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", areaId);
+  await addCustomSetting(page, "REACT_AUTO_REFRESH_INTERVAL", "60");
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(root(page)).toContainText("Settings applied.");
+  const saved = await page.evaluate(() => window.careTest.fixtures.env);
+  expect(saved.backend).toBe(backendEnvironment);
+  const lines = editableEnvLines(saved.frontend);
+  expect(getValue(lines, "REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED")).toBe("0");
+  expect(getValue(lines, "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG")).toBe(areaId);
+  expect(getValue(lines, "REACT_AUTO_REFRESH_INTERVAL")).toBe("60");
+  expect(getValue(lines, "REACT_DEFAULT_ENCOUNTER_TYPE")).toBe("");
+  await expect(levels).toHaveValue("0");
+  await area.fill("");
+  await expect(root(page).getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
+  await root(page).getByRole("button", { name: "Remove REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", exact: true }).click();
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(() => count(page, "WriteEnv")).toBe(2);
+  await expect(root(page)).toContainText("Settings applied.");
+  const cleared = editableEnvLines(await page.evaluate(() => window.careTest.fixtures.env.frontend));
+  expect(getValue(cleared, "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG")).toBeUndefined();
+  expect(getValue(cleared, "REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED")).toBe("0");
+  expect(getValue(cleared, "REACT_AUTO_REFRESH_INTERVAL")).toBe("60");
+});
+
+test("protected and everyday keys cannot be duplicated in support-only extras", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await group(page, "Extra settings (for support)");
   await root(page).getByRole("button", { name: "Add setting" }).click();
-  const name = root(page).getByLabel("Setting name", { exact: true });
+  const name = root(page).getByLabel("Setting name", { exact: true }).last();
   await name.fill("DJANGO_SECRET_KEY");
   await expect(root(page)).toContainText("Generated and protected by CARE Desktop");
-  await expect(root(page).getByRole("button", { name: "Save and restart" })).toBeDisabled();
+  await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
   await name.fill("ADDITIONAL_PLUGS");
   await expect(root(page)).toContainText("Use the Plugins tab instead");
   await name.fill("JWT_REFRESH_TOKEN_LIFETIME");
@@ -497,7 +704,7 @@ test("unreadable settings never show guessed values or enable saving", async ({ 
   await expect(root(page)).toContainText("The clinic settings couldn't be read");
   await expect(root(page)).not.toContainText("Keep backups forever");
   await expect(root(page)).not.toContainText("private setting detail");
-  await expect(root(page).getByRole("button", { name: /^Staff sign-in and security/ })).toBeDisabled();
+  await expect(root(page).getByRole("button", { name: /^Staff access/ })).toBeDisabled();
   await root(page).getByRole("button", { name: "Try reading settings again" }).click();
   await expect(root(page)).toContainText("Keep backups forever");
   expect(await count(page, "WriteEnv")).toBe(0);
@@ -506,9 +713,9 @@ test("unreadable settings never show guessed values or enable saving", async ({ 
 test("partial saves keep the remaining edits and retry only the unwritten file before applying", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Patient sign-in");
-  await root(page).getByRole("switch", { name: "Let patients sign in to CARE", exact: true }).check();
-  await root(page).getByRole("switch", { name: "Send sign-in codes by SMS", exact: true }).check();
+  await group(page, "Extra settings (for support)");
+  await addCustomSetting(page, "TIME_ZONE", "Asia/Kolkata");
+  await addCustomSetting(page, "REACT_CARE_ENABLE_DASHBOARD", "false");
   await page.evaluate(() => {
     const original = Object.getOwnPropertyDescriptor(window.go.main.App, "WriteEnv")!.value as Window["go"]["main"]["App"]["WriteEnv"];
     let written = 0;
@@ -517,17 +724,18 @@ test("partial saves keep the remaining edits and retry only the unwritten file b
       return original(...args);
     };
   });
-  await root(page).getByRole("button", { name: "Save and restart" }).click();
+  await root(page).getByRole("button", { name: "Save changes" }).click();
   await expect(root(page)).toContainText("Some settings were saved");
   expect(await count(page, "ClinicAction")).toBe(0);
   expect(await page.evaluate(() => ({
-    backendChanged: window.careTest.fixtures.env.backend.includes("USE_SMS=True"),
-    frontendUnchanged: window.careTest.fixtures.env.frontend.includes("REACT_DISABLE_PATIENT_LOGIN=true"),
-  }))).toEqual({ backendChanged: true, frontendUnchanged: true });
-  await root(page).getByRole("button", { name: "Save and restart" }).click();
+    backendChanged: window.careTest.fixtures.env.backend.includes("TIME_ZONE=Asia/Kolkata"),
+    frontend: window.careTest.fixtures.env.frontend,
+  }))).toEqual({ backendChanged: true, frontend: frontendEnvironment });
+  await root(page).getByRole("button", { name: "Save changes" }).click();
   await expect(root(page)).toContainText("Settings applied.");
   expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "WriteEnv").map((call) => call.args[0])))
     .toEqual(["backend", "frontend", "frontend"]);
+  expect(await page.evaluate(() => window.careTest.fixtures.env.frontend)).toContain("REACT_CARE_ENABLE_DASHBOARD=false");
   expect(await count(page, "ClinicAction")).toBe(1);
 });
 
@@ -540,10 +748,10 @@ test("an unfinished restore disables environment writes, rebuilds and removal", 
   });
   await expect(root(page).getByRole("button", { name: "Rebuild", exact: true })).toBeDisabled();
   await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true })).toBeDisabled();
-  await group(page, "Staff sign-in and security");
+  await group(page, "Staff access");
   await expect(root(page)).toContainText("Finish the earlier restore first");
-  await expect(root(page).getByRole("spinbutton", { name: "Sign staff out after being idle for" })).toBeDisabled();
-  await expect(root(page).getByRole("button", { name: "Save and restart" })).toBeDisabled();
+  await expect(root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" })).toBeDisabled();
+  await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
   expect(await count(page, "WriteEnv")).toBe(0);
   expect(await count(page, "RunUninstall")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
@@ -553,15 +761,15 @@ test("Advanced unlock expires and removes sensitive drafts without starting an o
   await page.clock.install();
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Outgoing email");
-  await root(page).getByLabel("Mail password", { exact: true }).fill("UnsavedPreview789");
+  await group(page, "Extra settings (for support)");
+  await addCustomSetting(page, "CUSTOM_SECRET", "UnsavedPreview789");
   await page.clock.fastForward(14 * 60 * 1000 + 59 * 1000);
   await expect(root(page)).not.toContainText("Advanced has locked");
-  await expect(root(page).getByLabel("Mail password", { exact: true })).toHaveValue("UnsavedPreview789");
+  await expect(root(page).getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveValue("UnsavedPreview789");
   await page.clock.fastForward(1000);
   await expect(root(page)).toContainText("Advanced has locked");
   await expect(root(page).getByLabel("Desktop admin password", { exact: true })).toHaveValue("");
-  await expect(page.getByLabel("Mail password", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveCount(0);
   expect(await count(page, "WriteEnv")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
 });
@@ -633,11 +841,11 @@ test("unchanged multiline custom secrets are preserved while another setting is 
   await openAdvanced(page);
   await page.evaluate(() => { window.careTest.fixtures.env.backend += "CUSTOM_SECRET='first line\nsecond line'\r\n"; });
   await unlock(page);
-  await group(page, "Other settings");
+  await group(page, "Extra settings (for support)");
   await root(page).getByRole("button", { name: "Add setting" }).click();
   await root(page).getByLabel("Setting name", { exact: true }).last().fill("CUSTOM_FEATURE");
   await root(page).getByLabel("Value for CUSTOM_FEATURE", { exact: true }).fill("enabled");
-  await root(page).getByRole("button", { name: "Save and restart" }).click();
+  await root(page).getByRole("button", { name: "Save changes" }).click();
   await expect(root(page)).toContainText("Settings applied.");
   expect(await page.evaluate(() => window.careTest.fixtures.env.backend.includes("CUSTOM_SECRET='first line\nsecond line'\r\n"))).toBe(true);
 });
@@ -719,27 +927,27 @@ for (const action of [
   });
 }
 
-for (const settings of ["Staff sign-in and security", "Other settings"]) {
+for (const settings of ["Staff access", "Extra settings (for support)"]) {
   test(`an external panel blocker disables ${settings} fields and saving`, async ({ page }) => {
     await openAdvanced(page);
     await unlock(page);
     await group(page, settings);
-    if (settings === "Other settings") {
+    if (settings === "Extra settings (for support)") {
       await root(page).getByRole("button", { name: "Add setting", exact: true }).click();
       await root(page).getByLabel("Setting name", { exact: true }).last().fill("TEST_PANEL_LOCK");
       await root(page).getByLabel("Value for TEST_PANEL_LOCK", { exact: true }).fill("test-only-value");
     } else {
-      await root(page).getByRole("spinbutton", { name: "Sign staff out after being idle for", exact: true }).fill("20");
+      await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after", exact: true }).fill("20");
     }
-    const save = root(page).getByRole("button", { name: "Save and restart", exact: true });
+    const save = root(page).getByRole("button", { name: "Save changes", exact: true });
     await expect(save).toBeEnabled();
     await blockAdvanced(page);
     for (const input of await root(page).locator("input").all()) await expect(input).toBeDisabled();
-    if (settings === "Other settings") {
+    if (settings === "Extra settings (for support)") {
       await expect(root(page).getByRole("button", { name: "Add setting", exact: true })).toBeDisabled();
       await expect(root(page).getByRole("button", { name: "Remove TEST_PANEL_LOCK", exact: true })).toBeDisabled();
     } else {
-      await expect(root(page).getByRole("switch", { name: "Slow down repeated wrong passwords", exact: true })).toBeDisabled();
+      await expect(root(page).getByRole("spinbutton", { name: "Sign out inactive staff after", exact: true })).toBeDisabled();
     }
     await expect(save).toBeDisabled();
     await save.dispatchEvent("click");
@@ -753,11 +961,11 @@ for (const settings of ["Staff sign-in and security", "Other settings"]) {
 test("an external panel blocker arriving during fresh reads prevents subsequent environment writes", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Staff sign-in and security");
-  await root(page).getByRole("spinbutton", { name: "Sign staff out after being idle for", exact: true }).fill("20");
+  await group(page, "Staff access");
+  await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after", exact: true }).fill("20");
   const before = await count(page, "ReadEnv");
   await page.evaluate(() => window.careTest.hold("ReadEnv"));
-  await root(page).getByRole("button", { name: "Save and restart", exact: true }).click();
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => count(page, "ReadEnv")).toBe(before + 2);
   await blockAdvanced(page);
   await page.evaluate(() => window.careTest.release("ReadEnv"));
@@ -765,7 +973,7 @@ test("an external panel blocker arriving during fresh reads prevents subsequent 
   expect(await count(page, "WriteEnv")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
   await releaseAdvanced(page);
-  await root(page).getByRole("button", { name: "Save and restart", exact: true }).click();
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
   expect(await count(page, "WriteEnv")).toBe(1);
   expect(await count(page, "ClinicAction")).toBe(1);

@@ -43,6 +43,7 @@ const (
 	gitPageURL       = "https://git-scm.com/downloads"
 
 	dockerReadyTimeout = 8 * time.Minute
+	rancherLaunchGrace = 15 * time.Second
 )
 
 func dockerHelpURL() string {
@@ -446,18 +447,42 @@ func EnsureRancherSettings() {
 }
 
 func (pr *Provisioner) waitForDocker(limit time.Duration) error {
+	ready := func() bool { return DockerCheck(pr.run).OK }
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return waitForDockerReady(limit, ready, rancherDesktopRunning, pr.startRancher, pr.logln)
+	}
+	return waitForDockerReady(limit, ready, nil, nil, pr.logln)
+}
+
+func waitForDockerReady(limit time.Duration, ready, running func() bool, relaunch func() error, log func(string)) error {
 	deadline := time.Now().Add(limit)
+	launchGrace := time.Now().Add(rancherLaunchGrace)
+	retried := false
 	for {
-		if DockerCheck(pr.run).OK {
-			pr.logln("Docker is ready.")
+		if ready() {
+			log("Docker is ready.")
 			return nil
 		}
-		if time.Now().After(deadline) {
+		now := time.Now()
+		if !now.Before(deadline) {
 			return fmt.Errorf("Docker is taking longer than usual to start; it may still be " +
 				"starting. Watch Rancher Desktop until it stops saying \"Starting\", then run " +
 				"the check again")
 		}
-		time.Sleep(3 * time.Second)
+		// A successful launch request can reach an instance that is still quitting.
+		if running != nil && !now.Before(launchGrace) && !running() {
+			if retried {
+				return fmt.Errorf("Rancher Desktop stopped before Docker was ready. " +
+					"Open Rancher Desktop, check its startup message, then try again")
+			}
+			log("Rancher Desktop isn't running after the launch request; trying again...")
+			if err := relaunch(); err != nil {
+				return fmt.Errorf("could not restart Rancher Desktop: %w", err)
+			}
+			retried = true
+			launchGrace = time.Now().Add(rancherLaunchGrace)
+		}
+		time.Sleep(min(3*time.Second, time.Until(deadline)))
 	}
 }
 

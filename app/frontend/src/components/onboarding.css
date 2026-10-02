@@ -82,7 +82,7 @@
 .onboarding .on-tile.on-round { border-radius: 50%; }
 .onboarding .on-badge { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 3px 11px; font-size: 12px; font-weight: 600; color: #33403a; background: #eef2ef; border-radius: 99px; }
 .onboarding .on-badge.on-ok { background: #e3f7ee; color: #046c4e; }
-.onboarding .on-badge.on-bad { background: #fdecec; color: #991b1b; }
+.onboarding .on-tile.on-bad, .onboarding .on-badge.on-bad { background: #fdecec; color: #991b1b; }
 .onboarding .on-badge.on-warn { background: #fef3c7; color: #92400e; }
 .onboarding .on-notice { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 12px; color: #33403a; font-size: 13px; }
 .onboarding .on-notice > svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }

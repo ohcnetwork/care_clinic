@@ -1520,6 +1520,16 @@ itself whatever launched it, so the direct launch skips the wizard and keeps
 Kubernetes off just as `rdctl` does - and unlike the profile, command-line
 arguments also apply to an installation that already answered the wizard.
 
+An accepted launch request is not readiness: when the operator has just quit
+Rancher Desktop, the request can reach the old instance before it finishes
+shutting down. While waiting for Docker, CARE allows 15 seconds for Rancher's
+process to appear, then checks that it is still running. If it has exited, CARE
+launches it once more. If the second launch also exits or never appears, the
+operation fails with a retryable error rather than waiting out the full
+eight-minute Docker-readiness limit. A live Rancher process gets that full limit
+to finish starting; Linux Docker keeps its normal readiness checks without
+Rancher process monitoring.
+
 **Rancher Desktop administrator setup (macOS)**
 
 With `adminAccess`, Rancher Desktop needs root-owned pieces before it can forward

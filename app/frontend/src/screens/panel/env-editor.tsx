@@ -1,6 +1,6 @@
 import {
-  Archive, ArrowLeft, CalendarDays, ChevronRight, FileText, Languages, LockKeyhole,
-  Mail, Palette, Receipt, Settings2, Smartphone, Trash2, UserPlus,
+  Archive, ArrowLeft, ChevronRight, LockKeyhole,
+  Palette, Receipt, Settings2, Trash2, UserPlus,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -16,24 +16,22 @@ import { ENV_KEY_RE, getValue, type EnvChange, type EnvLine } from "@/lib/env-fi
 import { useCare } from "@/state/care-store";
 import type { Section } from "@/types";
 import {
-  editableEnvLines, effectiveSetting, groupSummary, mergeEnvChanges, validateSetting, type EnvDraft,
+  editableEnvLines, effectiveSetting, groupSummary, mergeEnvChanges, validateExtraSetting, validateSetting, type EnvDraft,
 } from "./advanced-env";
 import {
   AdvancedError, AdvancedNotice, AdvancedSecretInput, advancedProblem, useAdvancedLock, type AdvancedProblem,
 } from "./advanced-ui";
 import { SettingControl, splitList } from "./env-controls";
-import { fileForKey, GROUPS, isHiddenKey, MANAGED_NOTES, SETTING_BY_KEY, SETTINGS, type Setting } from "./env-schema";
+import { fileForKey, GROUPS, isHiddenKey, MANAGED_NOTES, SETTING_BY_KEY, SETTINGS, VISIT_OPTIONS, type Setting } from "./env-schema";
 
 const SECTIONS: Section[] = ["backend", "frontend"];
-const ICONS = [Archive, LockKeyhole, Smartphone, Mail, Palette, Languages, CalendarDays, UserPlus, Receipt, FileText];
+const ICONS = [Palette, UserPlus, Receipt, Archive, LockKeyhole];
 type Files = Record<Section, { text: string; lines: EnvLine[] }>;
 type CustomRow = { uid: number; key: string; value: string; file: Section; isNew: boolean };
 
 function initialDraft(files: Files): EnvDraft {
-  return Object.fromEntries(SETTINGS.map((setting) => {
-    const value = getValue(files[setting.file].lines, setting.key);
-    return [setting.key, value !== undefined && "blank" in setting && setting.blank?.includes(value) ? undefined : value];
-  }));
+  return Object.fromEntries(SETTINGS.map((setting) =>
+    [setting.key, getValue(files[setting.file].lines, setting.key)]));
 }
 
 function customRows(files: Files, take: () => number): CustomRow[] {
@@ -168,10 +166,11 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       const error = validateSetting(setting, draft[setting.key]);
       if (error) out[setting.key] = error;
     }
-    if (group?.id === "visits" && dirtyKeys.some((key) => key === "REACT_DEFAULT_ENCOUNTER_TYPE" || key === "REACT_ALLOWED_ENCOUNTER_CLASSES")) {
+    if (group?.id === "visits" && dirtyKeys.includes("REACT_DEFAULT_ENCOUNTER_TYPE") && files) {
       const selectedVisit = draft.REACT_DEFAULT_ENCOUNTER_TYPE ?? "";
-      const allowed = effectiveSetting(SETTING_BY_KEY.get("REACT_ALLOWED_ENCOUNTER_CLASSES")!, draft.REACT_ALLOWED_ENCOUNTER_CLASSES);
-      if (selectedVisit && !splitList(allowed).includes(selectedVisit)) out.REACT_DEFAULT_ENCOUNTER_TYPE = "Choose a kind of visit that is allowed above.";
+      const configured = getValue(files.frontend.lines, "REACT_ALLOWED_ENCOUNTER_CLASSES");
+      const allowed = configured === undefined ? VISIT_OPTIONS.map((option) => option.value) : splitList(configured);
+      if (selectedVisit && !allowed.includes(selectedVisit)) out.REACT_DEFAULT_ENCOUNTER_TYPE = "This visit type is not enabled for your clinic. Ask support to enable it first.";
     }
     const names = new Map<string, number>();
     for (const row of custom) {
@@ -187,10 +186,13 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       else if (isHiddenKey(key)) out[id] = MANAGED_NOTES[key] ?? "This setting is protected by CARE Desktop.";
       else if (SETTING_BY_KEY.has(key)) out[id] = `Change “${SETTING_BY_KEY.get(key)!.label}” in its settings group instead.`;
       else if ((names.get(`${row.file}:${key}`) ?? 0) > 1) out[id] = "This setting is listed twice.";
-      else if (customDelta.changed.some((changed) => changed.uid === row.uid) && /[\r\n\0]/.test(row.value)) out[id] = "Keep this value on one line.";
+      else if (customDelta.changed.some((changed) => changed.uid === row.uid)) {
+        const error = validateExtraSetting(key, row.value);
+        if (error) out[id] = error;
+      }
     }
     return out;
-  }, [group, draft, custom, dirtyKeys, customDelta]);
+  }, [group, draft, custom, dirtyKeys, customDelta, files]);
   const changeCount = dirtyKeys.length + customDelta.changed.length + customDelta.removed.length;
   const hasErrors = Object.keys(errors).some((key) => selected === "other" ? key.startsWith("custom:") : !key.startsWith("custom:"));
   const disabled = locked || loading || !files;
@@ -198,7 +200,6 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
   const touched = new Set([...dirtyKeys.map((key) => SETTING_BY_KEY.get(key)!.file),
     ...customDelta.changed.map((row) => row.file), ...customDelta.removed.map((row) => row.file), ...needsApply]);
   const frontendOnly = touched.size > 0 ? !touched.has("backend") : !!group && group.settings.every((setting) => setting.file === "frontend");
-  const applyLabel = frontendOnly ? "Save and rebuild" : "Save and restart";
 
   const commitFile = (file: Section, text: string) => {
     const next = { text, lines: editableEnvLines(text) };
@@ -262,7 +263,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       }
       setApplying(true);
       onApplicationAccepted?.();
-      toast(action === "start" ? "Settings saved — restarting CARE." : "Settings saved — rebuilding CARE.");
+      toast("Settings saved. CARE is applying your changes.");
     } catch (cause) {
       const partial = savedFiles.current.size > 0;
       const problem = advancedProblem(cause, partial ? "Some settings were saved" : "The settings couldn't be saved",
@@ -308,7 +309,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
     {!editing ? <section className="advanced-card" aria-labelledby="advanced-settings-title">
       <header className="advanced-groups-head">
         <h2 className="advanced-card-title" id="advanced-settings-title">Clinic settings</h2>
-        <p className="advanced-card-description">Settings for how CARE behaves. Saving restarts or rebuilds CARE; staff may need to wait a few minutes.</p>
+        <p className="advanced-card-description">Everyday choices for your clinic. Applying changes may briefly interrupt staff using CARE.</p>
       </header>
       {GROUPS.map((entry, index) => {
         const Icon = ICONS[index];
@@ -321,7 +322,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       })}
       <button type="button" className="advanced-group" data-advanced-group="other" disabled={!files || loading || saving || applying} onClick={() => changePage("other")}>
         <span className="advanced-icon"><Settings2 aria-hidden="true" /></span>
-        <div className="advanced-grow"><strong>Other settings</strong><p>For the person who supports your clinic</p></div>
+        <div className="advanced-grow"><strong>Extra settings (for support)</strong><p>Only open this if your CARE support person asks you to</p></div>
         <ChevronRight aria-hidden="true" />
       </button>
     </section> : group ? <section className="advanced-card advanced-settings-card" aria-label={group.title}>
@@ -332,9 +333,9 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
             setNotice(""); setDraft((current) => ({ ...current, [setting.key]: value }));
           }} />
       </SettingRow>)}
-    </section> : <section className="advanced-card advanced-custom-list" aria-label="Other settings">
-      <p className="advanced-card-description">Only add settings supplied by the person who supports CARE. Connection, security and plugin settings managed elsewhere are protected.</p>
-      {custom.length === 0 ? <p className="advanced-field-hint">No other settings added.</p> : null}
+    </section> : <section className="advanced-card advanced-custom-list" aria-label="Extra settings (for support)">
+      <p className="advanced-card-description">Values here override CARE's standard defaults. Only add or change them with help from your support person. Protected connection and online-service settings cannot be changed here.</p>
+      {custom.length === 0 ? <p className="advanced-field-hint">No extra settings added.</p> : null}
       {custom.map((row) => <CustomRowView key={row.uid} row={row} error={errors[`custom:${row.uid}`]} disabled={disabled}
         onKeyChange={(key) => patchCustom(row.uid, { key, file: fileForKey(key.trim()) })}
         onValueChange={(value) => patchCustom(row.uid, { value })}
@@ -349,11 +350,11 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       <Button type="button" ref={backRef} variant="ghost" disabled={working} onClick={back}><ArrowLeft aria-hidden="true" />Back to settings</Button>
       <p role="status">{saving ? "Saving settings…" : applying ? "Applying settings — staff may need to wait." :
         needsApply.length > 0 && !changeCount ? "Saved changes still need to be applied." :
-          frontendOnly ? "Saving rebuilds CARE — a few minutes." : "Saving restarts the clinic — about a minute."}</p>
+          frontendOnly ? "CARE may be unavailable for a few minutes while changes are applied." : "CARE may be unavailable for about a minute while changes are applied."}</p>
       <div className="advanced-actions">
         <Button type="button" disabled={disabled || changeCount === 0} onClick={discard}>Discard</Button>
         <Button type="button" variant="primary" disabled={!canSave} onClick={() => void save()}>
-          {saving || applying ? <Spinner /> : null}{needsApply.length > 0 && !changeCount ? "Apply saved changes" : applyLabel}
+          {saving || applying ? <Spinner /> : null}{needsApply.length > 0 && !changeCount ? "Apply saved changes" : "Save changes"}
         </Button>
       </div>
     </footer> : needsApply.length > 0 ? <Button type="button" className="self-start" disabled={!canSave} onClick={() => void save()}>Apply saved changes</Button> : null}

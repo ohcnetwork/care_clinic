@@ -384,6 +384,27 @@ test("platform-inapplicable steps are omitted without skipping unknown failures"
   expect(await calls(page, "WSLStatus")).toBeGreaterThanOrEqual(2);
 });
 
+for (const missing of ["docker", "git"] as const) {
+  test(`required software shows missing ${missing} in red and ready software in green`, async ({ page }) => {
+    await start(page);
+    await page.evaluate((id) => { window.careTest.fixtures[id].ok = false; }, missing);
+    await page.getByRole("button", { name: "Start setup" }).click();
+    await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
+    const rows = page.locator(".on-data-row");
+    const incomplete = rows.filter({ hasText: "Action required" });
+    const ready = rows.filter({ has: page.getByText("Ready", { exact: true }) });
+    await expect(incomplete).toHaveCount(1);
+    await expect(ready).toHaveCount(1);
+    for (const selector of [".on-badge", ".on-tile"]) {
+      await expect(incomplete.locator(selector)).toHaveCSS("background-color", "rgb(253, 236, 236)");
+      await expect(incomplete.locator(selector)).toHaveCSS("color", "rgb(153, 27, 27)");
+      await expect(ready.locator(selector)).toHaveCSS("background-color", "rgb(227, 247, 238)");
+      await expect(ready.locator(selector)).toHaveCSS("color", "rgb(4, 108, 78)");
+    }
+    await expect(forward(page)).toBeDisabled();
+  });
+}
+
 test("software downloads wait for a real size and remain single-flight", async ({ page }) => {
   await start(page);
   await page.evaluate(() => {
@@ -400,6 +421,8 @@ test("software downloads wait for a real size and remain single-flight", async (
   await expect.poll(() => calls(page, "InstallDocker")).toBe(1);
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
   await expect(forward(page)).toBeDisabled();
+  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Working", "Waiting"]);
+  await expect(page.locator(".on-data-row .on-bad")).toHaveCount(0);
   await page.evaluate(() => window.careTest.emit("prereq-download-progress", { name: "Rancher Desktop", phase: "downloading", done: 2e6, total: 0 }));
   await expect(page.getByRole("progressbar", { name: "Rancher Desktop download progress" })).not.toHaveAttribute("aria-valuenow");
   await page.evaluate(() => window.careTest.release("InstallDocker"));

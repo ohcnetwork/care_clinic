@@ -1,5 +1,5 @@
 import type { SystemState } from "@/state/care-store";
-import type { StorageReport } from "@/types";
+import type { BackupRun, StorageReport } from "@/types";
 
 export type PanelTone = "ok" | "warning" | "danger" | "neutral";
 
@@ -53,6 +53,12 @@ export function panelStatus({ system, systemDetail, trouble, busy, busyLabel }: 
   };
 }
 
+export function backupFailureDetail(reason: BackupRun["reason"]): string {
+  if (reason === "disk_full") return "Make room in the backup folder or choose another location.";
+  if (reason === "database_unavailable") return "The database wasn't ready. Wait for CARE to be running, then try Back up now. Saved backups are unaffected.";
+  return "Check the backup folder, then try Back up now.";
+}
+
 export function storageProblem(report: StorageReport | null) {
   if (!report) return null;
   const drives = report.drives ?? [];
@@ -64,9 +70,7 @@ export function storageProblem(report: StorageReport | null) {
   };
   if (report.last_run.state === "failed") return {
     title: "The last backup didn't finish.",
-    detail: report.last_run.reason === "disk_full"
-      ? "Make room in the backup folder or choose another location."
-      : "Check the backup folder, then try Back up now.",
+    detail: backupFailureDetail(report.last_run.reason),
     tab: "backups" as const, tone: "danger" as PanelTone,
   };
   if (report.backup.level === "critical") return {

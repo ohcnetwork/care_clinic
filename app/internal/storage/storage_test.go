@@ -170,6 +170,20 @@ func TestReadBackupRun(t *testing.T) {
 	}
 }
 
+func TestDatabaseReadinessFailureDoesNotMeanSavedBackupsAreMissing(t *testing.T) {
+	now := time.Now()
+	r := Report{
+		Backup:         BackupSpace{Level: LevelOK},
+		LastRun:        BackupRun{State: "failed", Reason: "database_unavailable", At: now.Unix()},
+		NewestBackupAt: now.Add(-time.Hour).Unix(),
+	}
+	Summarise(&r, true, now)
+	if r.Level != LevelCritical || r.Stale || r.NewestBackupAt == 0 ||
+		r.Headline != "The last backup could not start: the database was not ready." {
+		t.Fatalf("database readiness failure lost its cause or existing backup: %+v", r)
+	}
+}
+
 func TestParseDF(t *testing.T) {
 	out := "Filesystem     1024-blocks     Used Available Capacity Mounted on\noverlay          102626232 40000000  62626232      39% /\n"
 	free, total, err := ParseDF(out)

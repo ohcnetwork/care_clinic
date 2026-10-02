@@ -36,7 +36,19 @@ case "$name" in
 	date)
 		printf '20260102-030405\n'
 		;;
+	pg_isready)
+		printf '%s\n' "$*" > "$BACKUP_TEST_ROOT/readiness-args"
+		count=0
+		if [ -f "$BACKUP_TEST_ROOT/readiness-count" ]; then
+			count=$(cat "$BACKUP_TEST_ROOT/readiness-count")
+		fi
+		count=$((count + 1))
+		printf '%s\n' "$count" > "$BACKUP_TEST_ROOT/readiness-count"
+		[ "$BACKUP_TEST_FAIL" != database-unavailable ] || exit 1
+		[ "$count" -gt "$BACKUP_TEST_DB_READY_AFTER" ] || exit 1
+		;;
 	pg_dump)
+		[ "$BACKUP_TEST_FAIL" != pg-dump ] || exit 1
 		while [ "$1" != -f ]; do shift; done
 		printf 'database\n' > "$2"
 		if [ "$BACKUP_TEST_ID" = "$BACKUP_TEST_HOLD" ]; then
@@ -100,6 +112,7 @@ case "$name" in
 		exec "$BACKUP_TEST_DF" "$@"
 		;;
 	sleep)
+		[ "$1" != 5 ] || exit 0
 		[ "$1" = 86400 ] || exit 97
 		: > "$BACKUP_TEST_ROOT/sleeping"
 		if [ "$BACKUP_TEST_HOLD_SLEEP" = 1 ]; then
@@ -160,7 +173,7 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{"flock", "date", "pg_dump", "pg_restore", "tar", "openssl", "mv", "rm", "find", "sleep", "df"} {
+	for _, name := range []string{"flock", "date", "pg_isready", "pg_dump", "pg_restore", "tar", "openssl", "mv", "rm", "find", "sleep", "df"} {
 		if err := os.WriteFile(filepath.Join(root, "bin", name), []byte(backupScriptCommands), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -202,6 +215,7 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 			"BACKUP_TEST_FREE_KB=",
 			"BACKUP_TEST_FLOCK="+flock,
 			"BACKUP_TEST_FAIL=",
+			"BACKUP_TEST_DB_READY_AFTER=0",
 			"BACKUP_TEST_HOLD=",
 			"BACKUP_TEST_HOLD_SLEEP=0",
 		),
@@ -304,6 +318,7 @@ func TestBackupScriptScheduledFailures(t *testing.T) {
 		database, files        bool
 		temporary              string
 	}{
+		{"database dump", "pg-dump", "pg_dump failed", false, false, ""},
 		{"database publication", "db-mv", "publishing the dump failed", false, false, ""},
 		{"database plaintext cleanup", "db-rm", "removing temporary backup files failed", false, false, ".care-20260102-030405.dump.tmp"},
 		{"archive creation", "tar", "archiving the files failed", true, false, ""},
@@ -340,6 +355,90 @@ func TestBackupScriptScheduledFailures(t *testing.T) {
 			leftovers, err := filepath.Glob(filepath.Join(f.root, "backups", ".*.tmp*"))
 			if err != nil || len(leftovers) != wantTemporaries {
 				t.Fatalf("unexpected temporary backup files: %v, %v", leftovers, err)
+			}
+		})
+	}
+}
+
+func TestBackupScriptWaitsForDatabaseBeforeDumping(t *testing.T) {
+	for _, mode := range []string{"daily", "manual"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newBackupScriptFixture(t)
+			f.write(t, "backups/care-old.dump.enc")
+			var args []string
+			code := 99
+			if mode == "manual" {
+				args, code = []string{"once", "manual-20260102-030405"}, 0
+			}
+			output := f.start(t, mode, args, "BACKUP_TEST_DB_READY_AFTER=3",
+				"POSTGRES_HOST=clinic-db", "POSTGRES_PORT=5544", "POSTGRES_USER=care-owner", "POSTGRES_DB=care-test").wait(t, code)
+			trace := f.trace(t)
+			if strings.Count(trace, mode+" pg_isready\n") != 4 ||
+				strings.Index(trace, mode+" pg_dump\n") < strings.LastIndex(trace, mode+" pg_isready\n") {
+				t.Fatalf("dump did not wait for database readiness:\n%s", trace)
+			}
+			if !strings.Contains(output, "waiting for PostgreSQL") || !strings.Contains(output, "database: ready") ||
+				!strings.Contains(output, ": SUCCESS") || strings.Contains(output, "FAILED") {
+				t.Fatalf("startup wait was reported as a failed backup:\n%s", output)
+			}
+			probe, err := os.ReadFile(filepath.Join(f.root, "readiness-args"))
+			if err != nil || string(probe) != "-h clinic-db -p 5544 -U care-owner -d care-test -t 5\n" {
+				t.Fatalf("readiness probe did not use the backup database settings: %q, %v", probe, err)
+			}
+			status, err := os.ReadFile(filepath.Join(f.root, "state", "backup-status"))
+			if err != nil || !strings.Contains(string(status), "state=ok\n") {
+				t.Fatalf("completed backup did not clear the failure state: %s, %v", status, err)
+			}
+			f.checkFile(t, "care-old.dump.enc", true)
+		})
+	}
+}
+
+func TestBackupScriptDatabaseWaitIsBoundedAndPreservesSavedBackups(t *testing.T) {
+	for _, mode := range []string{"daily", "manual"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newBackupScriptFixture(t)
+			f.write(t, "backups/care-old.dump.enc")
+			f.write(t, "backups/files-old.tar.gz.enc")
+			previous := []byte("state=ok\nreason=\nat=1767225600\n")
+			statusPath := filepath.Join(f.root, "state", "backup-status")
+			if err := os.WriteFile(statusPath, previous, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var args []string
+			code := 99
+			if mode == "manual" {
+				args, code = []string{"once", "manual-20260102-030405"}, 1
+			}
+			output := f.start(t, mode, args, "BACKUP_TEST_FAIL=database-unavailable").wait(t, code)
+			trace := f.trace(t)
+			if count := strings.Count(trace, mode+" pg_isready\n"); count != 30 {
+				t.Fatalf("readiness probes = %d, want 30", count)
+			}
+			for _, command := range []string{"pg_dump", "tar", "openssl", "mv", "find"} {
+				if strings.Contains(trace, mode+" "+command+"\n") {
+					t.Fatalf("unavailable database reached %s:\n%s", command, trace)
+				}
+			}
+			if !strings.Contains(output, "PostgreSQL did not become ready") || strings.Contains(output, ": SUCCESS") {
+				t.Fatalf("missing database readiness failure:\n%s", output)
+			}
+			status, err := os.ReadFile(statusPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode == "manual" {
+				if !bytes.Equal(status, previous) {
+					t.Fatalf("failed manual attempt changed the scheduled status: %s", status)
+				}
+			} else if !strings.Contains(string(status), "state=failed\nreason=database_unavailable\n") {
+				t.Fatalf("scheduled failure lost its database-specific reason: %s", status)
+			}
+			for _, name := range []string{"care-old.dump.enc", "files-old.tar.gz.enc"} {
+				data, err := os.ReadFile(filepath.Join(f.root, "backups", name))
+				if err != nil || string(data) != "fixture" {
+					t.Fatalf("existing backup %s changed: %q, %v", name, data, err)
+				}
 			}
 		})
 	}

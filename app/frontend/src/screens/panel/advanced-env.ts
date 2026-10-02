@@ -1,6 +1,6 @@
 import { quote, type EnvChange, type EnvLine } from "@/lib/env-file";
 import type { Section } from "@/types";
-import { normaliseLogo, splitList } from "./env-controls";
+import { splitList } from "./env-controls";
 import { SETTING_BY_KEY, type Group, type Setting } from "./env-schema";
 
 export type EnvDraft = Record<string, string | undefined>;
@@ -80,24 +80,20 @@ export function effectiveSetting(setting: Setting, value: string | undefined): s
       return value ?? setting.fallback;
     case "multi":
       return value === undefined ? setting.fallback.join(",") : splitList(value).join(",");
-    case "logo":
-      return value === undefined ? "" : normaliseLogo(value);
-    case "secret":
-      return value ?? "";
     case "int":
-      return (value ?? (setting.fallback === "all" ? "" : setting.fallback) ?? "").trim();
+      return (value ?? setting.fallback ?? "").trim();
     default:
       return (value ?? "").trim();
   }
 }
 
-function isWebAddress(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return (url.protocol === "http:" || url.protocol === "https:") && !!url.hostname && !url.username && !url.password;
-  } catch {
-    return false;
+export function validateExtraSetting(key: string, value: string): string | null {
+  if (/[\r\n\0]/.test(value)) return "Keep this value on one line.";
+  if (key === "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG") {
+    const uuid = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
+    if (!uuid.test(value)) return "Enter a valid geographic area ID, or remove this setting to leave the default area unset.";
   }
+  return null;
 }
 
 export function validateSetting(setting: Setting, value: string | undefined): string | null {
@@ -121,21 +117,7 @@ export function validateSetting(setting: Setting, value: string | undefined): st
       if (!chosen.length) return "Choose at least one.";
       return chosen.every((entry) => setting.options.some((option) => option.value === entry)) ? null : "Remove any unlisted options before saving this setting.";
     }
-    case "logo":
-      if (!current) return null;
-      try {
-        const logo: unknown = JSON.parse(current);
-        if (!logo || typeof logo !== "object" || Array.isArray(logo)) return "Enter a web address for each logo.";
-        const { light, dark } = logo as Record<string, unknown>;
-        return typeof light === "string" && typeof dark === "string" && isWebAddress(light) && isWebAddress(dark)
-          ? null : "Use an http:// or https:// address without a username or password.";
-      } catch {
-        return "Enter a web address for each logo.";
-      }
     default:
-      if (setting.key === "REACT_DEFAULT_COUNTRY" && current && !/^[A-Za-z]{2}$/.test(current)) return "Use a two-letter country code, such as IN.";
-      if (setting.key === "EMAIL_HOST" && current && /\s|:\/\/|\//.test(current)) return "Enter the mail server name, without a web address or spaces.";
-      if (setting.key === "SNS_REGION" && current && !/^[a-z]{2}(?:-[a-z]+)+-\d+$/.test(current)) return "Enter an Amazon region, such as ap-south-1.";
       return null;
   }
 }
@@ -148,6 +130,7 @@ export function groupSummary(group: Group, draft: EnvDraft): string {
   const choice = (key: string) => {
     const setting = SETTING_BY_KEY.get(key)!;
     if (setting.kind !== "radio" && setting.kind !== "select") return "";
+    if (setting.kind === "select" && setting.none && value(key) === "") return setting.none;
     return setting.options.find((option) => option.value === value(key))?.label ?? "Check current settings";
   };
   switch (group.id) {
@@ -156,27 +139,15 @@ export function groupSummary(group: Group, draft: EnvDraft): string {
       return !Number.isSafeInteger(days) || days < 0 ? "Check backup retention" : days === 0 ? "Keep backups forever" : `Keep backups for ${days} ${days === 1 ? "day" : "days"}`;
     }
     case "signin":
-      return `Idle sign-out after ${value("JWT_REFRESH_TOKEN_LIFETIME")} min · repeated wrong passwords ${value("DISABLE_RATELIMIT") === "False" ? "slowed down" : value("DISABLE_RATELIMIT") === "True" ? "not slowed down" : "need checking"}`;
-    case "patients":
-      return `Patient sign-in: ${choice("REACT_DISABLE_PATIENT_LOGIN") === "No" ? "Off" : choice("REACT_DISABLE_PATIENT_LOGIN") === "Yes" ? "On" : "check settings"} · SMS: ${choice("USE_SMS")}`;
-    case "email":
-      return value("EMAIL_HOST") ? "Mail server set · check the settings before sending" : "Mail server not set";
-    case "branding":
-      return value("REACT_APP_TITLE") || "Default CARE branding";
-    case "region": {
-      const locales = SETTING_BY_KEY.get("REACT_ALLOWED_LOCALES")!;
-      const names = splitList(value(locales.key)).map((entry) => locales.kind === "multi"
-        ? locales.options.find((option) => option.value === entry)?.label ?? entry : entry);
-      return [names.join(", "), value("REACT_DEFAULT_COUNTRY_NAME") || value("REACT_DEFAULT_COUNTRY")].filter(Boolean).join(" · ");
+      return `Sign out after ${value("JWT_REFRESH_TOKEN_LIFETIME")} minutes without activity`;
+    case "branding": {
+      const languages = splitList(value("REACT_ALLOWED_LOCALES")).length;
+      return `${value("REACT_APP_TITLE") || "CARE"} · ${languages} ${languages === 1 ? "language" : "languages"}`;
     }
     case "visits":
-      return `${splitList(value("REACT_ALLOWED_ENCOUNTER_CLASSES")).length} kinds of visit`;
-    case "registration":
-      return `Quick registration: ${choice("REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION")}`;
+      return `${choice("REACT_DEFAULT_ENCOUNTER_TYPE")} · ${value("REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION") === "true" ? "Short" : "Standard"} registration form`;
     case "billing":
-      return `Entered prices include tax: ${choice("REACT_INVENTORY_DEFAULT_TAX_INCLUSIVE")}`;
-    case "screens":
-      return `Form drafts: ${choice("REACT_ENABLE_QUESTIONNAIRE_DRAFT")}`;
+      return `${choice("REACT_DEFAULT_PAYMENT_METHOD")} · ${value("REACT_INVENTORY_DEFAULT_TAX_INCLUSIVE") === "true" ? "Prices include tax" : "Tax added separately"}`;
     default:
       return group.summary;
   }

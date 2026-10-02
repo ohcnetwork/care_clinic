@@ -30,6 +30,24 @@ DB_PORT="${POSTGRES_PORT:-5432}"
 DB_USER="${POSTGRES_USER:-postgres}"
 DB_NAME="${POSTGRES_DB:-care}"
 
+wait_for_database() {
+	attempt=1
+	until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -t 5 >/dev/null 2>&1; do
+		if [ "$attempt" -eq 1 ]; then
+			echo "[backup] database: waiting for PostgreSQL to accept connections"
+		fi
+		if [ "$attempt" -ge 30 ]; then
+			echo "[backup] ERROR: PostgreSQL did not become ready after 30 checks; no backup files were changed"
+			return 1
+		fi
+		attempt=$((attempt + 1))
+		sleep 5
+	done
+	if [ "$attempt" -gt 1 ]; then
+		echo "[backup] database: ready"
+	fi
+}
+
 # seal: plaintext file $1 -> encrypted CMS blob at $2.
 seal() {
 	openssl cms -encrypt -binary -aes-256-cbc -stream -outform DER -in "$1" -out "$2" "$CERT"
@@ -265,6 +283,12 @@ run_backup() {
 		return 1
 	fi
 
+	if ! wait_for_database; then
+		echo "[backup] backup set $ts: FAILED waiting for the database; retention skipped"
+		write_status failed database_unavailable 0 0 "the database was not ready; existing backups were not changed"
+		return 1
+	fi
+
 	if ! db_backup "$ts"; then
 		echo "[backup] backup set $ts: FAILED at the database step; retention skipped"
 		record_failure "the database step failed"
@@ -300,6 +324,7 @@ manual_backup() {
 	if ! require_new_paths "$BACKUP_DIR/care-$name.dump.enc" "$BACKUP_DIR/files-$name.tar.gz.enc"; then
 		return 1
 	fi
+	wait_for_database || return 1
 	if ! db_backup "$name"; then
 		echo "[backup] manual backup $name: FAILED at the database step"
 		return 1
