@@ -82,7 +82,7 @@ and a small runner value, rather than a framework or a container registry.
 | `MDNSName` | The saved clinic name. An empty engine value defaults to `care`. `Host()` normalizes the label and appends `.local`; `Label()` exposes the configured name or default. |
 | `AdminPassword` | Used by administrator creation when nonempty. It is not the desktop administrator hash. |
 | `BackupCertificate` | Public encryption certificate prepared by the Desktop recovery setup. The private recovery file is exported separately, never installed. |
-| `BackupDir` | Effective backup destination. Empty means the engine default, `Desktop/care-db-backups` under the user's home directory. |
+| `BackupDir` | Effective backup destination. Empty uses `care-db-backups` inside Windows' Desktop known folder, including redirection; other platforms keep `<user home>/Desktop/care-db-backups`. Explicit destinations are preserved. |
 | `Pins` | A non-nil, validated `release.Pins` supplied by the App. The engine dereferences it; it is not an optional discovery mechanism. |
 | `Log` | A nil-safe callback. The App can forward the same line to its persistent log and the desktop. |
 | `Confirm` | Native confirmation callback used by OS integrations. It is not a substitute for the App's operation authorization. |
@@ -316,7 +316,13 @@ may still download base images, modules, and packages.
 
 If a later step fails, an earlier secret, key, source checkout, image, or
 directory can remain. A safe retry depends on the relevant component's reuse
-and ownership checks. A partial setup is not an empty machine; the protected
+and ownership checks. The App retains the validated attempt in memory:
+`RetrySetup()` repeats preparation only if it did not finish, otherwise it retries
+startup directly. Completed images and source downloads can be reused, but a
+failed build command may run again and download dependencies again. This is
+neither byte-level resume nor automatic retry of just one network request.
+The attempt is lost when the desktop process exits. A partial setup is not an
+empty machine; the protected
 [failed-install cleanup path](cleanup-and-uninstall.md#7-failed-setup-cleanup-and-the-unused-key-exception)
 exists for that reason.
 

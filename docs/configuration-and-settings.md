@@ -45,7 +45,7 @@ flowchart LR
 
 These are conventions, not hard-coded assumptions about every user's home or environment. The actual paths come from the functions above.
 
-The effective backup destination comes from `GetBackupDir()` / `Clinic.BackupDirPath()`, not by appending a directory to the executable's location. Without a configured override, it is `<user home>/Desktop/care-db-backups`. Its data layout is described in [backups and restore](backups-and-restore.md). The diagnostic log has its own OS-specific location, described in [native integrations](native-integrations.md).
+The effective backup destination comes from `GetBackupDir()` / `Clinic.BackupDirPath()`, not by appending a directory to the executable's location. Without a configured override, Windows uses `care-db-backups` inside its Desktop known folder (including OneDrive redirection); other platforms use `<user home>/Desktop/care-db-backups`. A failed Windows known-folder lookup logs a warning before using the legacy home-relative Desktop path. Saved overrides remain unchanged. Its data layout is described in [backups and restore](backups-and-restore.md). The diagnostic log has its own OS-specific location, described in [native integrations](native-integrations.md).
 
 The installed kit contains the following recognizable parts:
 
@@ -175,7 +175,13 @@ Inside the protected job, it rejects an installed or removing clinic, creates th
 
 It then unpacks the kit, checks port availability, runs `Clinic.Setup()` with the public backup certificate, restarts name advertising, and runs `Clinic.Start()`. Only the job runner's successful completion path persists `SetupDone=true`.
 
-A failure after configuration or files were created is therefore a partial setup, not proof that nothing was installed. The retry path is [failed-install cleanup](cleanup-and-uninstall.md).
+A failure after configuration or files were created is therefore a partial setup,
+not proof that nothing was installed. While the original process retains the
+attempt, `RetrySetup()` preserves its choices and recovery materials, revalidates
+their availability, and skips preparation if it already completed. It does not
+accept replacement settings. After a full app restart, or when that attempt is
+no longer available, the UI explains the destructive
+[failed-install cleanup](cleanup-and-uninstall.md) fallback before retrying.
 
 ## Embedded-kit refresh
 

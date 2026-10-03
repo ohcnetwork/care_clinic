@@ -143,6 +143,7 @@ or a teardown.
 | `Command` | Constructs `exec.Command` and applies the platform console settings. It does not start the command. |
 | `CommandContext` | Same wrapper around `exec.CommandContext`; the caller supplies cancellation and deadlines. |
 | `Run` / `RunWith` | Start the command, stream stdout and stderr, wait for both readers and process completion, and return an error on failure. |
+| `RunLauncher(timeout, logPath, name, args...)` | Direct stdout/stderr to an append-only file and wait only for the launcher process, with a context deadline. Copies up to 64 KiB of newly written output into the main log. Descendants can keep the file handle after CARE exits; the caller checks service readiness separately. |
 | `RunWith(extraEnv, ...)` | Starts from `cmd.Environ()` and appends the additional entries, preserving inherited environment when `Runner.Env` is nil. Later duplicate environment keys take precedence in the child. |
 | `Capture` | Returns trimmed stdout plus the command error, without live streaming. Stderr is not part of the returned string. |
 | `Lines` | Returns non-empty, trimmed stdout lines. A failed command is an error, not an empty successful list; the error includes command context. Successful empty output returns no lines and no error. |
@@ -252,6 +253,11 @@ method shape Wails expects from its logger.
 | macOS | `~/Library/Logs/care-desktop` |
 | Windows | `%LOCALAPPDATA%\care-desktop\logs`; if unset, `~/AppData/Local/care-desktop/logs` |
 | Linux/default branch | `$XDG_STATE_HOME/care-desktop`; if unset, `~/.local/state/care-desktop` |
+
+Rancher launch output also lives in `rancher-launch.log` in this directory.
+It is an append-only process-output file, not an `applog` sink, so the rotation
+policy below applies only to `care-log` files. Include the launcher log when
+investigating a Rancher startup failure.
 
 The active filename is `care-log.log`. The code first needs `os.UserHomeDir` to
 succeed, even before checking the Windows or XDG overrides. A failed home lookup

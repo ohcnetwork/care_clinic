@@ -375,6 +375,7 @@ to warn that the computer will ask for permission.
 | `SaveSetupBackupRecovery(backupDir)` / `VerifySetupBackupRecovery(backupDir)` | `boolean` | Sync. Native export/reselection; false means cancellation. Export is locked after installation starts. |
 | `ReplaceSetupBackupRecovery(backupDir)` | `boolean` | Explicitly generates a replacement for a lost pre-install private key. Requires a new export and verification; never silently replaces an existing key. |
 | `OpenSetupRecoveryCodes()` | `void` | Pre-install only. Verifies the saved sheet and opens it in the OS-associated application for printing; it does not claim to print directly. |
+| `OpenSetupRecoveryFolder(codes)` | `void` | Windows-only, pre-install read job. Reveals the saved backup recovery file (`false`) or admin-code sheet (`true`) in Explorer. Requires server setup and an existing saved path; unsupported platforms and missing files reject. Does not read or return private contents. |
 | `ChooseRecoveryFile()` | `string` | Native picker and structural validation. Cancellation returns empty; errors propagate. |
 | `SaveAdminRecoveryCodes(adminPassword, backupDir)` | `boolean` | Sync. Exports six printable single-use codes. Requires authentication once installed; successful replacement invalidates all prior codes. |
 | `ChangeAdminPassword(currentPassword, newPassword)` | `void` | Sync. Authenticated Desktop-only password change. |
@@ -487,7 +488,7 @@ File selection is not restore authorization. Full validation and data replacemen
 | Method | Result | Execution and contract |
 | --- | --- | --- |
 | `OpenURL(url)` | `void` | Opens the URL through the native browser integration. |
-| `ChooseFolder(title)` | `string` | Native directory dialog; empty string means cancellation. Dialog errors reject and are logged. |
+| `ChooseFolder(title)` | `string` | Native directory dialog; empty string means cancellation. Starts at Windows' Desktop known folder on Windows and the user home elsewhere. Windows known-folder lookup failures and dialog errors reject and are logged. |
 | `LogPath()` | `string` | Current diagnostic log path; may be empty if file logging is unavailable. |
 | `OpenLogFolder()` | `void` | Opens/reveals the log with the OS file browser; errors if no log file is available. |
 | `WasAutostartLaunched()` | `boolean` | Whether process arguments contain `--autostart`. |

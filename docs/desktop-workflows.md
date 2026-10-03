@@ -56,6 +56,21 @@ screen's time estimate is not a deadline or measured installation progress.
 Once installation has actually begun, going Back cannot undo it. An incomplete
 installation has its own cleanup/retry flow; it is not an unused role choice.
 
+### Finding saved files on Windows
+
+Windows' visible Desktop may be redirected to OneDrive or another location.
+CARE uses that Windows-reported location for the default backup directory and
+as the starting point for its native folder and recovery save dialogs. It does
+not move an explicitly configured backup folder. After saving recovery files
+or codes, **Open folder** reveals the saved file in Explorer.
+
+The Windows backup-location screen shows free space, without estimating how
+many days or years of backups will fit. Low-space errors still block setup.
+Prefer an external backup drive and keep recovery materials separately;
+Desktop may sync private recovery files to OneDrive. The Windows-only warning
+is guidance, not cloud-folder detection. Other platforms retain their existing
+save-dialog and capacity presentation.
+
 ### Keep the two recovery materials separate
 
 | Material | Purpose |

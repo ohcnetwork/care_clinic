@@ -126,11 +126,23 @@ The suffix `.enc` identifies encrypted backup content. The separate
 ### Host folders versus container paths
 
 `Store.Dir` is the installation directory. `Store.BackupDir` is the selected
-backup destination. With no configured override, the clinic's fallback is
-`<user home>/Desktop/care-db-backups`, from
+backup destination. With no configured override, the default is
+`care-db-backups` inside the Windows Desktop known folder on Windows, or
+`<user home>/Desktop/care-db-backups` on other platforms, from
 [`Clinic.backupDir`](../app/internal/clinic/clinic.go).
+Windows respects OneDrive and administrator redirection; it does not assume
+the visible Desktop is `C:\Users\<name>\Desktop`. A known-folder lookup failure
+is logged before falling back to that legacy path. An explicitly configured
+backup destination is never relocated by this lookup.
 Use the application's reported effective path rather than assuming that the
 executable directory or current shell directory contains the backups.
+
+Windows folder selection and recovery save dialogs start at the visible Desktop.
+Setup shows free space without a days/years-of-backups estimate, retains
+insufficient-space checks, and offers **Open folder** for saved recovery files
+and admin codes. Desktop may be cloud-synced: use a secure separate location for
+recovery materials and preferably an external drive for backups. CARE warns
+about possible OneDrive syncing, but does not detect or block every cloud folder.
 
 ```text
 <installation>/

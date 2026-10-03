@@ -25,6 +25,15 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   recovery codes, then Review. Review rechecks all requirements before accepting
   Install. Installation shows real activity rather than an invented percentage
   and opens the control panel directly when it succeeds.
+- **Interrupted installation** — reconnect and retry without clearing setup
+  while the original desktop process remains open and its saved recovery files
+  are available. Completed downloads and images can be reused; this is not
+  byte-level download resumption. If that attempt is no longer available, CARE
+  explains the cleanup required before starting again.
+- **Windows save locations** — the default backup folder and native save dialogs
+  use the Desktop Windows actually displays, including OneDrive redirection.
+  Saved recovery files have an **Open folder** action. Explicitly configured
+  backup locations are kept; other operating systems retain their folder behavior.
 - **Server control panel** — start/stop/restart, start at login, clinic address and
   phone/tablet setup QR, with dedicated Backups, Storage, Updates and Advanced
   pages. Plugins retains its reviewed catalog/table layout.
