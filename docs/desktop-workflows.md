@@ -89,9 +89,28 @@ declaration or a second timer for Advanced settings.
 Successful request acceptance does not mean installation succeeded. The desktop
 opens Overview only after both the saved setup-success event and matching
 successful job completion arrive. A failure keeps the failure screen, relevant
-guidance and logs instead of entering the panel. Cleanup removes the partial
-installation only when explicitly requested, preserves existing backups, and
-resets setup choices that need to be collected again.
+guidance and logs instead of entering the panel.
+
+Initial installation needs internet to download source and image dependencies.
+Recognized connection failures show **The download was interrupted**, ask the
+operator to reconnect, and do not suggest updating CARE Desktop as the remedy.
+Keep CARE Desktop open and choose **Try again** to retry the same unfinished
+installation. The clinic address, backup folder, admin password and saved
+recovery files are kept; completed source downloads and images can be reused.
+Preparation that already succeeded is not repeated after a startup failure.
+This is not byte-level download resumption.
+
+This retry is available only while the original Desktop process retains the
+attempt. It verifies that the saved configuration is unchanged and that the
+original recovery files and backup location remain available. It never accepts
+replacement settings or performs cleanup. A full app restart loses the retained
+attempt; the admin password is not stored in plaintext to support restart-time
+resumption.
+
+If the native app cannot retry the original attempt, the failure screen explicitly
+warns that **Try again** clears the unfinished installation and starts the backup
+and password steps over. This cleanup runs only when requested, preserves
+existing backups, and resets setup choices that need to be collected again.
 
 ### Permission prompts
 

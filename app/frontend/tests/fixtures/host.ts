@@ -508,6 +508,13 @@ export function installTestHost() {
     },
     ExitUninstall: async () => { logs.push("Test only: the uninstaller would finish."); },
     LogPath: async () => "/test-fixtures/logs/care-desktop.log",
+    RetrySetup: async () => {
+      requireServer();
+      if (state.setup_done || !fixtures.setupStarted) throw new Error("there is no unfinished installation that can be retried in this session");
+      if (!fixtures.recovery.backup_verified || !fixtures.recovery.codes_saved || fixtures.recovery.codes_problem || fixtures.folderProblem) {
+        throw new Error("the saved setup couldn't be checked");
+      }
+    },
     CleanupFailedInstall: async () => {
       requireServer();
       if (state.setup_done) throw new Error("this clinic is installed; use Uninstall instead");

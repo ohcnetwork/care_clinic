@@ -203,6 +203,16 @@ both this persisted-success signal and the matching successful `care-done`
 before entering Overview directly. There is no intermediate ready screen. If
 persisting successful state fails, the job is still reported as failed.
 
+Failed setup emits `setup-failed` before `care-done`, with retry availability and
+interrupted-download metadata. `RetrySetup` uses the same job lock and retained
+setup attempt, rather than calling cleanup or accepting a second set of setup
+parameters. A completed preparation phase is skipped when retrying startup.
+The attempt and original credentials stay in memory only and are released after
+successful setup, removal, or a setup panic. Retry rechecks the exact saved
+configuration, exported recovery files and backup location before acceptance.
+The frontend preserves failure metadata and both success signals even when
+events arrive before the acceptance promise resolves.
+
 A job can be waiting for an in-window confirmation, a native question or an OS
 approval while holding the lock. An idle-looking terminal does not prove that
 the job has finished; both the work and its synchronous confirmation handling
@@ -360,6 +370,7 @@ to warn that the computer will ask for permission.
 | `VerifyAdminPassword(pw)` | `boolean` | Query. Compares with the saved desktop bcrypt hash. |
 | `ValidateSetup(mdnsName, adminPassword, backupDir)` | `SetupIssue[]` | Read. Rechecks applicable computer requirements, address availability, backup location, physical recovery materials and password. Returns actionable step IDs/messages for Review. |
 | `RunSetup(mdnsName, adminPassword, backupDir)` | `void` | Validates under the exclusive job lock before accepting the job. Preflight rejection stays on Review; only an accepted installation enters Installing. The worker retains its own lifecycle/recovery/address guards. Advertising rechecks conflicts after setup. |
+| `RetrySetup()` | `void` | Job. Retries the original in-memory setup attempt without cleanup, new credentials or replacement settings. Requires the same configuration and available original recovery files/backup location; rejects installed/removing state. Available only in the original Desktop process. |
 | `GetSetupRecoveryStatus()` | `SetupRecoveryStatus` | Reports saved/verified flags, paths and missing/unreadable/mismatching files, never key material or hashes. The exported sheet must contain all six distinct saved codes; symlinks/non-regular/oversized sheets are rejected. |
 | `SaveSetupBackupRecovery(backupDir)` / `VerifySetupBackupRecovery(backupDir)` | `boolean` | Sync. Native export/reselection; false means cancellation. Export is locked after installation starts. |
 | `ReplaceSetupBackupRecovery(backupDir)` | `boolean` | Explicitly generates a replacement for a lost pre-install private key. Requires a new export and verification; never silently replaces an existing key. |
@@ -559,6 +570,7 @@ original text.
 | `care-done` | Number `0` or `1`, followed by a job label for asynchronous jobs | An App job succeeded or failed. Not a detailed subprocess exit code. `app-update` ends the native job without treating an update failure as a clinic-installation failure; unresolved installer/restart handoff remains guarded by the update controller. |
 | `care-error` | A short title and the technical detail | A job failed, or mDNS gave up a contested clinic address. Replaces the native error dialog; the same detail is already in the log. |
 | `setup-done` | `true` | Setup callback and persistence of `SetupDone` succeeded. Paired with matching job completion, opens Overview without a ready screen. |
+| `setup-failed` | `SetupFailure` | Sent before failed setup completion. Reports whether the current attempt can be retried without cleanup and whether the failed command reported a recent network/download interruption. Only the active setup consumes it; raw command diagnostics stay in the log. |
 | `uninstalled` | `true` | Normal uninstall completed its cleanup and local state removal. |
 | `care-update` | `{backend, frontend}` | A newer CARE commit has finished building and is staged. Raises the panel banner. |
 | `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the shared CARE Desktop update card; the controller and native job state guard conflicting actions. |
@@ -588,6 +600,7 @@ The core serialized shapes are:
 | --- | --- |
 | `AppState` | `version`, `platform`, `role`, `client_url`, `setup_done`, `mdns_name`, `docker`, `restore_pending`. Client-specific state exposes neither PEM nor ownership. `setup_done` is false while removal is in progress. |
 | `SetupIssue` | `step`, `message`; step is one of the wizard's requirement/configuration IDs. |
+| `SetupFailure` | `can_retry`, `download_interrupted`. Retry availability is checked again natively before acceptance; it is not permission to change setup settings. |
 | `SetupRecoveryStatus` | `backup_saved`, `backup_verified`, `codes_saved`, `backup_path`, `codes_path`, `backup_problem`, `codes_problem`. |
 | `BackupPolicy` | `interval_seconds`, `retention_days`. |
 | `ConfirmationRequest`, `QuitRequest` | `id`, `title`, `message`. IDs identify requests within the current native process, not jobs or authorization sessions. |

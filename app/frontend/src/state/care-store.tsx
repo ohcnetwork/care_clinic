@@ -17,7 +17,7 @@ import { bridge, logToHost, onCareEvent } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { operationError as describeOperationError, type OperationError } from "@/lib/operation-errors";
 import { RUN_STEPS, type RunStep } from "@/lib/run-steps";
-import type { AppUpdateProgress, Backup, CareUpdate, SetupPage, StorageReport } from "@/types";
+import type { AppUpdateProgress, Backup, CareUpdate, SetupFailure, SetupPage, StorageReport } from "@/types";
 
 export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
@@ -38,6 +38,7 @@ export type RunState = {
   startedAt: number;
   finished: boolean;
   failMessage: string;
+  failure: SetupFailure | null;
   pages: SetupPage[];
 };
 
@@ -48,6 +49,7 @@ const IDLE_RUN: RunState = {
   startedAt: 0,
   finished: false,
   failMessage: "",
+  failure: null,
   pages: ["space", "software", "address", "backup", "admin", "review", "install"],
 };
 
@@ -95,6 +97,7 @@ type CareStore = {
   run: RunState;
   setupReset: number;
   startInstall: (params: InstallParams) => Promise<void>;
+  resumeInstall: () => Promise<void>;
   retryInstall: () => Promise<void>;
   restartSetup: () => void;
   openPanel: () => void;
@@ -201,6 +204,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const refreshEpochRef = useRef(0);
   const autostartPendingRef = useRef(false);
   const setupEndedRef = useRef(false);
+  const setupFailureReceivedRef = useRef(false);
   const bootStartedRef = useRef(false);
   const stopIntentBeforeRef = useRef(false);
   const stateRefreshNeededRef = useRef(false);
@@ -639,6 +643,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       setBusy(true, "Checking setup");
       activeActionRef.current = "setup";
       setupEndedRef.current = false;
+      setupFailureReceivedRef.current = false;
       logRef.current = [];
       lastErrorRef.current = "";
       setMdnsName(params.host);
@@ -649,6 +654,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
         startedAt: Date.now(),
         finished: false,
         failMessage: "",
+        failure: null,
         pages: params.pages ?? IDLE_RUN.pages,
       });
       try {
@@ -673,6 +679,37 @@ export function CareProvider({ children }: { children: ReactNode }) {
     },
     [log, setBusy, setFlow, setRun],
   );
+
+  const resumeInstall = useCallback(async () => {
+    if (busyRef.current || flowRef.current !== "failed" || !runRef.current.failure?.can_retry) {
+      throw new Error("This installation isn't ready to retry.");
+    }
+    const previous = runRef.current;
+    setBusy(true, "Retrying installation");
+    activeActionRef.current = "setup";
+    setupEndedRef.current = false;
+    setupFailureReceivedRef.current = false;
+    logRef.current = [];
+    lastErrorRef.current = "";
+    setRun({ ...IDLE_RUN, pages: previous.pages, failure: previous.failure, startedAt: Date.now() });
+    try {
+      await bridge.RetrySetup();
+      if (!setupEndedRef.current || activeActionRef.current === "setup") {
+        if (!setupFailureReceivedRef.current) setRun({ ...runRef.current, failure: null });
+        setFlow("installing");
+        setBusy(true, "Installing CARE");
+      }
+      log("Retrying the unfinished installation...");
+    } catch (error) {
+      log(`retry installation: ${errorText(error)}`);
+      if (!setupEndedRef.current) {
+        setRun(previous);
+        activeActionRef.current = "";
+        setBusy(false);
+      }
+      throw error;
+    }
+  }, [log, setBusy, setFlow, setRun]);
 
   const restartSetup = useCallback(() => {
     lastErrorRef.current = "";
@@ -759,6 +796,11 @@ export function CareProvider({ children }: { children: ReactNode }) {
           setOperationError({ ...error, title });
         }
       }),
+      onCareEvent("setup-failed", (failure: SetupFailure) => {
+        if (activeActionRef.current !== "setup" || setupEndedRef.current) return;
+        setupFailureReceivedRef.current = true;
+        setRun({ ...runRef.current, failure });
+      }),
       onCareEvent("app-update-progress", (progress: AppUpdateProgress) => {
         if (activeActionRef.current && activeActionRef.current !== "app-update") return;
         appUpdatePhaseRef.current = progress.phase;
@@ -813,14 +855,16 @@ export function CareProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (flowRef.current !== "panel") {
-          if (label === "setup") {
-            activeActionRef.current = "";
+          if (label === "setup" && activeActionRef.current === "setup") {
             setupEndedRef.current = true;
-            setBusy(false);
             if (code !== 0) {
+              activeActionRef.current = "";
+              setBusy(false);
               log(`\n× Setup failed (exit ${code}).`);
               failInstall();
             } else if (runRef.current.finished) {
+              activeActionRef.current = "";
+              setBusy(false);
               openPanel();
             }
           }
@@ -855,7 +899,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
         });
       }),
       onCareEvent("setup-done", () => {
-        if (flowRef.current !== "setup" && flowRef.current !== "installing") return;
+        if (activeActionRef.current !== "setup") return;
         const current = runRef.current;
         setRun({
           ...current,
@@ -864,7 +908,11 @@ export function CareProvider({ children }: { children: ReactNode }) {
           finished: true,
         });
         setStepDone("install", true);
-        if (setupEndedRef.current) openPanel();
+        if (setupEndedRef.current) {
+          activeActionRef.current = "";
+          setBusy(false);
+          openPanel();
+        }
       }),
       onCareEvent("care-update", (update: CareUpdate) => {
         setCareUpdate(update);
@@ -947,6 +995,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       run,
       setupReset,
       startInstall,
+      resumeInstall,
       retryInstall,
       restartSetup,
       openPanel,
@@ -988,7 +1037,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
-      run, setupReset, startInstall, retryInstall, restartSetup, openPanel,
+      run, setupReset, startInstall, resumeInstall, retryInstall, restartSetup, openPanel,
       tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
       installAppUpdate, acknowledgeAppUpdate, restorePending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
       refresh, reloadBackups, syncAutostart,

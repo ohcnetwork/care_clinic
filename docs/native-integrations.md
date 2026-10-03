@@ -1658,12 +1658,21 @@ totals use an indeterminate indicator and downloaded bytes rather than a made-up
 percentage. Connecting, downloading, checksum verification and verified download
 are distinct states; download completion is not reported as installation success.
 
+DNS failures, connection resets, truncated responses and download timeouts are
+identified natively as connection interruptions, retaining the underlying error
+in the log. The setup wizard and panel repair screen show **The download was
+interrupted** and ask the operator to check the internet connection and retry.
+The download-size preview gives the same reconnect guidance without claiming
+that an installer has been downloaded. Checksum, certificate, disk and installer
+permission failures are not classified as lost connections.
+
 Every download is hashed while it is written. A SHA-256 that differs from the
 pinned value deletes the file and fails the install before anything runs, with
 both hashes in the error. Successful downloads return a temporary path whose
 caller must remove after use. Copy/read and file-close failures remove the
 incomplete download before returning an error. There is no persistent installer
-cache.
+cache. Trying again downloads the installer from the beginning; it does not
+clear clinic settings, backups or recovery files.
 
 ### Pinned prerequisite downloads
 

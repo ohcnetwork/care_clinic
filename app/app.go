@@ -34,6 +34,9 @@ type App struct {
 	activeJob atomic.Value
 	busyShown atomic.Bool
 
+	// Owned by jobMu; retains the original setup password in memory only.
+	setupAttempt *setupAttempt
+
 	// The clinic root FindClinic validated, held only in memory until Connect
 	// pins it, so looking for a clinic writes nothing.
 	pendingMu   sync.Mutex

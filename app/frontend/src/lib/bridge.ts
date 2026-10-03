@@ -67,6 +67,7 @@ export type CareEvent =
   | "care-done"
   | "care-error"
   | "setup-done"
+  | "setup-failed"
   | "uninstalled"
   | "care-update"
   | "care-check"
