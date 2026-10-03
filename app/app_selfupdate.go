@@ -64,7 +64,11 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 		if err != nil {
 			return err
 		}
-		script = macUpdateHelper(target, staged, work, os.Getpid(), !canWrite(filepath.Dir(target)), verification)
+		elevated, err := macUpdateNeedsElevation(target)
+		if err != nil {
+			return err
+		}
+		script = macUpdateHelper(target, staged, work, os.Getpid(), elevated, verification)
 		name = filepath.Join(work, "install.sh")
 		cmd = proc.Command("/bin/sh", name)
 	case "windows":
@@ -290,6 +294,38 @@ func macStep(name string, args ...string) error {
 		return fmt.Errorf("%w: %s", err, msg)
 	}
 	return err
+}
+
+func macUpdateNeedsElevation(target string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), macUpdateStepTimeout)
+	defer cancel()
+	out, err := proc.CommandContext(ctx, "/usr/bin/stat", "-f", "%u:%g", target).Output()
+	if err != nil {
+		return false, fmt.Errorf("couldn't read the installed app's ownership: %w", err)
+	}
+	groups, err := os.Getgroups()
+	if err != nil {
+		return false, fmt.Errorf("couldn't read the current user's groups: %w", err)
+	}
+	groups = append(groups, os.Getegid())
+	return macReplacementNeedsElevation(canWrite(filepath.Dir(target)), strings.TrimSpace(string(out)), os.Geteuid(), groups), nil
+}
+
+func macReplacementNeedsElevation(writable bool, owner string, uid int, groups []int) bool {
+	if !writable {
+		return true
+	}
+	if uid == 0 {
+		return false
+	}
+	// Replacing in a writable folder still requires chown to preserve the
+	// bundle's owner and group. Only root can assign another user's ownership.
+	for _, group := range groups {
+		if owner == fmt.Sprintf("%d:%d", uid, group) {
+			return false
+		}
+	}
+	return true
 }
 
 func canWrite(dir string) bool {

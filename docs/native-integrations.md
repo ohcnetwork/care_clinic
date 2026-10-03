@@ -604,7 +604,9 @@ be briefly unavailable during the restart.
    preserve ownership, and rename the old
    bundle aside before moving the new bundle into the same location. Failed
    replacement attempts to restore the previous bundle. A protected parent
-   folder prompts for administrator permission; cancelling reopens the old copy.
+   folder or bundle ownership that the current user cannot preserve prompts for
+   administrator permission, even when the parent folder is writable; cancelling
+   reopens the old copy.
    Quarantine is not stripped.
 5. On Windows, hold a handle to the originating process, check the downloaded
    installer hash again after exit, preserve a signed installation's publisher,

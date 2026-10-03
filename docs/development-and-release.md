@@ -470,6 +470,8 @@ relaxed updater check. No quarantine-removal command is used.
 
 Before publishing, test upgrades **on disposable installed copies**, including
 custom paths and spaces, writable and administrator-owned macOS folders,
+and a root-owned macOS bundle inside an admin-group-writable `/Applications`
+(ownership preservation must still request administrator permission),
 cancelled elevation/UAC, corrupt downloads, full disks, Windows file locks,
 failed final replacement, and relaunch failure. Confirm the old copy survives
 failed replacement and the clinic remains running. Test signed-to-signed and

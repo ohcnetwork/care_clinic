@@ -9,6 +9,58 @@ import (
 	"testing"
 )
 
+func TestMacReplacementElevationPreservesOwnership(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		writable bool
+		owner    string
+		uid      int
+		groups   []int
+		want     bool
+	}{
+		{"user-owned writable", true, "501:20", 501, []int{20, 80}, false},
+		{"root-owned writable", true, "0:80", 501, []int{20, 80}, true},
+		{"other-user-owned writable", true, "502:20", 501, []int{20, 80}, true},
+		{"inaccessible group", true, "501:0", 501, []int{20, 80}, true},
+		{"supplementary group", true, "501:80", 501, []int{20, 80}, false},
+		{"protected parent", false, "501:20", 501, []int{20, 80}, true},
+		{"already root", true, "501:20", 0, []int{0}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			elevated := macReplacementNeedsElevation(tc.writable, tc.owner, tc.uid, tc.groups)
+			if elevated != tc.want {
+				t.Fatalf("elevated = %v, want %v", elevated, tc.want)
+			}
+			script := macUpdateHelper("/Applications/CARE.app", "/cache/stage/CARE.app", "/cache", 12345, elevated)
+			if strings.Contains(script, "with administrator privileges") != tc.want {
+				t.Fatal("helper does not use the required privilege level")
+			}
+		})
+	}
+}
+
+func TestMacUpdateElevationPreflight(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("macOS stat format")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "CARE.app")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	elevated, err := macUpdateNeedsElevation(target)
+	if err != nil || elevated {
+		t.Fatalf("user-owned writable fixture needs no elevation: %v, %v", elevated, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("preflight left write probes behind: %v, %v", entries, err)
+	}
+	if _, err := macUpdateNeedsElevation(filepath.Join(dir, "missing.app")); err == nil {
+		t.Fatal("unreadable ownership must fail before update handoff")
+	}
+}
+
 func TestMacUpdateHelperWaitsBeforeReplacingAndReportsFailure(t *testing.T) {
 	target := "/Applications/CARE's Desktop.app"
 	staged := "/private/update/stage/CARE's Desktop.app"
