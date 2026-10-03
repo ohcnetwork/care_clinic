@@ -85,7 +85,11 @@ func TestRunLauncher(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				defer child.Release()
+				defer func() {
+					if err := child.Release(); err != nil {
+						t.Error(err)
+					}
+				}()
 				if err := child.Kill(); err != nil {
 					t.Error(err)
 				}

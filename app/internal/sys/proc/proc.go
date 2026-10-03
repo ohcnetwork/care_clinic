@@ -65,7 +65,11 @@ func (r Runner) RunLauncher(timeout time.Duration, logPath, name string, args ..
 	if err != nil {
 		return fmt.Errorf("open launcher log: %w", err)
 	}
-	defer output.Close()
+	defer func() {
+		if err := output.Close(); err != nil {
+			r.logln("Warning: could not close launcher log: " + err.Error())
+		}
+	}()
 	info, err := output.Stat()
 	if err != nil {
 		return fmt.Errorf("read launcher log size: %w", err)
