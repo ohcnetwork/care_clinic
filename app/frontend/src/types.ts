@@ -57,6 +57,8 @@ export type SetupPage =
 export type SetupIssue = { step: SetupPage; message: string };
 export type SetupFailure = { can_retry: boolean; download_interrupted: boolean };
 export type SetupRecoveryStatus = {
+  backup_key_stored: boolean;
+  backup_key_needs_enrollment: boolean;
   backup_saved: boolean;
   backup_verified: boolean;
   codes_saved: boolean;
@@ -70,7 +72,7 @@ export type SetupRecoveryStatus = {
 export type ResidueTrace = { id: string; label: string; detail: string };
 
 /** What ScanResidue found. `clean` is what the wizard gates on. */
-export type ResidueReport = { clean: boolean; traces: ResidueTrace[] };
+export type ResidueReport = { clean: boolean; traces: ResidueTrace[] | null };
 
 /**
  * What FindClinic found. Reading this changes nothing on the computer;

@@ -15,6 +15,7 @@ import { PanelPageHeader } from "./panel-ui";
 import { backupFailureDetail } from "./panel-status";
 import { usePanelUpdateLock } from "./panel-update-lock";
 import { RestoreBackupFile } from "./restore-backup-dialog";
+import { ExportBackupRecovery } from "./export-backup-recovery";
 import "./backups.css";
 
 export function BackupsTab() {
@@ -349,6 +350,7 @@ export function BackupsTab() {
         </section>
       )}
 
+      <ExportBackupRecovery disabled={disabled} />
       <RestoreBackupFile disabled={!!working || automaticRunning || folderLoading} />
     </div>
     </>

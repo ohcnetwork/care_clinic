@@ -443,6 +443,49 @@ its own module on every build, so those are ignored.
 Follow [Releasing CARE Desktop](releases.md) for the complete maintainer procedure
 and safe retry rules.
 
+### In-place desktop updates
+
+`app_update.go`, `app_selfupdate.go`, and `app_update_helpers.go` implement the
+desktop updater independently of CARE's container/image updates. Releases keep
+the existing DMG and NSIS assets and `SHA256SUMS`; no additional executable helper
+or unsigned remote script is downloaded. Locally generated helpers wait for the
+desktop process to exit, replace the installed application, and reopen it.
+
+macOS extracts and verifies the bundle before handoff, then stages a complete
+copy beside the current bundle before renaming it. Windows releases must retain
+the `/S /CAREUPDATE=1 /D=<existing directory>` path in `project.nsi`: it stages
+the new executable, keeps the previous one until replacement succeeds, and does
+not run the uninstaller or reinstall prerequisites. `/D` must be last and must
+not be quoted (NSIS consumes the remaining command line, including spaces).
+The update branch intentionally keeps the existing uninstaller and shortcuts.
+Both the ordinary and signed-uninstaller packaging variants use this same path.
+
+SHA-256 remains download integrity, not independent publisher authentication.
+Ad-hoc macOS and unsigned Windows preview releases remain supported. An
+installation with a macOS signing team cannot change teams or downgrade to
+ad-hoc signing; Gatekeeper must approve its replacement. A valid Authenticode
+installation requires a valid installer with the same publisher subject.
+Certificate/publisher migrations need a separately reviewed migration, not a
+relaxed updater check. No quarantine-removal command is used.
+
+Before publishing, test upgrades **on disposable installed copies**, including
+custom paths and spaces, writable and administrator-owned macOS folders,
+cancelled elevation/UAC, corrupt downloads, full disks, Windows file locks,
+failed final replacement, and relaunch failure. Confirm the old copy survives
+failed replacement and the clinic remains running. Test signed-to-signed and
+unsigned preview paths separately. Bare executables, `-dev` builds, and macOS
+DMG/translocated copies must refuse in-place updating instead of opening a disk
+image and claiming success. Installation from a DMG is still required once.
+An older installed version keeps its old updater until this release is installed.
+
+Targeted tests: Go tests named `TestDesktopUpdate`, `TestDownload`, `TestSwap`,
+`TestMacUpdateHelper`, `TestWindowsUpdateHelper`, and `TestUpdateHelper`; frontend
+`tests/app-updater.spec.ts` and updater cases in `tests/start-screen.spec.ts`.
+These exercise fixture downloads, helper generation/startup errors, local
+fixture-bundle swaps/rollback, and UI handoff guards. They do **not** establish
+real Windows UAC/locking behavior, Gatekeeper authorization, or native relaunch
+success; native upgrade acceptance remains required.
+
 ## Maintainer change map
 
 | Change | Surfaces to update together |

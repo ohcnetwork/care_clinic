@@ -117,6 +117,14 @@ func VerifyRecoveryFile(certificate, recovery []byte) error {
 	return nil
 }
 
+func (s *Store) VerifyInstalledRecoveryFile(recovery []byte) error {
+	certificate, err := os.ReadFile(s.certPath())
+	if err != nil {
+		return err
+	}
+	return VerifyRecoveryFile(certificate, recovery)
+}
+
 func (s *Store) InstallCertificate(certificate []byte) error {
 	if _, err := parseCertificate(certificate); err != nil {
 		return err

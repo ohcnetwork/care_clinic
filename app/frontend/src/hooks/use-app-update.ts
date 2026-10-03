@@ -6,11 +6,12 @@ import { useCare } from "@/state/care-store";
 import type { AppUpdate, AppUpdateProgress } from "@/types";
 
 type UpdateProblem =
-  | { kind: "offline" | "check" | "download" | "install" }
+  | { kind: "offline" | "check" | "download" | "install" | "location" }
   | { kind: "unavailable"; version: string };
 
 function updateProblem(error: unknown, checking: boolean): UpdateProblem {
   const text = errorText(error);
+  if (text.includes("update location unavailable:")) return { kind: "location" };
   const unavailable = /^release (\S+) has no installer for this computer$/.exec(text);
   if (unavailable) return { kind: "unavailable", version: unavailable[1] };
   if (checking) {

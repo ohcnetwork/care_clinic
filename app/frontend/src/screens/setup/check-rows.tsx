@@ -198,8 +198,8 @@ export function CheckRows({
                   {check.state === "wait"
                     ? "Checking"
                     : check.state === "ok"
-                      ? "Ready"
-                      : "Not ready"}
+                      ? "Available"
+                      : "Needs setup"}
                 </Badge>
               </div>
 

@@ -70,7 +70,7 @@ export function StartUpdateCard({ controller, context = "start" }: {
         detail = "Your computer may ask for permission to replace the app.";
         break;
       case "restarting":
-        title = "Installed \u2014 restarting CARE Desktop\u2026";
+        title = "Restarting CARE Desktop to finish updating\u2026";
         detail = "You'll be back here in a moment.";
         break;
       case "installer":
@@ -90,6 +90,11 @@ export function StartUpdateCard({ controller, context = "start" }: {
         title = "Your current version was kept";
         detail = "Nothing about your clinic has changed. Try again \u2014 if it keeps failing, share the log file.";
         retry = "install";
+        showLog = true;
+        break;
+      case "location":
+        title = "Open an installed copy to update";
+        detail = "Install CARE Desktop in a permanent folder first. On macOS, open the copy outside the disk image; on Windows, use the installed Start menu shortcut. Development copies cannot update themselves.";
         showLog = true;
         break;
       case "download":
@@ -115,9 +120,8 @@ export function StartUpdateCard({ controller, context = "start" }: {
   } else if (update?.available) {
     eyebrow = "Update available";
     title = `CARE Desktop ${releaseVersion}`;
-    detail = context === "setup" ? "Best done before installing."
-      : context === "client" ? "Fixes and improvements. Takes about a minute \u2014 best done before you connect."
-      : "Fixes and improvements. Takes about a minute \u2014 best done before you set up or connect.";
+    detail = context === "setup" ? "Best done before installing. CARE Desktop will close briefly and reopen."
+      : "Updates this installed copy and reopens CARE Desktop. Your computer may ask for permission. Clinic data is kept and a running clinic is not stopped.";
   }
 
   return (

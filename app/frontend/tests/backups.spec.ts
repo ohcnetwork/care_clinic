@@ -27,6 +27,127 @@ async function openBackups(page: Page, scenario = "panel-healthy") {
   await expect(root(page).getByText("Kept forever", { exact: true })).toBeVisible();
 }
 
+test("backup key re-download works with only the password after the original PEM is deleted", async ({ page }) => {
+  await openBackups(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.recovery.backup_path = "";
+    window.careTest.fixtures.recovery.backup_problem = "missing";
+    window.careTest.fixtures.recoveryFile = "";
+  });
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  const save = dialog(page).getByRole("button", { name: "Choose where to save", exact: true });
+  await expect(save).toBeDisabled();
+  await expect(dialog(page)).toContainText("the original PEM is not needed");
+  await password(page).fill("incorrect");
+  await save.click();
+  await expect(dialog(page).getByRole("alert")).toContainText("password didn't match");
+  await expect(password(page)).toHaveValue("");
+  await password(page).fill(samplePassword);
+  await save.click();
+  await expect(dialog(page)).toBeHidden();
+  await expect(root(page).getByRole("status")).toContainText("The key is unchanged");
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ExportBackupRecovery").map((call) => call.args)))
+    .toEqual([["incorrect", ""], [samplePassword, ""]]);
+  expect(await callCount(page, "ReplaceSetupBackupRecovery")).toBe(0);
+  expect(await callCount(page, "ChooseRecoveryFile")).toBe(0);
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await expect(password(page)).toHaveValue("");
+});
+
+test("backup key export handles lost originals, alternate copies and cancellation", async ({ page }) => {
+  await openBackups(page);
+  await page.evaluate(() => { window.careTest.fixtures.recovery.backup_key_stored = false; });
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await password(page).fill(samplePassword);
+  const save = dialog(page).getByRole("button", { name: "Choose where to save", exact: true });
+  await save.click();
+  await expect(dialog(page).getByRole("alert")).toContainText("cannot reconstruct a key lost before enrollment");
+  await dialog(page).getByRole("button", { name: "Select another saved copy", exact: true }).click();
+  await page.evaluate(() => window.careTest.respond("ExportBackupRecovery", false));
+  await password(page).fill(samplePassword);
+  await save.click();
+  await expect(dialog(page)).toContainText("No file was saved");
+  await expect(password(page)).toHaveValue("");
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ExportBackupRecovery").slice(-1)[0]?.args))
+    .toEqual([samplePassword, await page.evaluate(() => window.careTest.fixtures.recoveryFile)]);
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await expect(dialog(page)).toContainText("Using the original saved recovery file location");
+  expect(await page.evaluate(() => window.careTest.fixtures.recovery.backup_key_stored)).toBe(false);
+});
+
+test("legacy backup key enrollment enables future downloads without the source PEM", async ({ page }) => {
+  await openBackups(page);
+  await page.evaluate(() => { window.careTest.fixtures.recovery.backup_key_stored = false; });
+  const trigger = root(page).getByRole("button", { name: "Re-download backup key", exact: true });
+  await trigger.click();
+  await expect(dialog(page)).toContainText("Enable password-only downloads");
+  await dialog(page).getByRole("button", { name: "Select another saved copy", exact: true }).click();
+  await password(page).fill(samplePassword);
+  await dialog(page).getByRole("button", { name: "Choose where to save", exact: true }).click();
+  await expect(dialog(page)).toBeHidden();
+  expect(await page.evaluate(() => window.careTest.fixtures.recovery.backup_key_stored)).toBe(true);
+  await page.evaluate(() => {
+    window.careTest.fixtures.recoveryFile = "";
+    window.careTest.fixtures.recovery.backup_path = "";
+  });
+  await trigger.click();
+  await expect(dialog(page)).toContainText("the original PEM is not needed");
+  await password(page).fill(samplePassword);
+  await dialog(page).getByRole("button", { name: "Choose where to save", exact: true }).click();
+  await expect(dialog(page)).toBeHidden();
+  expect(await callCount(page, "ExportBackupRecovery")).toBe(2);
+  expect(await callCount(page, "ChooseRecoveryFile")).toBe(1);
+  expect(await callCount(page, "ReplaceSetupBackupRecovery")).toBe(0);
+});
+
+test("backup key export explains re-enrollment after a forgotten-password reset", async ({ page }) => {
+  await openBackups(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.recovery.backup_key_stored = false;
+    window.careTest.fixtures.recovery.backup_key_needs_enrollment = true;
+  });
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await expect(dialog(page)).toContainText("Re-enroll after your password reset");
+  await dialog(page).getByRole("button", { name: "Select another saved copy", exact: true }).click();
+  await password(page).fill(samplePassword);
+  await dialog(page).getByRole("button", { name: "Choose where to save", exact: true }).click();
+  await expect(dialog(page)).toBeHidden();
+  expect(await page.evaluate(() => window.careTest.fixtures.recovery.backup_key_needs_enrollment)).toBe(false);
+});
+
+test("backup key export rejects duplicate submissions and reports incompatible keys", async ({ page }) => {
+  await openBackups(page);
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await password(page).fill(samplePassword);
+  await page.evaluate(() => {
+    window.careTest.hold("ExportBackupRecovery");
+    window.careTest.failNext("ExportBackupRecovery", "the selected recovery file does not match this clinic's configured backup key");
+  });
+  await dialog(page).getByRole("button", { name: "Choose where to save", exact: true }).dblclick();
+  await expect.poll(() => callCount(page, "ExportBackupRecovery")).toBe(1);
+  await expect(dialog(page).getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog(page)).toBeVisible();
+  await page.evaluate(() => window.careTest.release("ExportBackupRecovery"));
+  await expect(dialog(page).getByRole("alert")).toContainText("doesn't match this clinic");
+  await expect(password(page)).toHaveValue("");
+  expect(await callCount(page, "ReplaceSetupBackupRecovery")).toBe(0);
+});
+
+test("backup key re-download is locked during an application update", async ({ page }) => {
+  await openBackups(page);
+  const trigger = root(page).getByRole("button", { name: "Re-download backup key", exact: true });
+  await trigger.click();
+  await password(page).fill(samplePassword);
+  await page.evaluate(() => window.careTest.progress({ phase: "downloading", done: 1, total: 100 }));
+  await expect(password(page)).toHaveValue("");
+  await expect(dialog(page).getByRole("button", { name: "Choose where to save", exact: true })).toBeDisabled();
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(trigger).toBeDisabled();
+  expect(await callCount(page, "ExportBackupRecovery")).toBe(0);
+});
+
 async function chooseBackup(page: Page) {
   await root(page).getByRole("button", { name: "Choose file", exact: true }).click();
   await expect(dialog(page)).toBeVisible();

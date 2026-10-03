@@ -21,7 +21,7 @@ function driveAdvice(drive: StorageDrive) {
   if (drive.level === "critical") return "This drive is almost full. Free up space so CARE can keep saving data.";
   if (drive.level === "low") return "Free space is running low. Make room soon so CARE can keep saving data.";
   return drive.id === "vm"
-    ? "This holds the clinic's database, uploads and downloaded software. Rancher Desktop's disk can grow; deleting records inside CARE doesn't return that space to this computer."
+    ? "Includes clinic records, uploads and the software that runs CARE. Other apps using Rancher Desktop may also be included."
     : "Room for the clinic's data and Rancher Desktop's disk to grow.";
 }
 
@@ -79,18 +79,21 @@ export function StorageTab() {
           <span className={`panel-tile panel-tile-large ${drive.id === "vm" ? "" : "panel-tile-neutral"}`}><Icon aria-hidden="true" /></span>
           <div className="panel-grow">
             <div className="panel-row panel-between">
-              <h2 className="panel-title">{drive.id === "vm" ? "Rancher Desktop disk" : "This computer's drive"}</h2>
-              {data ? <span className="panel-small panel-mono">
-                {diskSize(drive.id === "vm" ? data.used : drive.free)} {drive.id === "vm" ? "used" : "free"} of {diskSize(drive.total)}
-              </span> : <span className="panel-small">Space unavailable</span>}
+              <h2 className="panel-title">{drive.id === "vm" ? "CARE Desktop storage" : "This computer's drive"}</h2>
+              {!data ? <span className="panel-small">Space unavailable</span> : drive.id !== "vm" ? <span className="panel-small panel-mono">
+                {diskSize(drive.free)} free of {diskSize(drive.total)}
+              </span> : null}
             </div>
-            {data ? <Progress value={data.percent} aria-label={`${drive.id === "vm" ? "Rancher Desktop disk" : "This computer's drive"} space used`} /> : null}
+            {data && drive.id === "vm" ? <>
+              <p className="panel-storage-usage"><strong>{diskSize(data.used)}</strong> currently used</p>
+              <p className="panel-small">Storage capacity: {diskSize(drive.total)} — this is the space available to grow into, not the amount used.</p>
+            </> : data ? <Progress value={data.percent} aria-label="This computer's drive space used" /> : null}
             <p className="panel-small">{driveAdvice(drive)}</p>
             {drive.cleanable ? <div className="panel-actions">
               <Button disabled={busy || updateLock.active || cleanup.working || care.restorePending} onClick={free}>
                 {freeing ? <Spinner /> : <Trash2 aria-hidden="true" />}{freeing ? "Freeing up space…" : "Free up space"}
               </Button>
-              <span className="panel-small">Removes build leftovers and unused images. Clinic records and backups are kept.</span>
+              <span className="panel-small">Removes temporary files and unused software. Clinic records and backups are kept.</span>
             </div> : null}
           </div>
         </div>

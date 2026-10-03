@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
+import { continueServerChecks } from "./helpers/setup";
 
 const dialog = (page: Page) => page.getByRole("alertdialog");
 const calls = (page: Page, method: string) => page.evaluate((name) =>
@@ -303,6 +304,7 @@ for (const first of ["uninstalled", "care-done"] as const) {
     await expect(page.getByRole("heading", { name: "Set up CARE on this computer", exact: true })).toBeVisible();
     expect(await calls(page, "RemoveApp")).toHaveLength(0);
     await page.getByRole("button", { name: "Start setup", exact: true }).click();
+    await continueServerChecks(page);
     await expect(page.getByLabel("Clinic address", { exact: true })).toHaveValue("care");
   });
 }
@@ -310,6 +312,7 @@ for (const first of ["uninstalled", "care-done"] as const) {
 async function installDemo(page: Page, fail = false) {
   await page.goto(`/tests/fixtures/index.html?simulateInstall=1${fail ? "&scenario=installation-failed" : ""}`);
   await page.getByRole("button", { name: "Start setup", exact: true }).click();
+  await continueServerChecks(page);
   await page.getByLabel("Clinic address", { exact: true }).fill("preview-clinic");
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await page.getByRole("button", { name: "Change folder", exact: true }).click();
@@ -341,6 +344,7 @@ test("the simulated failed install retries setup without silently starting anoth
   await installDemo(page, true);
   await expect(page.getByRole("heading", { name: "Something went wrong during installation", exact: true })).toBeVisible({ timeout: 15_000 });
   await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await continueServerChecks(page);
   await expect(page.getByLabel("Clinic address", { exact: true })).toHaveValue("preview-clinic");
   expect(await calls(page, "CleanupFailedInstall")).toHaveLength(1);
   expect(await calls(page, "RunSetup")).toHaveLength(1);

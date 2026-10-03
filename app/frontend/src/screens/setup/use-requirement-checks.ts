@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { bridge } from "@/lib/bridge";
 import type { DownloadInfo, ToolPlan } from "@/types";
+import { SOFTWARE_DESCRIPTIONS } from "./setup-model";
 
 export type CheckTone = "wait" | "ok" | "bad";
 export type CheckId =
@@ -140,7 +141,9 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
         ? { state: "ok", how: "" }
         : {
             state: "bad",
-            how: `Found ${report.traces.map((t) => t.label.toLowerCase()).join(", ")}. These must be removed before a new clinic can be set up.`,
+            how: report.traces?.length
+              ? `Found ${report.traces.map((t) => t.label.toLowerCase()).join(", ")}. These must be removed before a new clinic can be set up.`
+              : "The earlier installation still needs cleanup before a new clinic can be set up.",
             action: {
               label: "Remove old installation",
               detail:
@@ -238,9 +241,10 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
     let result: Result & { message: string };
     try {
       const status = await bridge.DiskStatus();
+      const ok = status.ok && status.need > 0 && status.free >= status.need;
       result = {
-        state: status.ok ? "ok" : "bad",
-        how: status.ok ? "" : status.how || status.message,
+        state: ok ? "ok" : "bad",
+        how: ok ? "" : status.need === 0 ? "Couldn't measure the free space. Check again before continuing." : status.how || status.message,
         message: status.message,
       };
     } catch (e) {
@@ -388,14 +392,14 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
     list.push({
       id: "docker",
       title: "Docker",
-      detail: "Runs the clinic software on this computer",
+      detail: SOFTWARE_DESCRIPTIONS.docker,
       ...docker,
     });
     if (inSetup) {
       list.push({
         id: "git",
         title: "Git",
-        detail: "Downloads the clinic software",
+        detail: SOFTWARE_DESCRIPTIONS.git,
         ...git,
       });
     }

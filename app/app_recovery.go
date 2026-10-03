@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,13 +20,15 @@ import (
 )
 
 type SetupRecoveryStatus struct {
-	BackupSaved    bool   `json:"backup_saved"`
-	BackupVerified bool   `json:"backup_verified"`
-	CodesSaved     bool   `json:"codes_saved"`
-	BackupPath     string `json:"backup_path"`
-	CodesPath      string `json:"codes_path"`
-	BackupProblem  string `json:"backup_problem"`
-	CodesProblem   string `json:"codes_problem"`
+	BackupSaved              bool   `json:"backup_saved"`
+	BackupVerified           bool   `json:"backup_verified"`
+	CodesSaved               bool   `json:"codes_saved"`
+	BackupPath               string `json:"backup_path"`
+	CodesPath                string `json:"codes_path"`
+	BackupProblem            string `json:"backup_problem"`
+	CodesProblem             string `json:"codes_problem"`
+	BackupKeyStored          bool   `json:"backup_key_stored"`
+	BackupKeyNeedsEnrollment bool   `json:"backup_key_needs_enrollment"`
 }
 
 func (a *App) GetSetupRecoveryStatus() (status SetupRecoveryStatus, err error) {
@@ -37,11 +40,21 @@ func (a *App) GetSetupRecoveryStatus() (status SetupRecoveryStatus, err error) {
 	return setupRecoveryStatus(cfg), nil
 }
 
+func (a *App) GetAdminRecoveryCodeCount() (count int, err error) {
+	defer a.logError(&err)
+	if err := a.requireServer(); err != nil {
+		return 0, err
+	}
+	return a.loadConfig().adminRecoveryCount(), nil
+}
+
 func setupRecoveryStatus(cfg Config) SetupRecoveryStatus {
 	status := SetupRecoveryStatus{
 		BackupSaved: cfg.BackupCertificate != "", BackupVerified: cfg.BackupRecoveryVerified,
 		CodesSaved: cfg.adminRecoveryCount() == 6, BackupPath: cfg.BackupRecoveryPath,
-		CodesPath: cfg.AdminRecoveryPath,
+		CodesPath:                cfg.AdminRecoveryPath,
+		BackupKeyStored:          cfg.BackupKeyEncrypted != "" && !cfg.BackupKeyNeedsEnrollment,
+		BackupKeyNeedsEnrollment: cfg.BackupKeyNeedsEnrollment,
 	}
 	if status.BackupSaved {
 		data, err := backup.ReadRecoveryFile(cfg.BackupRecoveryPath)
@@ -149,17 +162,38 @@ func saveRecoveryFile(path string, data []byte) error {
 	return nil
 }
 
+var unsafeRecoveryFilename = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+func recoveryFilename(clinic, kind, extension string) (string, error) {
+	var nonce [6]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("could not create a unique recovery filename: %w", err)
+	}
+	clinic = strings.Trim(unsafeRecoveryFilename.ReplaceAllString(clinic, "-"), ".-")
+	if clinic == "" {
+		clinic = "clinic"
+	}
+	return fmt.Sprintf("CARE-%s-%s-%s-%x.%s", clinic, kind,
+		time.Now().UTC().Format("20060102-150405.000000000Z"), nonce, extension), nil
+}
+
 func (a *App) SaveSetupBackupRecovery(backupDir string) (bool, error) {
 	return a.saveSetupBackupRecovery(backupDir, false)
 }
 
-// Replacement is explicit: the private key is never retained by CARE, so a
-// lost export can only be replaced with a new key before installation begins.
+// Replacement is explicit and only allowed before installation; the password-
+// protected local copy is enrolled once the setup password is supplied.
 func (a *App) ReplaceSetupBackupRecovery(backupDir string) (bool, error) {
 	return a.saveSetupBackupRecovery(backupDir, true)
 }
 
 func (a *App) saveSetupBackupRecovery(backupDir string, replace bool) (bool, error) {
+	return a.saveSetupBackupRecoveryWithDialog(backupDir, replace, func(opts wruntime.SaveDialogOptions) (string, error) {
+		return wruntime.SaveFileDialog(a.ctx, opts)
+	})
+}
+
+func (a *App) saveSetupBackupRecoveryWithDialog(backupDir string, replace bool, choose func(wruntime.SaveDialogOptions) (string, error)) (bool, error) {
 	saved := false
 	err := a.withServerJob(func() error {
 		if err := a.requireRecoverySetup(); err != nil {
@@ -173,10 +207,14 @@ func (a *App) saveSetupBackupRecovery(backupDir string, replace bool) (bool, err
 		if err != nil {
 			return fmt.Errorf("couldn't locate your Desktop: %w", err)
 		}
-		path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
+		filename, err := recoveryFilename(cfg.MDNSName, "backup-recovery", "pem")
+		if err != nil {
+			return err
+		}
+		path, err := choose(wruntime.SaveDialogOptions{
 			DefaultDirectory: directory,
 			Title:            "Save backup recovery file on a separate secure drive",
-			DefaultFilename:  "CARE-" + cfg.MDNSName + "-backup-recovery.pem",
+			DefaultFilename:  filename,
 		})
 		if err != nil || path == "" {
 			return err
@@ -194,6 +232,8 @@ func (a *App) saveSetupBackupRecovery(backupDir string, replace bool) (bool, err
 		cfg.BackupCertificate = string(cert)
 		cfg.BackupRecoveryPath = path
 		cfg.BackupRecoveryVerified = false
+		cfg.BackupKeyEncrypted = ""
+		cfg.BackupKeyNeedsEnrollment = false
 		if err := a.saveConfig(cfg); err != nil {
 			return fmt.Errorf("the exported file was not activated; save a new recovery file before installing: %w", err)
 		}
@@ -219,14 +259,26 @@ func (a *App) ChooseRecoveryFile() (chosen string, err error) {
 }
 
 func (a *App) VerifySetupBackupRecovery(backupDir string) (bool, error) {
+	return a.verifySetupBackupRecovery(backupDir, a.ChooseRecoveryFile)
+}
+
+func (a *App) verifySetupBackupRecovery(backupDir string, choose func() (string, error)) (bool, error) {
 	verified := false
 	err := a.withServerJob(func() error {
 		cfg := a.loadConfig()
 		if cfg.SetupDone || cfg.Removing {
 			return errors.New("this clinic is already installed")
 		}
-		path, err := a.ChooseRecoveryFile()
-		if err != nil || path == "" {
+		path, err := choose()
+		if err == nil && path == "" {
+			return nil
+		}
+		// Cancellation preserves verification; a new attempt must earn it again.
+		cfg.BackupRecoveryVerified = false
+		if saveErr := a.saveConfig(cfg); saveErr != nil {
+			return errors.Join(err, saveErr)
+		}
+		if err != nil {
 			return err
 		}
 		if err := a.recoveryLocation(path, backupDir); err != nil {
@@ -294,10 +346,14 @@ func (a *App) SaveAdminRecoveryCodes(adminPassword, backupDir string) (bool, err
 		if err != nil {
 			return fmt.Errorf("couldn't locate your Desktop: %w", err)
 		}
+		filename, err := recoveryFilename(cfg.MDNSName, "desktop-admin-codes", "txt")
+		if err != nil {
+			return err
+		}
 		path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
 			DefaultDirectory: directory,
 			Title:            "Save six Desktop admin recovery codes",
-			DefaultFilename:  "CARE-" + cfg.MDNSName + "-desktop-admin-codes.txt",
+			DefaultFilename:  filename,
 		})
 		if err != nil || path == "" {
 			return err
@@ -329,6 +385,7 @@ func (a *App) saveAdminRecoveryCodes(path string) error {
 	if err := a.saveConfig(cfg); err != nil {
 		return fmt.Errorf("could not activate the new recovery codes; keep the previous sheet and retry: %w", err)
 	}
+	a.emit("admin-recovery-codes-changed", cfg.adminRecoveryCount())
 	return nil
 }
 
@@ -358,6 +415,17 @@ func (a *App) ChangeAdminPassword(currentPassword, newPassword string) error {
 			return err
 		}
 		cfg := a.loadConfig()
+		if cfg.BackupKeyEncrypted != "" && !cfg.BackupKeyNeedsEnrollment {
+			key, err := decryptBackupKey(cfg, currentPassword)
+			if err != nil {
+				return err
+			}
+			defer clear(key)
+			cfg.BackupKeyEncrypted, err = encryptBackupKey(cfg, newPassword, key)
+			if err != nil {
+				return err
+			}
+		}
 		cfg.AdminPwHash = string(hash)
 		return a.saveConfig(cfg)
 	})
@@ -401,8 +469,15 @@ func (a *App) ResetAdminPassword(code, newPassword string) error {
 		}
 		cfg.AdminRecoveryHashes[match] = ""
 		cfg.AdminPwHash = string(passwordHash)
+		// A recovery code authenticates a reset but cannot decrypt the old
+		// password's key. Preserve ciphertext; require explicit PEM enrollment.
+		cfg.BackupKeyNeedsEnrollment = true
 		cfg.RecoveryFailures, cfg.RecoveryRetryAfter = 0, 0
 		// One atomic config write both consumes the code and changes the password.
-		return a.saveConfig(cfg)
+		if err := a.saveConfig(cfg); err != nil {
+			return err
+		}
+		a.emit("admin-recovery-codes-changed", cfg.adminRecoveryCount())
+		return nil
 	})
 }

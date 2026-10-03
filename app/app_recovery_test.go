@@ -66,6 +66,49 @@ func TestAdminRecoverySingleUseAndPersistence(t *testing.T) {
 	}
 }
 
+func TestAdminRecoveryCodeCountTracksDurableChanges(t *testing.T) {
+	a, codes := recoveryApp(t)
+	check := func(want int) {
+		t.Helper()
+		cfg, err := loadConfig(a.configPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		a.cfg = cfg
+		count, err := a.GetAdminRecoveryCodeCount()
+		if err != nil || count != want {
+			t.Fatalf("remaining codes = %d, want %d: %v", count, want, err)
+		}
+	}
+	check(6)
+	for i, code := range codes {
+		if err := a.ResetAdminPassword(code, "NewDesktopPass123"); err != nil {
+			t.Fatal(err)
+		}
+		check(5 - i)
+	}
+	if err := a.ResetAdminPassword(codes[0], "NewDesktopPass123"); err == nil {
+		t.Fatal("a used code was accepted")
+	}
+	check(0)
+	path := filepath.Join(t.TempDir(), "new-codes.txt")
+	if err := os.WriteFile(path, []byte("do not overwrite"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.saveAdminRecoveryCodes(path); err == nil {
+		t.Fatal("failed export succeeded")
+	}
+	check(0)
+	if err := a.saveAdminRecoveryCodes(filepath.Join(t.TempDir(), "new-codes.txt")); err != nil {
+		t.Fatal(err)
+	}
+	check(6)
+	a.cfg.Role = roleClient
+	if _, err := a.GetAdminRecoveryCodeCount(); err == nil {
+		t.Fatal("client exposed server recovery status")
+	}
+}
+
 func TestAdminRecoveryFailuresAndAtomicWrite(t *testing.T) {
 	a, codes := recoveryApp(t)
 	before := a.loadConfig()

@@ -39,6 +39,10 @@ export function advancedProblem(cause: unknown, title: string, message: string):
     title: "The Desktop admin password didn't match",
     message: "Lock Advanced and enter this installation's Desktop admin password again. Your CARE web password may be different.",
   };
+  if (/encrypted backup key could not be unlocked/i.test(detail)) return {
+    title: "The local backup key couldn't be unlocked",
+    message: "Your password was not changed. In Backups, select a surviving recovery PEM and re-enroll its encrypted local copy before trying again.",
+  };
   if (/restore is unfinished|restore.*pending/i.test(detail)) return {
     title: "Finish the earlier restore first",
     message: "Go to Overview and start CARE to recover the unfinished restore before making other changes.",

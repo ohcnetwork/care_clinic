@@ -14,6 +14,7 @@ import { bridge, onCareEvent } from "@/lib/bridge";
 import { diskSize, errorText } from "@/lib/format";
 import { downloadProblem, type PrerequisiteProblem } from "@/lib/prerequisite-errors";
 import { RestartDialog } from "@/screens/setup/restart-dialog";
+import { SOFTWARE_DESCRIPTIONS } from "@/screens/setup/setup-model";
 import { useCare } from "@/state/care-store";
 import type { DownloadInfo, PrereqDownloadProgress, RestartPlan, ToolPlan } from "@/types";
 import { PanelBadge, PanelLogButton, PanelNotice } from "./panel-ui";
@@ -113,7 +114,8 @@ function useChecks() {
       ]);
       const unknown = (id: CheckId): PanelCheck => ({
         id, title: TITLES[id], state: "unknown",
-        detail: "Couldn't check this. Check again, or share the log file with support.",
+        detail: id === "docker" || id === "git" ? SOFTWARE_DESCRIPTIONS[id]
+          : "Couldn't check this. Check again, or share the log file with support.",
       });
       const next: PanelCheck[] = [];
       if (platform === "windows" && (!wsl || wsl.applicable)) {
@@ -132,16 +134,14 @@ function useChecks() {
       }
       next.push(!docker ? unknown("docker") : {
         id: "docker", title: TITLES.docker, state: docker.ok ? "ready" : "bad",
-        detail: docker.ok ? "Runs the clinic on this computer."
-          : dockerPlan?.action === "install" ? "Rancher Desktop needs to be installed before CARE can run."
-            : "Rancher Desktop isn't ready, so the clinic can't run.",
+        detail: SOFTWARE_DESCRIPTIONS.docker,
         action: docker.ok ? undefined : toolFix("docker", dockerPlan),
         blocked: next.some((check) => check.id === "wsl" && check.state !== "ready")
           ? "Finish the WSL 2 step first." : undefined,
       });
       next.push(!git ? unknown("git") : {
         id: "git", title: TITLES.git, state: git.ok ? "ready" : "bad",
-        detail: git.ok ? "Ready to download CARE software updates." : "Git is needed to download CARE software updates.",
+        detail: SOFTWARE_DESCRIPTIONS.git,
         action: git.ok ? undefined : toolFix("git", gitPlan),
       });
       if (platform === "windows" && (!network || network.applicable)) {
@@ -381,7 +381,7 @@ export function RequirementsCard() {
     </div>
     <div className="panel-badges">
       {core.map((check) => <PanelBadge key={check.id} tone={check.state === "ready" ? "ok" : "danger"}>
-        {check.title}{check.state === "ready" ? " ready" : check.state === "unknown" ? " couldn't be checked" : " not ready"}
+        {check.title}{check.state === "ready" ? " available" : check.state === "unknown" ? " couldn't be checked" : " needs setup"}
       </PanelBadge>)}
     </div>
     {failed.map((check) => <div className="panel-requirement-fix" key={check.id}>
@@ -409,7 +409,7 @@ export function RequirementChecklist() {
               : <Spinner />}
           </span>
           <div className="panel-grow"><h3 className="panel-title">{check.title}</h3><p className="panel-card-sub">{check.detail}</p></div>
-          <PanelBadge tone={tone}>{check.state === "ready" ? "Ready" : check.state === "bad" ? "Not ready" : check.state === "unknown" ? "Couldn't check" : "Waiting"}</PanelBadge>
+          <PanelBadge tone={tone}>{check.state === "ready" ? "Available" : check.state === "bad" ? "Needs setup" : check.state === "unknown" ? "Couldn't check" : "Waiting"}</PanelBadge>
         </div>
         {failed ? <div className="panel-check-fix"><RequirementActions check={check} /></div> : null}
         {target === check.id && (running || previewing || failure) ? <div className="panel-check-work" ref={activeWork}>

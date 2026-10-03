@@ -72,6 +72,7 @@ export type CareEvent =
   | "care-update"
   | "care-check"
   | "care-storage"
+  | "admin-recovery-codes-changed"
   | "app-update-progress"
   | "prereq-download-progress"
   | "client-connect-progress"

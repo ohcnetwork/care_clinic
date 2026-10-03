@@ -56,6 +56,7 @@ export function BackupStep({ form, space, folderProblem, recovery, recoveryError
 }) {
   const { platform } = useCare();
   const folderReady = space !== null && !folderProblem;
+  const checked = recovery.backup_verified && !recovery.backup_problem && !recoveryError && action !== "verify-backup";
   return (
     <>
       <section className="on-card">
@@ -72,7 +73,7 @@ export function BackupStep({ form, space, folderProblem, recovery, recoveryError
           : folderProblem}</p><div className="on-actions"><Button disabled={busy} onClick={onCheck}>Check again</Button></div></div> : null}
       </section>
       <section className="on-card on-backup-recovery" aria-label="Your backup recovery file">
-        <div className="on-card-title"><h3>Your backup recovery file</h3><p>This small file unlocks your backups if you ever need to restore. CARE does not keep a copy.</p>
+        <div className="on-card-title"><h3>Your backup recovery file</h3><p>This small file unlocks your backups if you ever need to restore. When installation starts, CARE also keeps a local copy encrypted with your Desktop admin password. Keep this separate file safe for recovery without this computer or password.</p>
           {!folderReady ? <p>Sort the folder out first — the file is made once CARE knows where the backups go.</p> : null}
         </div>
         <div className="on-data-row">
@@ -82,19 +83,20 @@ export function BackupStep({ form, space, folderProblem, recovery, recoveryError
           </div>
           {recovery.backup_saved ? !recovery.backup_problem ? <StatusBadge tone="ok"><Check />Saved</StatusBadge> : null
             : <Button variant="primary" className="on-save-primary" disabled={busy || !folderReady} onClick={onSave}>{action === "save-backup" ? <Spinner /> : <FolderOpen aria-hidden="true" />}Choose where to save</Button>}
+          {recovery.backup_saved ? <Button disabled={busy || !folderReady} onClick={onReplace}>{action === "replace-backup" ? <Spinner /> : <RefreshCw aria-hidden="true" />}Save a new recovery file</Button> : null}
           {platform === "windows" && recovery.backup_saved && !recovery.backup_problem ? <Button disabled={busy} onClick={onOpenFolder}>Open folder</Button> : null}
         </div>
         <div className="on-data-row">
-          <span className={cn("on-tile", recovery.backup_verified && "on-solid")}>{recovery.backup_verified ? <Check /> : <ShieldAlert />}</span>
-          <div className="on-grow"><strong>{recovery.backup_verified ? "Recovery file checked" : "2. Check the file you saved"}</strong><p>{recovery.backup_verified ? "The file matches this clinic." : "Select the saved file so CARE can confirm it's the right one."}</p></div>
-          {recovery.backup_verified ? <StatusBadge tone="ok"><Check />Checked</StatusBadge> : null}
-          <Button variant={recovery.backup_verified || !recovery.backup_saved ? "default" : "primary"} disabled={busy || !folderReady || !recovery.backup_saved} onClick={onVerify}>{action === "verify-backup" ? <Spinner /> : recovery.backup_verified ? <RefreshCw aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}{recovery.backup_verified ? "Check again" : "Select saved file"}</Button>
+          <span className={cn("on-tile", checked && "on-solid", recoveryError && "on-bad")}>{checked ? <Check /> : <ShieldAlert />}</span>
+          <div className="on-grow"><strong>{checked ? "Recovery file checked" : "2. Check the file you saved"}</strong><p>{checked ? "The file matches this clinic." : "Select the saved file so CARE can confirm it's the right one."}</p></div>
+          {checked ? <StatusBadge tone="ok"><Check />Checked</StatusBadge> : null}
+          <Button variant={checked || !recovery.backup_saved ? "default" : "primary"} disabled={busy || !folderReady || !recovery.backup_saved} onClick={onVerify}>{action === "verify-backup" ? <Spinner /> : checked ? <RefreshCw aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}{checked ? "Check again" : "Select saved file"}</Button>
         </div>
+        {recovery.backup_saved ? <p className="on-small" style={{ padding: "0 20px 14px" }}>Lost the saved file? Save a new recovery file here. This replaces the old key; select and check the new file before continuing.</p> : null}
       </section>
       {recovery.backup_problem ? <Callout title="The recovery file isn't ready">
         {recovery.backup_problem === "mismatch" ? "That file doesn't match this clinic. Select the file you saved for this setup." : "The saved file couldn't be opened. Select it in its new location, or save a new recovery file."}
         <p>A new recovery file replaces the old one. Only the new file will unlock the backups this setup makes.</p>
-        <div className="on-actions"><Button disabled={busy || !folderReady} onClick={onReplace}>Save a new recovery file</Button></div>
       </Callout> : null}
       {recoveryError ? <Callout tone="danger" title="The recovery file couldn't be checked">{recoveryError}<div className="on-actions"><Button disabled={busy} onClick={onReload}>Check saved files again</Button><LogButton /></div></Callout> : null}
       <Callout tone="danger" title="Keep this file safe, and don't share it with anyone">It unlocks every backup this clinic makes.</Callout>
@@ -144,13 +146,14 @@ export function AdminStep({ form, patch, strength, passwordError, folderProblem,
           <div className={cn("on-input", form.adminConfirm && !matching && "on-invalid")}><Lock aria-hidden="true" /><Input className="on-text-input" id="adminpw-confirm" type={show ? "text" : "password"} autoComplete="new-password" placeholder="Type it again" value={form.adminConfirm} disabled={busy} aria-invalid={!!form.adminConfirm && !matching} aria-describedby="confirm-verdict" onChange={(e) => patch({ adminConfirm: e.target.value })} /></div>
           <p id="confirm-verdict" role="status" className={cn("on-hint", matching ? "on-success" : "on-error")}>{matching ? <><CheckCircle2 aria-hidden="true" />Both passwords match.</> : form.adminConfirm ? "These don't match. Type the same password again, including capital letters." : null}</p>
         </div>
+        <p className="on-small">Save this password in your password manager or write it down somewhere secure before starting installation.</p>
       </section>
       <section className="on-card">
         <div className="on-data-row" style={{ paddingTop: 20, paddingBottom: 20 }}>
           <span className={cn("on-tile", saved && "on-solid")}>{saved ? <Check /> : <KeyRound />}</span>
           <div className="on-grow"><h3>{saved ? "Recovery codes saved" : "Recovery codes"}</h3>
             {saved ? <p>Six codes, each usable once. Saved to <span className="on-mono">{recovery.codes_path}</span> — print it or keep it somewhere separate.</p>
-              : <p>Six single-use codes that reset the <strong>CARE Desktop</strong> password if you forget it — no internet needed. They don't change your CARE sign-in or unlock backups. You choose where the sheet is saved — anywhere except CARE's own folders.</p>}
+              : <p>Forgot your <strong>CARE Desktop</strong> password? Use one of these six codes to reset it. Each code works once. Save them somewhere safe.</p>}
           </div>
           {saved ? <><StatusBadge tone="ok"><Check />Saved</StatusBadge><Button disabled={busy} onClick={onPrint}>Open to print</Button><Button disabled={busy || !passwordReady || !!folderProblem} onClick={onSave}>Save a new set</Button></>
             : <div className="on-admin-save">

@@ -112,6 +112,8 @@
 .panel-storage-card.panel-storage-danger [data-slot="progress-indicator"] { background: #dc2626; }
 .panel-storage-card.panel-storage-danger { border-color: #f6b4b4; }
 .panel-storage-vm { border-color: #93dfbc; }
+.panel-storage-usage { margin-top: 12px; font-size: 14px; color: #667a70; }
+.panel-storage-usage strong { font-size: 28px; font-weight: 700; color: #182c22; }
 .panel-storage-card p.panel-small { margin-top: 9px; }
 .panel-storage-card .panel-actions { margin-top: 14px; }
 .panel-storage-path { display: block; overflow-wrap: anywhere; font-size: 11.5px; color: #667a70; margin-top: 7px; }

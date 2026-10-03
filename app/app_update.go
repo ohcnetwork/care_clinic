@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	"github.com/ohcnetwork/care_desktop/app/internal/health"
-	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -159,7 +157,6 @@ const (
 	phaseVerifying   = "verifying"
 	phaseInstalling  = "installing"
 	phaseRestarting  = "restarting"
-	phaseInstaller   = "installer"
 )
 
 func (a *App) updateProgress(phase string, done, total int64) {
@@ -206,6 +203,12 @@ func (a *App) InstallAppUpdate() error {
 		if !newerVersion(a.pins.AppVersion, version) {
 			return errors.New("this is already the newest published version of CARE Desktop")
 		}
+		if developmentUpdateBuild || strings.HasSuffix(a.pins.AppVersion, "-dev") {
+			return errors.New("update location unavailable: development builds cannot replace themselves; install a released copy of CARE Desktop first")
+		}
+		if _, err := updateTarget(); err != nil {
+			return err
+		}
 		asset, ok := platformAsset(rel)
 		if !ok {
 			return fmt.Errorf("release %s has no installer for this computer", version)
@@ -225,45 +228,8 @@ func (a *App) InstallAppUpdate() error {
 			return err
 		}
 		a.logln("Download verified.")
-		return a.launchInstaller(path, version)
+		return a.handoffAppUpdate(path, version, want)
 	}, false, "app-update")
-}
-
-func (a *App) launchInstaller(path, version string) error {
-	if runtime.GOOS == "darwin" {
-		err := a.replaceMacApp(path, version)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, errNoInPlaceUpdate) {
-			return err
-		}
-		a.logln(err.Error())
-	}
-	a.updateProgress(phaseInstaller, 0, 0)
-	if runtime.GOOS == "windows" {
-		cmd := proc.Command(path)
-		if err := cmd.Start(); err != nil {
-			return fmt.Errorf("couldn't start the installer: %w", err)
-		}
-		go func() { _ = cmd.Wait() }()
-		a.logln("The installer is open. CARE Desktop will close so it can replace itself.")
-		a.closing = true
-		a.quitAfterJob()
-		return nil
-	}
-	var cmd *exec.Cmd
-	if runtime.GOOS == "darwin" {
-		cmd = proc.Command("open", path)
-	} else {
-		cmd = proc.Command("xdg-open", path)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("couldn't open the download: %w", err)
-	}
-	go func() { _ = cmd.Wait() }()
-	a.logln("Drag CARE Desktop to Applications to finish updating, then reopen it.")
-	return nil
 }
 
 func (a *App) quitAfterJob() {
@@ -374,7 +340,21 @@ func download(url, path string, progress func(int64)) (string, error) {
 }
 
 func downloadVerified(asset ghAsset, want, version string, log func(string), progress func(int64)) (string, error) {
-	dir, err := os.MkdirTemp("", "care-desktop-update-")
+	if filepath.Base(asset.Name) != asset.Name || strings.ContainsAny(asset.Name, `/\`) || asset.Name == "." || asset.Name == "" {
+		return "", errors.New("the release has an unsafe installer filename")
+	}
+	if digest, err := hex.DecodeString(want); err != nil || len(digest) != sha256.Size {
+		return "", errors.New("the release has an invalid SHA-256 checksum")
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Join(cache, "CARE Desktop", "updates")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp(root, "update-")
 	if err != nil {
 		return "", err
 	}

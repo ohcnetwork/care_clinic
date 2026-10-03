@@ -123,7 +123,7 @@ export function installTestHost() {
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     restart: { needed: false, title: "Restart Windows to finish", detail: "Save anything you have open. CARE Desktop opens again afterwards.", label: "Restart now" },
     residue: { clean: true, traces: [] },
-    recovery: { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "" },
+    recovery: { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "", backup_key_stored: false, backup_key_needs_enrollment: false },
     preflight: { hosts_entry: false, old_certificate: false, unfinished_server_setup: false, engine_leftovers: "" },
     reachability: { reachable: true, checked_at: 0, detail: "" },
     folder: "/test-fixtures/CLINIC-BACKUP",
@@ -165,6 +165,10 @@ export function installTestHost() {
     appRemoved: false,
     setupStarted: false,
   };
+  const recoveryCodeCount = new URLSearchParams(location.search).get("recoveryCodes");
+  if (recoveryCodeCount !== null) {
+    fixtures.recoveryCodes = fixtures.recoveryCodes.map((code, index) => index < Number(recoveryCodeCount) ? code : "");
+  }
   if (scenario.startsWith("setup-")) state.role = "server";
   if (scenario === "setup-space") fixtures.disk = { ...fixtures.disk, ok: false, free: 12 * 2 ** 30 };
   if (scenario === "setup-windows") {
@@ -191,6 +195,7 @@ export function installTestHost() {
     state.role = "server";
     state.setup_done = true;
     state.mdns_name = "care.local";
+    fixtures.recovery.backup_key_stored = true;
   }
   if (new URLSearchParams(location.search).get("screen") === "remove") {
     state.role = "server";
@@ -263,11 +268,12 @@ export function installTestHost() {
         state.mdns_name = "";
         state.client_url = "";
         fixtures.setupStarted = false;
-        fixtures.recovery = { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "" };
+        fixtures.recovery = { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "", backup_key_stored: false, backup_key_needs_enrollment: false };
         emit("uninstalled", true);
       }
       if (action === "setup") {
         state.setup_done = true;
+        fixtures.recovery.backup_key_stored = true;
         fixtures.health = { active: true, code: 200, detail: "" };
         fixtures.clinicStatus = "backend\nfrontend\ndb\nbackup";
         emit("setup-done", true);
@@ -314,7 +320,7 @@ export function installTestHost() {
       if (state.setup_done || state.client_url || fixtures.setupStarted) throw new Error("Uninstall the current setup first.");
       state.role = "";
       state.mdns_name = "";
-      fixtures.recovery = { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "" };
+      fixtures.recovery = { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "", backup_key_stored: false, backup_key_needs_enrollment: false };
     },
     CanRemoveApp: async () => fixtures.canRemoveApp,
     ClientPreflight: async () => ({ ...fixtures.preflight }),
@@ -343,6 +349,10 @@ export function installTestHost() {
     GetSetupRecoveryStatus: async () => {
       requireServer();
       return { ...fixtures.recovery };
+    },
+    GetAdminRecoveryCodeCount: async () => {
+      requireServer();
+      return fixtures.recoveryCodes.filter(Boolean).length;
     },
     BackupDirSpace: async (dir: string): Promise<BackupSpace> => {
       requireServer();
@@ -390,6 +400,7 @@ export function installTestHost() {
       fixtures.recoveryCodes = sampleCodes(++fixtures.recoveryGeneration);
       fixtures.recoveryFailures = 0;
       fixtures.recoveryRetryAfter = 0;
+      emit("admin-recovery-codes-changed", fixtures.recoveryCodes.filter(Boolean).length);
       return true;
     },
     OpenSetupRecoveryCodes: async () => { logs.push("Test only: the codes would open for printing."); },
@@ -431,6 +442,18 @@ export function installTestHost() {
       acceptJob(action);
     },
     VerifyAdminPassword: async (password: string) => password === fixtures.adminPassword,
+    ExportBackupRecovery: async (password: string, recoveryFile: string) => {
+      requireServer();
+      if (!state.setup_done || password !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (state.restore_pending) throw new Error("a restore is unfinished");
+      if (recoveryFile || !fixtures.recovery.backup_key_stored) {
+        const source = recoveryFile || fixtures.recovery.backup_path;
+        if (!source || source !== fixtures.recoveryFile) throw new Error("the existing backup recovery file is unavailable or unreadable");
+        fixtures.recovery.backup_key_stored = true;
+        fixtures.recovery.backup_key_needs_enrollment = false;
+      }
+      return true;
+    },
     ChooseRecoveryFile: async () => fixtures.recoveryFile,
     ChooseBackupFile: async () => fixtures.importedBackup.path,
     InspectBackupFile: async (path: string) => {
@@ -491,8 +514,11 @@ export function installTestHost() {
       }
       fixtures.recoveryCodes[index] = "";
       fixtures.adminPassword = next;
+      fixtures.recovery.backup_key_stored = false;
+      fixtures.recovery.backup_key_needs_enrollment = true;
       fixtures.recoveryFailures = 0;
       fixtures.recoveryRetryAfter = 0;
+      emit("admin-recovery-codes-changed", fixtures.recoveryCodes.filter(Boolean).length);
     },
     RancherDesktopInstalled: async () => fixtures.rancherInstalled,
     RunUninstall: async (_images: boolean, _backups: boolean, _rancher: boolean, password: string) => {
@@ -518,7 +544,7 @@ export function installTestHost() {
     CleanupFailedInstall: async () => {
       requireServer();
       if (state.setup_done) throw new Error("this clinic is installed; use Uninstall instead");
-      fixtures.recovery = { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "" };
+      fixtures.recovery = { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "", backup_key_stored: false, backup_key_needs_enrollment: false };
       fixtures.backupDir = "/test-fixtures/Desktop/care-db-backups";
       fixtures.setupStarted = false;
       fixtures.residue = { clean: true, traces: [] };

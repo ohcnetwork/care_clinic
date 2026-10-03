@@ -10,7 +10,7 @@ const phaseText = (phase: AppUpdateProgress["phase"], version: string) =>
     downloading: `Downloading CARE Desktop ${version}...`,
     verifying: `Checking CARE Desktop ${version}...`,
     installing: `Installing CARE Desktop ${version}...`,
-    restarting: "Installed. Restarting CARE Desktop...",
+    restarting: "Restarting CARE Desktop to finish updating...",
     installer: "The installer is open. Follow it to finish updating.",
   })[phase];
 
@@ -19,6 +19,8 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
     useAppUpdate(disabled);
   const error = !problem ? "" : problem.kind === "install" || problem.kind === "download"
     ? "CARE Desktop could not finish updating. Your current version was kept. Try again."
+    : problem.kind === "location"
+      ? "Install CARE Desktop in a permanent folder first, then open that copy and try again. On macOS, leave the disk image; on Windows, use the installed Start menu shortcut. Development copies cannot update themselves."
     : problem.kind === "unavailable"
       ? "There is no installer for this computer yet. Check again another day."
       : "Couldn't check for updates. Check your internet connection and try again.";
@@ -56,8 +58,9 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
         <div className="mt-3.5 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-brand-bg px-4 py-[13px] text-[12.5px] text-brand-ink">
           <span className="min-w-[180px] flex-1">
             Downloads {update.asset}, verifies its checksum, and installs the update.
-            CARE Desktop may restart or open an installer. Existing clinic data and
-            settings are kept.
+            CARE Desktop closes briefly, replaces this installed copy, and reopens.
+            Your computer may ask for permission. Clinic data and settings are kept;
+            a running clinic is not stopped.
           </span>
           {update.notes_url ? (
             <Button onClick={() => void bridge.OpenURL(update.notes_url)}>Release notes</Button>

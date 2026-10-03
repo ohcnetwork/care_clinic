@@ -96,6 +96,11 @@ export function AdminPasswordForm({
   return <form className="advanced-admin-form" noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }}>
     <p>{recovering ? "Use one unused code from your latest sheet. " : ""}
       Your CARE web login and backup recovery file won't change.</p>
+    {recovering ? <AdvancedNotice title="Keep your off-device backup recovery PEM" tone="neutral">
+      A code-based reset cannot unlock the local backup key encrypted with your forgotten password.
+      Password-only backup key downloads will require re-enrollment from a surviving PEM in Backups.
+      If every PEM is lost, do not reset until you have tried recovering your old password.
+    </AdvancedNotice> : null}
     <fieldset disabled={locked}>
       {recovering ? <AdvancedSecretInput label="Unused recovery code" value={code} onChange={setCode}
         icon={<KeyRound aria-hidden="true" />} disabled={locked} autoFocus

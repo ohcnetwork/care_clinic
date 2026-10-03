@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import type { AppUpdateProgress } from "../src/types";
 import type {} from "./fixtures/host";
+import { continueServerChecks } from "./helpers/setup";
 
 const connectName = "Connect to an existing server on the local network";
 const setup = (page: Page) => page.getByRole("button", { name: "Start setup", exact: true });
@@ -76,11 +77,16 @@ test("setup initializes once on its own screen before any guarded reads or write
   }
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.release("BeginServerSetup"));
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+  expect(await methodCount(page, "SetMDNSName")).toBe(0);
+  await continueServerChecks(page);
   await expect(page.getByLabel("Clinic address", { exact: true })).toBeVisible();
   await expect.poll(() => methodCount(page, "SetMDNSName")).toBeGreaterThan(0);
   expect(await page.evaluate(() => window.careTest.state.role)).toBe("server");
   expect(await methodCount(page, "SelectRole")).toBe(0);
 
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Removing stale files from an earlier setup", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
   await page.getByRole("button", { name: "Back", exact: true }).click();
@@ -102,6 +108,7 @@ test("setup failure stays in setup, is readable, and can be retried without bypa
   expect(await methodCount(page, "SetMDNSName")).toBe(0);
   expect(await methodCount(page, "GetSetupRecoveryStatus")).toBe(0);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await continueServerChecks(page);
   await expect(page.getByLabel("Clinic address", { exact: true })).toBeVisible();
   expect(await methodCount(page, "BeginServerSetup")).toBe(2);
 });
@@ -194,7 +201,7 @@ for (const first of ["update", "setup", "client"] as const) {
       expect(await methodCount(page, "BeginServerSetup")).toBe(0);
       expect(await page.evaluate(() => window.careTest.state.role)).toBe("");
     } else {
-      await expect(page.getByRole("heading", { name: first === "setup" ? "Choosing the clinic address" : "Find your clinic's server" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: first === "setup" ? "Room for the clinic" : "Find your clinic's server" })).toBeVisible();
       expect(await methodCount(page, "InstallAppUpdate")).toBe(0);
     }
   });
@@ -217,7 +224,7 @@ for (const phase of ["verifying", "installing", "restarting", "installer"] as co
     const expected = {
       verifying: "Checking CARE Desktop 0.1.6\u2026",
       installing: "Installing CARE Desktop 0.1.6\u2026",
-      restarting: "Installed \u2014 restarting CARE Desktop\u2026",
+      restarting: "Restarting CARE Desktop to finish updating\u2026",
       installer: "The installer has opened",
     }[phase];
     await expect(page.getByText(expected, { exact: true })).toBeVisible();
@@ -343,6 +350,7 @@ test("keyboard focus is visible and activates both paths", async ({ page }) => {
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await setup(page).focus();
   await page.keyboard.press("Enter");
+  await continueServerChecks(page);
   await expect(page.getByLabel("Clinic address", { exact: true })).toBeVisible();
 });
 
@@ -359,6 +367,7 @@ test("the approved client and setup flows have separate scoped layouts", async (
   await screenshot(page, "onboarding-client");
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await setup(page).click();
+  await continueServerChecks(page);
   await expect(page.getByLabel("Clinic address", { exact: true })).toBeVisible();
   await expect(page.locator(".start-brand-panel")).toHaveCount(0);
   await expect(page.locator("aside")).toHaveCSS("width", "272px");

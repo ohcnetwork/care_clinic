@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useAppUpdate, type AppUpdateController } from "@/hooks/use-app-update";
 import { usePasswordStrength } from "@/hooks/use-password-strength";
 import { bridge, onCareEvent } from "@/lib/bridge";
-import { diskSize, errorText, normaliseHost } from "@/lib/format";
+import { errorText, normaliseHost } from "@/lib/format";
 import { downloadProblem, type PrerequisiteProblem } from "@/lib/prerequisite-errors";
 import { useCare } from "@/state/care-store";
 import type { SetupForm } from "@/state/forms";
@@ -122,7 +122,6 @@ function SetupWizard({ form, patch, update, onBusy }: {
     const values = requirements.current.current;
     if (step === "windows") return values.windows.value?.status.applicable !== false;
     if (step === "network") return values.network.value?.applicable !== false;
-    if (step === "cleanup") return care.platform === "windows" || requirements.hadResidue.current || values.cleanup.value?.clean !== true;
     return true;
   });
   const steps = stepsNow();
@@ -217,7 +216,6 @@ function SetupWizard({ form, patch, update, onBusy }: {
     if (latest.adminPassword !== latest.adminConfirm && !result.some((issue) => issue.step === "admin")) {
       result.push({ step: "admin", message: "Both passwords must match before installing." });
     }
-    if (result.some((issue) => issue.step === "cleanup")) requirements.hadResidue.current = true;
     setIssues(result);
     setVerified(true);
     setRecoveryError("");
@@ -231,30 +229,29 @@ function SetupWizard({ form, patch, update, onBusy }: {
   const visit = async (destination: SetupPage, mode: "forward" | "back" | "edit" = "forward") => {
     setAutoPoll(null);
     setActionNote("");
-    let target = destination;
-    for (;;) {
-      if (!mounted.current) return;
-      pageRef.current = target;
-      editingRef.current = mode === "edit" && target !== "review";
-      setPage(target);
-      setEditing(editingRef.current);
-      care.setOpenStep(isRequirement(target) || target === "address" ? "checks" : target === "review" ? "install" : target === "backup" ? "backup" : "admin");
-      if (isRequirement(target)) {
-        const ok = await requirements.check(target);
-        markDone(target, ok);
-        if (target === "windows" && requirements.current.current.windows.value?.restart.needed) {
-          setRestart(requirements.current.current.windows.value.restart);
-        }
-        if (!ok || mode === "back") return;
-        target = mode === "edit" ? "review" : nextAfter(target);
-        continue;
+    const target = destination;
+    if (!mounted.current) return;
+    pageRef.current = target;
+    editingRef.current = mode === "edit" && target !== "review";
+    setPage(target);
+    setEditing(editingRef.current);
+    care.setOpenStep(isRequirement(target) || target === "address" ? "checks" : target === "review" ? "install" : target === "backup" ? "backup" : "admin");
+    if (isRequirement(target)) {
+      const ok = await requirements.check(target);
+      markDone(target, ok);
+      if (!stepsNow().includes(target)) {
+        await visit(nextAfter(target), mode);
+        return;
       }
-      if (target === "address") { await checkAddress(formRef.current.hostInput); return; }
-      if (target === "backup") { await loadRecovery(); await checkFolder(formRef.current.backupDir); return; }
-      if (target === "admin") { await loadRecovery(); return; }
-      if (target === "review") { await validateReview(); return; }
+      if (target === "windows" && requirements.current.current.windows.value?.restart.needed) {
+        setRestart(requirements.current.current.windows.value.restart);
+      }
       return;
     }
+    if (target === "address") { await checkAddress(formRef.current.hostInput); return; }
+    if (target === "backup") { await loadRecovery(); await checkFolder(formRef.current.backupDir); return; }
+    if (target === "admin") { await loadRecovery(); return; }
+    if (target === "review") { await validateReview(); return; }
   };
 
   const execute = async (name: string, fn: () => Promise<void>, recoveryAction = false) => {
@@ -266,6 +263,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     if (recoveryAction) setRecoveryError("");
     try { await fn(); } catch (e) {
       care.log(`setup ${name}: ${errorText(e)}`);
+      if (name === "verify-backup") setRecovery((previous) => ({ ...previous, backup_verified: false }));
       if (recoveryAction) setRecoveryError(recoveryProblem(errorText(e)));
       else setProblem({ message: "This step couldn't finish. Try again. If it keeps happening, share the log file with your support contact." });
     } finally {
@@ -296,7 +294,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
       const target = pageRef.current;
       const ok = await requirements.check(target);
       markDone(target, ok);
-      if (ok) await visit(editingRef.current ? "review" : nextAfter(target));
+      if (ok) { setAutoPoll(null); setActionNote(""); }
       else if (target === "windows" && requirements.current.current.windows.value?.restart.needed) setRestart(requirements.current.current.windows.value.restart);
     }
   });
@@ -350,7 +348,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
       setTool("");
       const ok = await requirements.check(target);
       markDone(target, ok);
-      if (ok) await visit(editingRef.current ? "review" : nextAfter(target));
+      if (ok) setActionNote("");
       else if (target === "software") setAutoPoll("software");
       else if (target === "windows" && requirements.current.current.windows.value?.restart.needed) setRestart(requirements.current.current.windows.value.restart);
     } catch (e) {
@@ -467,10 +465,10 @@ function SetupWizard({ form, patch, update, onBusy }: {
   const edit = (target: SetupPage) => void execute("edit", () => visit(target, "edit"));
 
   const titles: Record<SetupPage, [string, string]> = {
-    space: ["Room for the clinic", requirements.checks.space.value?.need ? `CARE needs about ${diskSize(requirements.checks.space.value.need)} on this computer — the software, your clinic's records, and room for the backups it makes.` : "Checking room for the software, your clinic's records, and the backups CARE makes."],
+    space: ["Room for the clinic", "Check the space available for the clinic software and records before continuing."],
     windows: ["Getting Windows ready", "Windows needs two changes before CARE can run, and CARE makes both for you. This is the first."],
     software: ["Installing what CARE needs", `CARE needs ${engine} and Git. Keep this computer connected and awake — you can leave it running and come back.`],
-    cleanup: ["Removing stale files from an earlier setup", "A previous CARE setup left files or settings behind. They have to go before a new clinic can be installed here."],
+    cleanup: ["Removing stale files from an earlier setup", "CARE checks for files or settings from an earlier setup before installing a new clinic here."],
     network: ["Setting this network to Private", "The second of the two Windows changes. Staff computers, phones and tablets open CARE from here."],
     address: ["Choosing the clinic address", "Staff type this into their browser to open CARE. Short and easy to say out loud works best."],
     backup: ["Setting up backups", "CARE makes an encrypted backup automatically, once every 24 hours. Choose where the backups go, then save the file that unlocks them."],
@@ -483,7 +481,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     : verified && issues.length === 0;
   const note = busy ? page === "review" ? "Checking everything before installation…" : tool ? "Keep this window open while the change finishes…" : "Checking…"
     : problem ? "Check this step again before continuing."
-    : editing ? "Return straight to Review when this step is ready."
+    : editing ? "Choose Continue to return to Review when this step is ready."
     : page === "address" ? addressReady ? "Next: backups." : "Pick an address that is free to continue."
     : page === "backup" ? backupReady ? "Backups will be made every 24 hours." : "Save and check your recovery file to continue."
     : page === "admin" ? adminReady ? "Almost done — one last look before installing." : "Choose a password and save your recovery codes to continue."

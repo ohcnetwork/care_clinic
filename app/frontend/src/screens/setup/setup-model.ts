@@ -1,5 +1,12 @@
 import type { SetupPage, SetupRecoveryStatus } from "@/types";
 
+// Matches storage.InstallMinFree; DiskStatus.need normally supplies this value.
+export const INSTALL_MIN_FREE = 30 * 2 ** 30;
+export const SOFTWARE_DESCRIPTIONS = {
+  docker: "Runs the clinic software on this computer.",
+  git: "Downloads the clinic software and its updates.",
+};
+
 export type RequirementPage = "space" | "windows" | "software" | "cleanup" | "network";
 export type StepState = "waiting" | "checking" | "ready" | "blocked" | "failed";
 export const REQUIREMENT_PAGES: RequirementPage[] = ["space", "windows", "software", "cleanup", "network"];
@@ -15,6 +22,7 @@ export const SETUP_LABELS: Record<SetupPage, string> = {
 
 export const EMPTY_RECOVERY: SetupRecoveryStatus = {
   backup_saved: false, backup_verified: false, codes_saved: false,
+  backup_key_stored: false, backup_key_needs_enrollment: false,
   backup_path: "", codes_path: "", backup_problem: "", codes_problem: "",
 };
 

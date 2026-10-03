@@ -34,7 +34,6 @@ export function useSetupChecks() {
   const current = useRef(checks);
   const pending = useRef<Partial<Record<RequirementPage, Promise<boolean>>>>({});
   const mounted = useRef(false);
-  const hadResidue = useRef(false);
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const update = useCallback(<K extends RequirementPage>(id: K, result: SetupChecks[K]) => {
@@ -51,7 +50,7 @@ export function useSetupChecks() {
         switch (id) {
           case "space": {
             const value = await bridge.DiskStatus();
-            const ok = value.ok && value.need > 0;
+            const ok = value.ok && value.need > 0 && value.free >= value.need;
             update("space", { value, state: ok ? "ready" : "blocked", error: value.need === 0 ? "Couldn't measure the free space on this computer. Check again before continuing." : "" });
             return ok;
           }
@@ -72,7 +71,6 @@ export function useSetupChecks() {
           }
           case "cleanup": {
             const value = await bridge.ScanResidue();
-            if (!value.clean) hadResidue.current = true;
             update("cleanup", { value, state: value.clean ? "ready" : "blocked", error: "" });
             return value.clean;
           }
@@ -93,5 +91,5 @@ export function useSetupChecks() {
     return task;
   }, [log, update]);
 
-  return { checks, current, check, hadResidue };
+  return { checks, current, check };
 }

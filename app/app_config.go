@@ -14,22 +14,24 @@ import (
 const appDirName = "care-desktop"
 
 type Config struct {
-	Role                   string    `json:"role"`
-	ClientURL              string    `json:"client_url"`
-	ClientCertificate      string    `json:"client_certificate,omitempty"`
-	ClientCertificateOwned bool      `json:"client_certificate_owned,omitempty"`
-	SetupDone              bool      `json:"setup_done"`
-	Removing               bool      `json:"removing,omitempty"`
-	MDNSName               string    `json:"mdns_name"`
-	BackupDir              string    `json:"backup_dir"`
-	AdminPwHash            string    `json:"admin_pw_hash"`
-	AdminRecoveryHashes    [6]string `json:"admin_recovery_hashes"`
-	AdminRecoveryPath      string    `json:"admin_recovery_path,omitempty"`
-	RecoveryFailures       int       `json:"recovery_failures,omitempty"`
-	RecoveryRetryAfter     int64     `json:"recovery_retry_after,omitempty"`
-	BackupCertificate      string    `json:"backup_certificate,omitempty"`
-	BackupRecoveryPath     string    `json:"backup_recovery_path,omitempty"`
-	BackupRecoveryVerified bool      `json:"backup_recovery_verified,omitempty"`
+	Role                     string    `json:"role"`
+	ClientURL                string    `json:"client_url"`
+	ClientCertificate        string    `json:"client_certificate,omitempty"`
+	ClientCertificateOwned   bool      `json:"client_certificate_owned,omitempty"`
+	SetupDone                bool      `json:"setup_done"`
+	Removing                 bool      `json:"removing,omitempty"`
+	MDNSName                 string    `json:"mdns_name"`
+	BackupDir                string    `json:"backup_dir"`
+	AdminPwHash              string    `json:"admin_pw_hash"`
+	AdminRecoveryHashes      [6]string `json:"admin_recovery_hashes"`
+	AdminRecoveryPath        string    `json:"admin_recovery_path,omitempty"`
+	RecoveryFailures         int       `json:"recovery_failures,omitempty"`
+	RecoveryRetryAfter       int64     `json:"recovery_retry_after,omitempty"`
+	BackupCertificate        string    `json:"backup_certificate,omitempty"`
+	BackupRecoveryPath       string    `json:"backup_recovery_path,omitempty"`
+	BackupRecoveryVerified   bool      `json:"backup_recovery_verified,omitempty"`
+	BackupKeyEncrypted       string    `json:"backup_key_encrypted,omitempty"`
+	BackupKeyNeedsEnrollment bool      `json:"backup_key_needs_enrollment,omitempty"`
 }
 
 const (
@@ -39,7 +41,7 @@ const (
 
 func (cfg Config) hasServerSettings() bool {
 	return cfg.SetupDone || cfg.Removing || cfg.AdminPwHash != "" || cfg.BackupDir != "" || cfg.MDNSName != "" ||
-		cfg.BackupCertificate != "" || cfg.adminRecoveryCount() > 0
+		cfg.BackupCertificate != "" || cfg.BackupKeyEncrypted != "" || cfg.BackupKeyNeedsEnrollment || cfg.adminRecoveryCount() > 0
 }
 
 func (cfg Config) adminRecoveryCount() int {
@@ -142,7 +144,7 @@ func (a *App) writeConfigLocked(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if err := atomicfile.Write(a.configPath(), b, 0o600); err != nil {
+	if err := atomicfile.WritePrivate(a.configPath(), b); err != nil {
 		return fmt.Errorf("could not save settings: %w", err)
 	}
 	a.cfg = cfg

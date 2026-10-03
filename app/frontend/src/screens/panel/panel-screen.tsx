@@ -10,6 +10,7 @@ import { useCare } from "@/state/care-store";
 import { AdvancedTab } from "./advanced-tab";
 import { BackupsTab } from "./backups-tab";
 import { OverviewTab } from "./overview-tab";
+import { RecoveryCodesBanner } from "./recovery-codes-banner";
 import { PanelRequirementsProvider, usePanelRequirements } from "./panel-requirements";
 import { storageProblem } from "./panel-status";
 import { PanelLogButton, usePanelTask } from "./panel-ui";
@@ -93,6 +94,7 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
       {task.error && !care.operationError ? <div className="panel-banner panel-tone-danger" role="alert">
         <span className="panel-grow">{task.error}</span><PanelLogButton />
       </div> : null}
+      <RecoveryCodesBanner disabled={locked || care.restorePending} />
       {pluginLayout ? <div className="flex items-center gap-4 px-[34px] pt-[26px] pb-[18px]">
         <div className="min-w-0 flex-1">
           <h1 className="text-[23px] font-bold tracking-[-0.015em] text-ink">Plugins</h1>

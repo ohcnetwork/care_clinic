@@ -567,6 +567,66 @@ remains, or an explicit inspection-error sentence. A missing file is absence;
 an unreadable file is not successful removal. `Inspect` exposes `(bool, error)`,
 while `Present` conservatively returns true when inspection errors.
 
+## Desktop self-update handoff
+
+Sources: [app_update.go](../app/app_update.go),
+[app_selfupdate.go](../app/app_selfupdate.go),
+[app_update_helpers.go](../app/app_update_helpers.go), and
+[project.nsi](../app/build/windows/installer/project.nsi).
+
+**Update CARE Desktop** updates the installed desktop, not the clinic server.
+It does not run `docker compose stop/down`, remove clinic files, change backup
+keys, reinstall WebView2, or invoke the application uninstaller. Normal shutdown
+does stop this desktop's mDNS advertiser; clinic containers stay running and
+advertising resumes when the app reopens. Clinic-name discovery can therefore
+be briefly unavailable during the restart.
+
+1. Fetch the release and its checksum, download into a private uniquely named
+   `CARE Desktop/updates/update-*` directory in the OS user cache, verify SHA-256,
+   and retry a damaged download once. Unsafe asset filenames and malformed
+   checksums are rejected. Checksum failure deletes the download.
+2. Resolve the actual installed target, not a hard-coded Applications/Program
+   Files destination. Reject bare/development executables, `-dev` builds, and
+   macOS disk-image/translocated copies. Windows also verifies that the
+   executable's directory matches the all-users registered uninstaller.
+3. Start a local shell/PowerShell helper outside the installed app and wait for
+   its readiness marker. Only then authorize handoff and gracefully quit Wails.
+   Helper startup failure keeps the desktop open. `restarting` means handoff is
+   ready, **not** that installation has already succeeded. The helper allows up
+   to two minutes for the old process to exit and never kills it or replaces a
+   still-running app.
+4. On macOS, mount the DMG read-only without opening Finder, extract exactly one
+   app, verify its code signature, bundle identifier, and release version, and
+   detach the image. Signed installations additionally require the same signing
+   team and Gatekeeper approval. After exit, verify the staged signature again.
+   Copy to a private sibling directory, verify its executable against the
+   previously checked Mach-O's SHA-256 and revalidate its sealed resources,
+   preserve ownership, and rename the old
+   bundle aside before moving the new bundle into the same location. Failed
+   replacement attempts to restore the previous bundle. A protected parent
+   folder prompts for administrator permission; cancelling reopens the old copy.
+   Quarantine is not stripped.
+5. On Windows, hold a handle to the originating process, check the downloaded
+   installer hash again after exit, preserve a signed installation's publisher,
+   and request UAC for the verified NSIS installer. Silent update mode targets
+   the existing directory, extracts the new executable before touching the old
+   one, and rolls back a failed final rename. Locks or stale recovery artifacts
+   fail the update rather than force-killing processes or scheduling a reboot.
+   The unelevated helper checks the installer exit code and installed product
+   version, then relaunches as the original user, not the UAC administrator.
+
+Post-exit failures appear in a native alert and in `helper.log` within the
+retained update cache directory; its exact path is also written to the desktop
+log before handoff. The helper attempts to reopen the installed app after a
+failure. A relaunch failure does not claim installation failed or clinic data
+was removed: open the installed app manually and inspect that log. On success
+the download/helper workspace is removed. Interrupted transactions can leave
+`.care-update-*` recovery directories beside the macOS app or
+`.care-update-previous.exe`/`.care-update-new` beside the Windows executable.
+Keep these for recovery/support; subsequent updates do not overwrite them.
+This is rollback for replacement failures, not a full crash-proof transaction
+or an automatic rollback when a newly released app itself fails at startup.
+
 ## Certificate trust and device bootstrap
 
 Sources: [trust.go](../app/internal/sys/trust/trust.go),
