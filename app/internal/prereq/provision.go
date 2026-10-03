@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
-	"github.com/ohcnetwork/care_desktop/app/internal/sys/applog"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
@@ -391,14 +390,7 @@ func (pr *Provisioner) OpenDocker() error {
 const rancherRestartPause = 5 * time.Second
 
 func (pr *Provisioner) startRancher() error {
-	logDir := applog.DefaultLogDir()
-	if logDir == "" {
-		return fmt.Errorf("could not locate the Rancher launcher log directory")
-	}
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return fmt.Errorf("could not create the Rancher launcher log directory: %w", err)
-	}
-	launchLog := filepath.Join(logDir, "rancher-launch.log")
+	pr.logln("Rancher launcher output is discarded; use Rancher Desktop's Troubleshooting logs for startup diagnostics.")
 	if err := writeRancherProfile(); err != nil {
 		pr.logln("Warning: could not preconfigure Rancher Desktop: " + err.Error())
 	}
@@ -409,18 +401,18 @@ func (pr *Provisioner) startRancher() error {
 	}
 	if rdctl := rdctlPath(); rdctl != "" {
 		args := append([]string{"start"}, rancherLaunchArgs()...)
-		err := pr.run.RunLauncher(rancherCommandTimeout, launchLog, rdctl, args...)
+		err := pr.run.RunLauncher(rancherCommandTimeout, rdctl, args...)
 		if err == nil {
 			return nil
 		}
 		// A first boot often loses the race to set up its Linux environment and
 		// comes up on a second try, which is what a shutdown and start amounts to.
 		pr.logln("Rancher Desktop didn't finish starting; shutting it down and trying once more...")
-		if stopErr := pr.run.RunLauncher(rancherCommandTimeout, launchLog, rdctl, "shutdown"); stopErr != nil {
+		if stopErr := pr.run.RunLauncher(rancherCommandTimeout, rdctl, "shutdown"); stopErr != nil {
 			pr.logln("Warning: could not shut down Rancher Desktop before retrying: " + stopErr.Error())
 		}
 		time.Sleep(rancherRestartPause)
-		if err = pr.run.RunLauncher(rancherCommandTimeout, launchLog, rdctl, args...); err == nil {
+		if err = pr.run.RunLauncher(rancherCommandTimeout, rdctl, args...); err == nil {
 			return nil
 		}
 		pr.logln("rdctl could not start Rancher Desktop in the background; opening it instead: " + err.Error())
@@ -428,7 +420,7 @@ func (pr *Provisioner) startRancher() error {
 	launch := rancherLaunchArgs()
 	switch runtime.GOOS {
 	case "darwin":
-		if err := pr.run.RunLauncher(rancherCommandTimeout, launchLog, "open", append([]string{"-a", rancherAppMac, "--args"}, launch...)...); err != nil {
+		if err := pr.run.RunLauncher(rancherCommandTimeout, "open", append([]string{"-a", rancherAppMac, "--args"}, launch...)...); err != nil {
 			return fmt.Errorf("could not start Rancher Desktop: %w", err)
 		}
 	case "windows":
@@ -440,7 +432,7 @@ func (pr *Provisioner) startRancher() error {
 		for _, a := range launch {
 			quoted = append(quoted, elevate.PSQuote(a))
 		}
-		if err := pr.run.RunLauncher(rancherCommandTimeout, launchLog, "powershell", "-NoProfile", "-Command",
+		if err := pr.run.RunLauncher(rancherCommandTimeout, "powershell", "-NoProfile", "-Command",
 			"Start-Process "+elevate.PSQuote(exe)+" -ArgumentList "+strings.Join(quoted, ",")); err != nil {
 			return fmt.Errorf("could not start Rancher Desktop: %w", err)
 		}

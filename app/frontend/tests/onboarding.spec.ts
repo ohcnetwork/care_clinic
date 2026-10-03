@@ -86,6 +86,33 @@ test("Non-Windows backup presentation is unchanged", async ({ page }) => {
   await expect(page.getByText(/Desktop may sync to OneDrive/)).toHaveCount(0);
 });
 
+for (const step of ["backup", "admin"] as const) {
+  test(`Windows ${step} folder launch failure does not invalidate recovery files`, async ({ page }) => {
+    if (step === "backup") {
+      await backups(page, "windows");
+      await saveBackup(page);
+    } else {
+      await admin(page, "windows");
+      await fillPassword(page);
+      await page.getByRole("button", { name: "Choose where to save", exact: true }).click();
+    }
+    await expect(forward(page)).toBeEnabled();
+    await page.evaluate(() => window.careTest.failNext(
+      "OpenSetupRecoveryFolder", "couldn't open the recovery folder: private Explorer failure"));
+    await page.getByRole("button", { name: "Open folder", exact: true }).click();
+    const failure = page.getByRole("alert").filter({ hasText: "This step couldn't finish" });
+    await expect(failure).toBeVisible();
+    await expect(page.getByText(/damaged or incomplete|recovery file couldn't be checked|recovery codes couldn't be saved or checked|private Explorer failure/)).toHaveCount(0);
+    await expect(forward(page)).toBeEnabled();
+    await page.getByRole("button", { name: "Open folder", exact: true }).click();
+    await expect(failure).toHaveCount(0);
+    await expect.poll(() => calls(page, "OpenSetupRecoveryFolder")).toBe(2);
+    await expect.poll(() => calls(page, "SaveSetupBackupRecovery")).toBe(1);
+    expect(await calls(page, "ReplaceSetupBackupRecovery")).toBe(0);
+    expect(await calls(page, "SaveAdminRecoveryCodes")).toBe(step === "admin" ? 1 : 0);
+  });
+}
+
 async function estimatedBackupSpace(page: Page) {
   await page.evaluate(() => window.careTest.respond("BackupDirSpace", {
     dir: "/test-fixtures/CLINIC-BACKUP/care-db-backups", free: 418 * 2 ** 30, total: 500 * 2 ** 30,

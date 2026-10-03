@@ -97,7 +97,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_onboarding_contract_test.go`](../app/app_onboarding_contract_test.go), [`app_setup_check_test.go`](../app/app_setup_check_test.go), [`app_role_test.go`](../app/app_role_test.go) | Role persistence and clearing, prerequisite/setup rejection, worker completion and retry boundaries. |
 | [`app_setup_retry_test.go`](../app/app_setup_retry_test.go) | Retained-attempt validation, unchanged settings/recovery requirements, preparation reuse and retry failure classification. |
 | [`app_desktop_windows_test.go`](../app/app_desktop_windows_test.go), [`internal/clinic/desktop_windows_test.go`](../app/internal/clinic/desktop_windows_test.go) | Recovery dialog defaults and default backup paths match Windows' Desktop known folder; explicit backup paths remain unchanged. |
-| [`internal/sys/proc/launcher_test.go`](../app/internal/sys/proc/launcher_test.go) | Launcher exit, failure, timeout/cancellation, and descendant output that remains writable after the launcher returns. |
+| [`internal/sys/proc/launcher_test.go`](../app/internal/sys/proc/launcher_test.go) | Launcher exit, failure, timeout/cancellation, and high-volume descendant output that remains writable after both the launcher and its parent exit, without creating output files. |
 | [`app_recovery_test.go`](../app/app_recovery_test.go) | Recovery exports, password reset/replacement, filesystem guards and persisted recovery state. |
 | [`app_client_test.go`](../app/app_client_test.go), [`app_mdns_test.go`](../app/app_mdns_test.go) | Native client contracts and server name-advertisement checks. |
 | [`app_update_test.go`](../app/app_update_test.go), [`app_update_access_test.go`](../app/app_update_access_test.go) | Desktop release/update behavior and access outside an installed server. |
@@ -231,7 +231,7 @@ app/internal/
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
 | [`internal/storage`](../app/internal/storage) | Storage thresholds, backup-space estimates, policy/status reporting and backup-run state. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
 | [`sys/diskspace`](../app/internal/sys/diskspace) | Platform filesystem free-space measurements. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
-| [`sys/proc`](../app/internal/sys/proc) | Child-process creation, streamed-command network failure classification, durable launcher output, Windows Desktop known-folder lookup, and PATH repair. | [Native integrations](native-integrations.md). |
+| [`sys/proc`](../app/internal/sys/proc) | Child-process creation, streamed-command network failure classification, pipe-free launcher execution with discarded output, Windows Desktop known-folder lookup, and PATH repair. | [Native integrations](native-integrations.md). |
 | [`sys/atomicfile`](../app/internal/sys/atomicfile) | Durable single-file replacement across OSes. | [Native integrations](native-integrations.md). |
 | [`sys/appremoval`](../app/internal/sys/appremoval) | Locating and removing the installed desktop app (macOS Trash, Windows uninstaller), other-instance and other-account checks. | [Cleanup](cleanup-and-uninstall.md#removing-the-desktop-app). |
 | [`sys/applog`](../app/internal/sys/applog) | Diagnostic sink, native log location, bounded rotation. | [Native integrations](native-integrations.md). |

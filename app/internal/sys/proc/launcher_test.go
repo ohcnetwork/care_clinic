@@ -20,13 +20,24 @@ func TestLauncherHelper(t *testing.T) {
 	}
 	if mode == "child" {
 		time.Sleep(2 * time.Second)
-		if _, err := fmt.Fprintln(os.Stdout, "child output after launcher exit"); err != nil {
+		output := strings.Repeat("child output after launcher exit\n", 64*1024)
+		if _, err := fmt.Fprint(os.Stdout, output); err != nil {
 			os.Exit(93)
 		}
-		if _, err := fmt.Fprintln(os.Stderr, "child stderr after launcher exit"); err != nil {
+		if _, err := fmt.Fprint(os.Stderr, output); err != nil {
 			os.Exit(94)
 		}
+		if err := os.WriteFile("child-output.done", []byte("both output handles remain writable"), 0o600); err != nil {
+			os.Exit(95)
+		}
 		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+	if mode == "parent" {
+		r := Runner{Env: append(os.Environ(), "CARE_LAUNCHER_HELPER=descendant-success")}
+		if err := r.RunLauncher(10*time.Second, os.Args[0], "-test.run=^TestLauncherHelper$"); err != nil {
+			os.Exit(96)
+		}
 		os.Exit(0)
 	}
 	if mode == "hang" {
@@ -63,7 +74,7 @@ func TestRunLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"success", "failure", "descendant-success", "descendant-failure", "hang", "cancelled"} {
+	for _, mode := range []string{"success", "failure", "descendant-success", "descendant-failure", "parent", "hang", "cancelled"} {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			t.Cleanup(func() {
@@ -110,8 +121,7 @@ func TestRunLauncher(t *testing.T) {
 				r.Ctx = ctx
 			}
 			start := time.Now()
-			logPath := filepath.Join(dir, "launcher.log")
-			err := r.RunLauncher(timeout, logPath, exe, "-test.run=^TestLauncherHelper$")
+			err := r.RunLauncher(timeout, exe, "-test.run=^TestLauncherHelper$")
 			if elapsed := time.Since(start); elapsed > 5*time.Second {
 				t.Fatalf("launcher waited for its descendant or ignored timeout: %s", elapsed)
 			}
@@ -136,38 +146,41 @@ func TestRunLauncher(t *testing.T) {
 			}
 			if mode != "hang" && mode != "cancelled" {
 				output := strings.Join(logs, "\n")
-				if !strings.Contains(output, "launcher stdout") || !strings.Contains(output, "launcher stderr") {
-					t.Fatalf("missing launcher output: %s", output)
+				if strings.Contains(output, "launcher stdout") || strings.Contains(output, "launcher stderr") {
+					t.Fatalf("launcher output was not discarded: %s", output)
 				}
-				if mode == "descendant-success" {
+				if mode == "descendant-success" || mode == "parent" {
 					deadline := time.Now().Add(5 * time.Second)
 					for {
-						data, err := os.ReadFile(logPath)
-						if err != nil {
+						data, err := os.ReadFile(filepath.Join(dir, "child-output.done"))
+						if err != nil && !os.IsNotExist(err) {
 							t.Fatal(err)
 						}
-						if strings.Contains(string(data), "child output after launcher exit") &&
-							strings.Contains(string(data), "child stderr after launcher exit") {
+						if string(data) == "both output handles remain writable" {
 							break
 						}
 						if time.Now().After(deadline) {
-							t.Fatal("child lost its output handles after the launcher returned")
+							t.Fatal("child lost its output handles after the launcher or its parent exited")
 						}
 						time.Sleep(20 * time.Millisecond)
 					}
+				}
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if entry.Name() != "child.pid" && entry.Name() != "child-output.done" {
+					t.Errorf("unexpected output file: %s", entry.Name())
 				}
 			}
 		})
 	}
 	t.Run("missing executable", func(t *testing.T) {
 		dir := t.TempDir()
-		if err := (Runner{}).RunLauncher(time.Second, filepath.Join(dir, "launcher.log"), filepath.Join(dir, "missing")); err == nil {
+		if err := (Runner{}).RunLauncher(time.Second, filepath.Join(dir, "missing")); err == nil {
 			t.Fatal("missing launcher reported success")
-		}
-	})
-	t.Run("unwritable log", func(t *testing.T) {
-		if err := (Runner{}).RunLauncher(time.Second, t.TempDir(), exe, "-test.run=^TestLauncherHelper$"); err == nil {
-			t.Fatal("unwritable launcher log reported success")
 		}
 	})
 }

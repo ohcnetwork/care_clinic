@@ -143,7 +143,7 @@ or a teardown.
 | `Command` | Constructs `exec.Command` and applies the platform console settings. It does not start the command. |
 | `CommandContext` | Same wrapper around `exec.CommandContext`; the caller supplies cancellation and deadlines. |
 | `Run` / `RunWith` | Start the command, stream stdout and stderr, wait for both readers and process completion, and return an error on failure. |
-| `RunLauncher(timeout, logPath, name, args...)` | Direct stdout/stderr to an append-only file and wait only for the launcher process, with a context deadline. Copies up to 64 KiB of newly written output into the main log. Descendants can keep the file handle after CARE exits; the caller checks service readiness separately. |
+| `RunLauncher(timeout, name, args...)` | Discard stdout/stderr through the OS null device and wait only for the launcher process, with a context deadline. Descendants can keep writing after CARE exits without filling a log file or waiting on CARE-owned pipes; the caller checks service readiness separately. |
 | `RunWith(extraEnv, ...)` | Starts from `cmd.Environ()` and appends the additional entries, preserving inherited environment when `Runner.Env` is nil. Later duplicate environment keys take precedence in the child. |
 | `Capture` | Returns trimmed stdout plus the command error, without live streaming. Stderr is not part of the returned string. |
 | `Lines` | Returns non-empty, trimmed stdout lines. A failed command is an error, not an empty successful list; the error includes command context. Successful empty output returns no lines and no error. |
@@ -254,10 +254,12 @@ method shape Wails expects from its logger.
 | Windows | `%LOCALAPPDATA%\care-desktop\logs`; if unset, `~/AppData/Local/care-desktop/logs` |
 | Linux/default branch | `$XDG_STATE_HOME/care-desktop`; if unset, `~/.local/state/care-desktop` |
 
-Rancher launch output also lives in `rancher-launch.log` in this directory.
-It is an append-only process-output file, not an `applog` sink, so the rotation
-policy below applies only to `care-log` files. Include the launcher log when
-investigating a Rancher startup failure.
+CARE records launcher invocations, failures and Docker readiness in its main log,
+but discards inherited launcher stdout/stderr. Use Rancher Desktop's
+**Troubleshooting** logs for Rancher's startup diagnostics. CARE no longer
+creates or appends to `rancher-launch.log`; older copies are not automatically
+removed, and processes started by an older CARE build can still hold their old
+output handle until they exit.
 
 The active filename is `care-log.log`. The code first needs `os.UserHomeDir` to
 succeed, even before checking the Windows or XDG overrides. A failed home lookup
@@ -1526,12 +1528,14 @@ first-run wizard, and applies the settings to an instance that is already
 running.
 
 A launcher may exit while Rancher keeps its stdout/stderr handles open. CARE
-uses `RunLauncher` for these commands, directing output to `rancher-launch.log`
-in CARE's diagnostic log directory instead of a pipe. It waits for the launcher
-process, copies up to 64 KiB of its output into the main log, and then proceeds
-to readiness checks without waiting for Rancher itself to exit. The inherited
-file handle stays valid even when CARE exits; closing an inherited pipe could
-otherwise break Rancher's later output. Launcher commands have a separate
+uses `RunLauncher` for these commands, directing output to the OS null device
+instead of a pipe or an unbounded file. It waits for the launcher process and
+then proceeds to readiness checks without waiting for Rancher itself to exit.
+The inherited null-device handles stay valid even when CARE exits; closing an
+inherited pipe could otherwise break Rancher's later output. This deliberately
+discards launcher console output rather than adding a background log collector;
+Rancher's own Troubleshooting logs remain the source for startup details.
+Launcher commands have a separate
 two-minute timeout; nonzero exits and cancellation remain failures. This prevents
 an inherited log pipe from blocking the Docker-readiness timer indefinitely.
 
