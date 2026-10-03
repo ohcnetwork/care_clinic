@@ -48,6 +48,9 @@ func (a *App) runLockedJob(fn func() error, markSetup bool, label string) error 
 				a.logln("error: " + detail)
 				if !markSetup {
 					a.reportError(failureTitle(label), detail)
+				} else {
+					a.setupAttempt = nil
+					a.emit("setup-failed", SetupFailure{})
 				}
 			}
 			a.emit("care-done", code, label)
@@ -58,6 +61,7 @@ func (a *App) runLockedJob(fn func() error, markSetup bool, label string) error 
 			cfg.SetupDone = true
 			err = a.saveConfig(cfg)
 			if err == nil {
+				a.setupAttempt = nil
 				if aerr := autostart.Set(true); aerr != nil {
 					a.logln("note: couldn't set CARE Desktop to open at login (" + aerr.Error() +
 						") - turn on \"Start at login\" yourself")
@@ -70,6 +74,8 @@ func (a *App) runLockedJob(fn func() error, markSetup bool, label string) error 
 			code = 1
 			if !markSetup {
 				a.reportError(failureTitle(label), err.Error())
+			} else {
+				a.emit("setup-failed", a.setupFailure(err))
 			}
 		}
 	}()
@@ -156,6 +162,7 @@ func (a *App) beginRemoval() error {
 	if err := a.saveConfig(cfg); err != nil {
 		return err
 	}
+	a.setupAttempt = nil
 	return a.restartAdvertise()
 }
 
@@ -354,22 +361,29 @@ func (a *App) RunSetup(mdnsName, adminPassword, backupDir string) (err error) {
 		if err := a.saveConfig(cfg); err != nil {
 			return err
 		}
-		if _, err := a.ensureInstallDir(); err != nil {
-			return err
+		var e *clinic.Clinic
+		a.setupAttempt = &setupAttempt{
+			config: cfg,
+			prepare: func() error {
+				if _, err := a.ensureInstallDir(); err != nil {
+					return err
+				}
+				e = a.engine()
+				e.AdminPassword = adminPassword
+				e.BackupCertificate = cfg.BackupCertificate
+				if err := health.EnsurePortFree(e.Runner(), e.Host()); err != nil {
+					return err
+				}
+				return e.Setup()
+			},
+			start: func() error {
+				if err := a.restartAdvertise(); err != nil {
+					return err
+				}
+				return e.Start()
+			},
 		}
-		e := a.engine()
-		e.AdminPassword = adminPassword
-		e.BackupCertificate = cfg.BackupCertificate
-		if err := health.EnsurePortFree(e.Runner(), e.Host()); err != nil {
-			return err
-		}
-		if err := e.Setup(); err != nil {
-			return err
-		}
-		if err := a.restartAdvertise(); err != nil {
-			return err
-		}
-		return e.Start()
+		return a.setupAttempt.run()
 	}, true, "setup")
 }
 

@@ -74,6 +74,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_actions.go`](../app/app_actions.go) | Read/write job gates, async runner, lifecycle/admin guards, setup, action dispatch, failed-install cleanup. | [Wails application](wails-application.md), [clinic lifecycle](clinic-lifecycle.md). |
 | [`app_setup_check.go`](../app/app_setup_check.go) | Review preflight and the same checks repeated under RunSetup's exclusive lock. | [Setup configuration order](configuration-and-settings.md#setup-configuration-order). |
 | [`app_recovery.go`](../app/app_recovery.go) | Recovery-key/code export and verification, replacement, Desktop password changes and offline reset. | [Recovery materials](backups-and-restore.md#3-backup-recovery-file-and-desktop-admin-recovery). |
+| [`app_setup_retry.go`](../app/app_setup_retry.go) | Retained setup attempt, failure metadata, non-destructive retry validation and preparation/startup boundary. | [Installation retries](desktop-workflows.md#during-installation). |
 | [`app_update.go`](../app/app_update.go) | CARE branch-update status/check/dismiss, the background update watcher, and the GitHub-release desktop updater. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
 | [`app_selfupdate.go`](../app/app_selfupdate.go) | macOS bundle verification/replacement and post-exit reopening. | [Wails application](wails-application.md). |
 | [`app_status.go`](../app/app_status.go) | State/health/tool/network queries, provisioning controls, name/password/folder validation, pre-setup naming. | [Wails application](wails-application.md), [native integrations](native-integrations.md). |
@@ -94,6 +95,9 @@ All of these files belong to Go `package main`, even though they are organized b
 | --- | --- |
 | [`app_confirmation_test.go`](../app/app_confirmation_test.go), [`app_quit_contract_test.go`](../app/app_quit_contract_test.go), [`app_quit_test.go`](../app/app_quit_test.go), [`app_ui_test.go`](../app/app_ui_test.go) | Consent/quit snapshots, stale responses, cancellation, independent locking and native question handling. |
 | [`app_onboarding_contract_test.go`](../app/app_onboarding_contract_test.go), [`app_setup_check_test.go`](../app/app_setup_check_test.go), [`app_role_test.go`](../app/app_role_test.go) | Role persistence and clearing, prerequisite/setup rejection, worker completion and retry boundaries. |
+| [`app_setup_retry_test.go`](../app/app_setup_retry_test.go) | Retained-attempt validation, unchanged settings/recovery requirements, preparation reuse and retry failure classification. |
+| [`app_desktop_windows_test.go`](../app/app_desktop_windows_test.go), [`internal/clinic/desktop_windows_test.go`](../app/internal/clinic/desktop_windows_test.go) | Recovery dialog defaults and default backup paths match Windows' Desktop known folder; explicit backup paths remain unchanged. |
+| [`internal/sys/proc/launcher_test.go`](../app/internal/sys/proc/launcher_test.go) | Launcher exit, failure, timeout/cancellation, and high-volume descendant output that remains writable after both the launcher and its parent exit, without creating output files. |
 | [`app_recovery_test.go`](../app/app_recovery_test.go) | Recovery exports, password reset/replacement, filesystem guards and persisted recovery state. |
 | [`app_client_test.go`](../app/app_client_test.go), [`app_mdns_test.go`](../app/app_mdns_test.go) | Native client contracts and server name-advertisement checks. |
 | [`app_update_test.go`](../app/app_update_test.go), [`app_update_access_test.go`](../app/app_update_access_test.go) | Desktop release/update behavior and access outside an installed server. |
@@ -227,7 +231,7 @@ app/internal/
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
 | [`internal/storage`](../app/internal/storage) | Storage thresholds, backup-space estimates, policy/status reporting and backup-run state. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
 | [`sys/diskspace`](../app/internal/sys/diskspace) | Platform filesystem free-space measurements. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
-| [`sys/proc`](../app/internal/sys/proc) | Child-process creation, runner context/output, PATH repair. | [Native integrations](native-integrations.md). |
+| [`sys/proc`](../app/internal/sys/proc) | Child-process creation, streamed-command network failure classification, pipe-free launcher execution with discarded output, Windows Desktop known-folder lookup, and PATH repair. | [Native integrations](native-integrations.md). |
 | [`sys/atomicfile`](../app/internal/sys/atomicfile) | Durable single-file replacement across OSes. | [Native integrations](native-integrations.md). |
 | [`sys/appremoval`](../app/internal/sys/appremoval) | Locating and removing the installed desktop app (macOS Trash, Windows uninstaller), other-instance and other-account checks. | [Cleanup](cleanup-and-uninstall.md#removing-the-desktop-app). |
 | [`sys/applog`](../app/internal/sys/applog) | Diagnostic sink, native log location, bounded rotation. | [Native integrations](native-integrations.md). |
@@ -306,7 +310,7 @@ app/frontend/
 | [`App.tsx`](../app/frontend/src/App.tsx) | Root flow routing and always-mounted permission/quit dialogs. |
 | [`role-screen.tsx`](../app/frontend/src/screens/role-screen.tsx), [`client-screen.tsx`](../app/frontend/src/screens/client-screen.tsx) | First-run navigation without persistence, client discovery/connection/recovery and saved connection state. |
 | [`setup-screen.tsx`](../app/frontend/src/screens/setup/setup-screen.tsx), [`use-setup-checks.ts`](../app/frontend/src/screens/setup/use-setup-checks.ts) | Role initialization, platform-aware checks, configuration/recovery steps and Review preflight. |
-| [`installing-screen.tsx`](../app/frontend/src/screens/install/installing-screen.tsx), [`failed-screen.tsx`](../app/frontend/src/screens/install/failed-screen.tsx) | Log-backed milestones, quiet-activity warning and explicit cleanup/retry. |
+| [`installing-screen.tsx`](../app/frontend/src/screens/install/installing-screen.tsx), [`failed-screen.tsx`](../app/frontend/src/screens/install/failed-screen.tsx) | Log-backed milestones, quiet-activity warning, retained-attempt retry and explicit cleanup fallback. |
 | [`confirmation-dialog.tsx`](../app/frontend/src/components/confirmation-dialog.tsx), [`quit-dialog.tsx`](../app/frontend/src/components/quit-dialog.tsx) | Request registration, stale-response protection, safe consent focus and response errors. |
 | [`use-app-update.ts`](../app/frontend/src/hooks/use-app-update.ts), [`panel-update-lock.tsx`](../app/frontend/src/screens/panel/panel-update-lock.tsx) | Shared updater, installer acknowledgement, restart guard and live/stale-operation exclusion. |
 | [`panel-screen.tsx`](../app/frontend/src/screens/panel/panel-screen.tsx), [`panel-requirements.tsx`](../app/frontend/src/screens/panel/panel-requirements.tsx) | Panel navigation, shared task guards and actionable native requirements. |

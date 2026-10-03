@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
+import { downloadProblem } from "../src/lib/prerequisite-errors";
 import type { SetupPage } from "../src/types";
 
 const samplePassword = "ClinicTest123";
@@ -58,6 +59,70 @@ async function fillPassword(page: Page, password = samplePassword) {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Confirm password", { exact: true }).fill(password);
 }
+
+test("Windows recovery folders and backup capacity copy", async ({ page }) => {
+  await backups(page, "windows");
+  await estimatedBackupSpace(page);
+  await expect(page.getByText(/room for about .* of backups/i)).toHaveCount(0);
+  await expect(page.getByText(/Desktop may sync to OneDrive/)).toBeVisible();
+  await saveBackup(page);
+  await page.getByRole("button", { name: "Open folder", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.careTest.calls
+    .filter((call) => call.method === "OpenSetupRecoveryFolder").map((call) => call.args))).toEqual([[false]]);
+  await forward(page).click();
+  await fillPassword(page);
+  await page.getByRole("button", { name: "Choose where to save", exact: true }).click();
+  await page.getByRole("button", { name: "Open folder", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.careTest.calls
+    .filter((call) => call.method === "OpenSetupRecoveryFolder").map((call) => call.args))).toEqual([[false], [true]]);
+});
+
+test("Non-Windows backup presentation is unchanged", async ({ page }) => {
+  await backups(page);
+  await estimatedBackupSpace(page);
+  await expect(page.getByText(/room for about .* of backups/i)).toBeVisible();
+  await saveBackup(page);
+  await expect(page.getByRole("button", { name: "Open folder", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Desktop may sync to OneDrive/)).toHaveCount(0);
+});
+
+for (const step of ["backup", "admin"] as const) {
+  test(`Windows ${step} folder launch failure does not invalidate recovery files`, async ({ page }) => {
+    if (step === "backup") {
+      await backups(page, "windows");
+      await saveBackup(page);
+    } else {
+      await admin(page, "windows");
+      await fillPassword(page);
+      await page.getByRole("button", { name: "Choose where to save", exact: true }).click();
+    }
+    await expect(forward(page)).toBeEnabled();
+    await page.evaluate(() => window.careTest.failNext(
+      "OpenSetupRecoveryFolder", "couldn't open the recovery folder: private Explorer failure"));
+    await page.getByRole("button", { name: "Open folder", exact: true }).click();
+    const failure = page.getByRole("alert").filter({ hasText: "This step couldn't finish" });
+    await expect(failure).toBeVisible();
+    await expect(page.getByText(/damaged or incomplete|recovery file couldn't be checked|recovery codes couldn't be saved or checked|private Explorer failure/)).toHaveCount(0);
+    await expect(forward(page)).toBeEnabled();
+    await page.getByRole("button", { name: "Open folder", exact: true }).click();
+    await expect(failure).toHaveCount(0);
+    await expect.poll(() => calls(page, "OpenSetupRecoveryFolder")).toBe(2);
+    await expect.poll(() => calls(page, "SaveSetupBackupRecovery")).toBe(1);
+    expect(await calls(page, "ReplaceSetupBackupRecovery")).toBe(0);
+    expect(await calls(page, "SaveAdminRecoveryCodes")).toBe(step === "admin" ? 1 : 0);
+  });
+}
+
+async function estimatedBackupSpace(page: Page) {
+  await page.evaluate(() => window.careTest.respond("BackupDirSpace", {
+    dir: "/test-fixtures/CLINIC-BACKUP/care-db-backups", free: 418 * 2 ** 30, total: 500 * 2 ** 30,
+    need: 6 * 2 ** 30, set_bytes: 2 * 2 ** 30, days_left: 190,
+    shares_docker_drive: false, level: "ok", message: "",
+  }));
+  await page.getByRole("button", { name: "Change folder", exact: true }).click();
+  await expect(page.getByText("/test-fixtures/CLINIC-BACKUP/care-db-backups", { exact: true })).toBeVisible();
+}
+
 async function review(page: Page, platform = "darwin") {
   await admin(page, platform);
   await fillPassword(page);
@@ -430,6 +495,118 @@ test("software downloads wait for a real size and remain single-flight", async (
   expect(await calls(page, "InstallGit")).toBe(1);
   expect(await calls(page, "RunSetup")).toBe(0);
 });
+
+for (const [platform, tool, method] of [
+  ["darwin", "docker", "InstallDocker"],
+  ["windows", "docker", "InstallDocker"],
+  ["windows", "git", "InstallGit"],
+] as const) {
+  test(`${platform} ${tool} download interruption explains reconnecting and retries without resetting setup`, async ({ page }) => {
+    await start(page, `&platform=${platform}`);
+    await page.evaluate(({ tool, method }) => {
+      window.careTest.fixtures[tool].ok = false;
+      window.careTest.hold(method);
+      window.careTest.failNext(method, 'could not download installer: download connection interrupted: Get "https://private.example/installer": unexpected EOF');
+    }, { tool, method });
+    await page.getByRole("button", { name: "Start setup" }).click();
+    await page.getByRole("button", { name: tool === "docker" ? "Install them" : "Install Git", exact: true }).click();
+    await expect.poll(() => calls(page, method)).toBe(1);
+    await page.evaluate(() => window.careTest.emit("prereq-download-progress", {
+      name: "installer", phase: "downloading", done: 12e6, total: 612e6,
+    }));
+    await expect(page.getByRole("progressbar")).toBeVisible();
+    await page.evaluate((method) => {
+      window.careTest.emit("prereq-download-progress", { name: "installer", phase: "failed", done: 12e6, total: 612e6 });
+      window.careTest.release(method);
+    }, method);
+    const failure = page.getByRole("alert").filter({ hasText: "The download was interrupted" });
+    await expect(failure).toBeVisible();
+    await expect(failure).toContainText("Check the internet connection, then try again.");
+    await expect(failure).toContainText("downloads the file from the beginning");
+    await expect(failure).not.toContainText(/private\.example|unexpected EOF|didn't approve|The required change couldn't finish/);
+    await expect(forward(page)).toBeDisabled();
+    await expect(page.locator(".on-data-row .on-badge").filter({ hasText: "Action required" })).toHaveCount(1);
+    await page.setViewportSize({ width: 720, height: 560 });
+    await fits(page);
+    await page.evaluate((method) => window.careTest.hold(method), method);
+    await failure.getByRole("button", { name: "Try again", exact: true }).evaluate((button: HTMLButtonElement) => {
+      button.click(); button.click();
+    });
+    await expect.poll(() => calls(page, method)).toBe(2);
+    await expect(forward(page)).toBeDisabled();
+    await page.evaluate((method) => window.careTest.release(method), method);
+    await expect(page.getByRole("heading", { name: "Choosing the clinic address", exact: true })).toBeVisible();
+    for (const action of ["RunSetup", "CleanupFailedInstall", "PurgeResidue"]) expect(await calls(page, action)).toBe(0);
+    expect(await page.evaluate(() => window.careTest.logs.some((line) => line.includes("unexpected EOF")))).toBe(true);
+  });
+}
+
+test("an offline Rancher size preview asks to reconnect before any download", async ({ page }) => {
+  await start(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.docker.ok = false;
+    window.careTest.failNext("RancherDownloadInfo", "could not check the download size: download connection interrupted: lookup private.example: no such host");
+  });
+  await page.getByRole("button", { name: "Start setup" }).click();
+  const failure = page.getByRole("alert").filter({ hasText: "Couldn't reach the download server" });
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText("Check the internet connection, then try again.");
+  await expect(failure).toContainText("Nothing has been downloaded yet.");
+  await expect(page.getByRole("button", { name: "Install them", exact: true })).toBeDisabled();
+  expect(await calls(page, "InstallDocker")).toBe(0);
+  await failure.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Install them", exact: true })).toBeEnabled();
+  await expect(failure).toHaveCount(0);
+  expect(await calls(page, "InstallDocker")).toBe(0);
+});
+
+test("download guidance distinguishes connection loss, integrity and unrelated failures", () => {
+  for (const cause of [
+    "could not download installer: download connection interrupted: unexpected EOF",
+    "could not download installer: download connection interrupted: context canceled",
+    "the download of installer stopped making progress for 2m0s",
+    "download timed out",
+  ]) {
+    expect(downloadProblem(new Error(cause))?.title).toBe("The download was interrupted");
+    expect(downloadProblem(new Error(cause))?.message).toContain("downloads the file from the beginning");
+    expect(downloadProblem(cause, true)?.message).toContain("Nothing has been downloaded yet.");
+  }
+  expect(downloadProblem("expected SHA-256 private-hash, got private-hash")).toEqual({
+    title: "The downloaded file couldn't be verified",
+    message: "The downloaded file isn't the one this version of CARE expects. It wasn't installed. Try again; if it happens twice, share the log file.",
+  });
+  for (const cause of [
+    "User cancelled the authorization dialog (-128)",
+    "write /private/installer: no space left on device",
+    "could not download installer: the server said 403 Forbidden",
+    "could not download installer: x509: certificate signed by unknown authority",
+    "Rancher Desktop is installed but didn't start",
+  ]) {
+    expect(downloadProblem(cause)).toBeNull();
+  }
+});
+
+for (const [detail, message] of [
+  ["expected SHA-256 private-hash, got wrong-hash", "The downloaded file isn't the one this version of CARE expects."],
+  ["User cancelled the authorization dialog (-128)", "Your computer didn't approve the change."],
+  ["write /private/installer: no space left on device", "The required change couldn't finish."],
+] as const) {
+  test(`non-network software failure keeps its guidance: ${message}`, async ({ page }) => {
+    await start(page);
+    await page.evaluate((error) => {
+      window.careTest.fixtures.docker.ok = false;
+      window.careTest.failNext("InstallDocker", error);
+    }, detail);
+    await page.getByRole("button", { name: "Start setup" }).click();
+    await page.getByRole("button", { name: "Install them", exact: true }).click();
+    const failure = page.getByRole("alert").filter({ hasText: message });
+    await expect(failure).toBeVisible();
+    await expect(failure).not.toContainText(/The download was interrupted|private-hash|wrong-hash|\/private\/installer/);
+    await expect(failure.getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
+    await expect(forward(page)).toBeDisabled();
+    expect(await calls(page, "InstallDocker")).toBe(1);
+  });
+}
 
 test("cleanup requires the destructive button and verifies partial removal before retry", async ({ page }) => {
   await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");

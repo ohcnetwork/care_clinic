@@ -236,6 +236,43 @@ test("Rancher download confirmation cancels without installation", async ({ page
   await expect(requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true })).toBeEnabled();
 });
 
+for (const stage of ["preview", "download"] as const) {
+  test(`Rancher repair ${stage} connection loss gives reconnect guidance and remains retryable`, async ({ page }) => {
+    await openPanel(page, "panel-requirements");
+    const saved = await page.evaluate(() => ({
+      backups: window.careTest.fixtures.backups,
+      recovery: window.careTest.fixtures.recovery,
+      backupDir: window.careTest.fixtures.backupDir,
+    }));
+    const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
+    await page.evaluate((stage) => {
+      window.careTest.failNext(stage === "preview" ? "RancherDownloadInfo" : "InstallDocker",
+        "download connection interrupted: private.example: connection reset by peer");
+    }, stage);
+    await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
+    if (stage === "download") {
+      await page.getByRole("alertdialog").getByRole("button", { name: "Download and install", exact: true }).click();
+    }
+    const failure = requirements.getByRole("alert");
+    await expect(failure).toContainText(stage === "preview" ? "Couldn't reach the download server" : "The download was interrupted");
+    await expect(failure).toContainText("Check the internet connection, then try again.");
+    await expect(failure).not.toContainText(/private\.example|connection reset by peer|Couldn't finish the fix/);
+    expect(await calls(page, "InstallDocker")).toBe(stage === "preview" ? 0 : 1);
+    await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Download and install", exact: true }).click();
+    await expect(requirements).toContainText("Rancher Desktop ready");
+    await expect(failure).toHaveCount(0);
+    expect(await calls(page, "InstallDocker")).toBe(stage === "preview" ? 1 : 2);
+    expect(await page.evaluate(() => ({
+      backups: window.careTest.fixtures.backups,
+      recovery: window.careTest.fixtures.recovery,
+      backupDir: window.careTest.fixtures.backupDir,
+    }))).toEqual(saved);
+    expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+    expect(await page.evaluate(() => window.careTest.state.setup_done)).toBe(true);
+  });
+}
+
 test("unknown Windows requirements remain visible and actionable", async ({ page }) => {
   await page.clock.install();
   await openPanel(page, "panel-current", "&platform=windows");

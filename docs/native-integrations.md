@@ -2,6 +2,15 @@
 
 # Native integrations and machine readiness
 
+On Windows, the default backup location uses the Windows Desktop known folder,
+including OneDrive or administrator redirection, rather than assuming
+`C:\Users\<name>\Desktop`. Explicitly configured backup locations are unchanged.
+The native folder chooser and recovery save dialogs start at that Desktop.
+Windows setup offers **Open folder** for saved recovery files and codes, warns
+that Desktop may sync to OneDrive, and shows free space without an estimated
+number of days or years of backups. Other platforms retain their existing
+folder and setup behavior.
+
 This guide explains how CARE Desktop interacts with the computer running the
 clinic: child processes, files, logs, administrator approval, local name
 resolution, certificates, LAN discovery, Windows networking, prerequisite tools,
@@ -134,6 +143,7 @@ or a teardown.
 | `Command` | Constructs `exec.Command` and applies the platform console settings. It does not start the command. |
 | `CommandContext` | Same wrapper around `exec.CommandContext`; the caller supplies cancellation and deadlines. |
 | `Run` / `RunWith` | Start the command, stream stdout and stderr, wait for both readers and process completion, and return an error on failure. |
+| `RunLauncher(timeout, name, args...)` | Discard stdout/stderr through the OS null device and wait only for the launcher process, with a context deadline. Descendants can keep writing after CARE exits without filling a log file or waiting on CARE-owned pipes; the caller checks service readiness separately. |
 | `RunWith(extraEnv, ...)` | Starts from `cmd.Environ()` and appends the additional entries, preserving inherited environment when `Runner.Env` is nil. Later duplicate environment keys take precedence in the child. |
 | `Capture` | Returns trimmed stdout plus the command error, without live streaming. Stderr is not part of the returned string. |
 | `Lines` | Returns non-empty, trimmed stdout lines. A failed command is an error, not an empty successful list; the error includes command context. Successful empty output returns no lines and no error. |
@@ -243,6 +253,13 @@ method shape Wails expects from its logger.
 | macOS | `~/Library/Logs/care-desktop` |
 | Windows | `%LOCALAPPDATA%\care-desktop\logs`; if unset, `~/AppData/Local/care-desktop/logs` |
 | Linux/default branch | `$XDG_STATE_HOME/care-desktop`; if unset, `~/.local/state/care-desktop` |
+
+CARE records launcher invocations, failures and Docker readiness in its main log,
+but discards inherited launcher stdout/stderr. Use Rancher Desktop's
+**Troubleshooting** logs for Rancher's startup diagnostics. CARE no longer
+creates or appends to `rancher-launch.log`; older copies are not automatically
+removed, and processes started by an older CARE build can still hold their old
+output handle until they exit.
 
 The active filename is `care-log.log`. The code first needs `os.UserHomeDir` to
 succeed, even before checking the Windows or XDG overrides. A failed home lookup
@@ -1510,6 +1527,18 @@ because a freshly installed `~/.rd/bin` is not yet on the PATH CARE inherits.
 first-run wizard, and applies the settings to an instance that is already
 running.
 
+A launcher may exit while Rancher keeps its stdout/stderr handles open. CARE
+uses `RunLauncher` for these commands, directing output to the OS null device
+instead of a pipe or an unbounded file. It waits for the launcher process and
+then proceeds to readiness checks without waiting for Rancher itself to exit.
+The inherited null-device handles stay valid even when CARE exits; closing an
+inherited pipe could otherwise break Rancher's later output. This deliberately
+discards launcher console output rather than adding a background log collector;
+Rancher's own Troubleshooting logs remain the source for startup details.
+Launcher commands have a separate
+two-minute timeout; nonzero exits and cancellation remain failures. This prevents
+an inherited log pipe from blocking the Docker-readiness timer indefinitely.
+
 A Rancher Desktop that has never run its Linux environment before regularly
 fails its first start with `Timed out after waiting for /run/wsl-init.pid` and
 succeeds when it is started again, so a failed `rdctl start` is followed by
@@ -1639,12 +1668,21 @@ totals use an indeterminate indicator and downloaded bytes rather than a made-up
 percentage. Connecting, downloading, checksum verification and verified download
 are distinct states; download completion is not reported as installation success.
 
+DNS failures, connection resets, truncated responses and download timeouts are
+identified natively as connection interruptions, retaining the underlying error
+in the log. The setup wizard and panel repair screen show **The download was
+interrupted** and ask the operator to check the internet connection and retry.
+The download-size preview gives the same reconnect guidance without claiming
+that an installer has been downloaded. Checksum, certificate, disk and installer
+permission failures are not classified as lost connections.
+
 Every download is hashed while it is written. A SHA-256 that differs from the
 pinned value deletes the file and fails the install before anything runs, with
 both hashes in the error. Successful downloads return a temporary path whose
 caller must remove after use. Copy/read and file-close failures remove the
 incomplete download before returning an error. There is no persistent installer
-cache.
+cache. Trying again downloads the installer from the beginning; it does not
+clear clinic settings, backups or recovery files.
 
 ### Pinned prerequisite downloads
 

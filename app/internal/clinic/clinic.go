@@ -142,6 +142,11 @@ func (e *Clinic) backupDir() string {
 	if e.BackupDir != "" {
 		return e.BackupDir
 	}
+	if desktop, err := proc.DesktopDir(); err == nil {
+		return filepath.Join(desktop, "care-db-backups")
+	} else {
+		e.logln("Warning: could not locate the Desktop; using the legacy backup location: " + err.Error())
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Desktop", "care-db-backups")
 }

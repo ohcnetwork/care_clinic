@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { bridge } from "@/lib/bridge";
 import { diskSize, errorText } from "@/lib/format";
+import { downloadProblem, type PrerequisiteProblem } from "@/lib/prerequisite-errors";
 import { useCare } from "@/state/care-store";
 import type { DownloadInfo, PrereqDownloadProgress, ResidueReport } from "@/types";
 import type { RequirementPage } from "./setup-model";
@@ -20,7 +21,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
   busy: boolean;
   tool: string;
   download: PrereqDownloadProgress | null;
-  actionError: string;
+  actionError: PrerequisiteProblem | null;
   actionNote: string;
   cleanupBefore: ResidueReport | null;
   onAction: (action: RequirementAction) => void;
@@ -30,19 +31,19 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
   const { platform, log } = useCare();
   const engine = platform === "linux" ? "Docker" : "Rancher Desktop";
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo | null>(null);
-  const [sizeError, setSizeError] = useState("");
+  const [sizeError, setSizeError] = useState<PrerequisiteProblem | null>(null);
   const [sizeAttempt, setSizeAttempt] = useState(0);
   const previewNeeded = page === "software" && checks.software.value?.dockerPlan?.download_preview;
   useEffect(() => {
     if (!previewNeeded) return;
     let live = true;
     setDownloadInfo(null);
-    setSizeError("");
+    setSizeError(null);
     void bridge.RancherDownloadInfo().then(
       (value) => { if (live) setDownloadInfo(value); },
       (e) => {
         log(`download size: ${errorText(e)}`);
-        if (live) setSizeError("Couldn't check the download size. Try again before downloading.");
+        if (live) setSizeError(downloadProblem(e, true) ?? { message: "Couldn't check the download size. Try again before downloading." });
       },
     );
     return () => { live = false; };
@@ -106,7 +107,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
           </div>
           {!ready && !tool ? <Callout title={checks.software.value?.dockerPlan?.action === "open" ? `${engine} isn't running, so the clinic can't be installed` : "Install the software CARE needs"}>
             {checks.software.value?.dockerPlan?.action === "open" ? "Starting it takes about a minute."
-              : <>Keep this computer connected to the internet. Your computer may ask for permission. {previewNeeded ? downloadInfo ? `${engine} download: ${diskSize(downloadInfo.size)}.` : "Checking the download size…" : ""}</>}
+              : <>Keep this computer connected to the internet. Your computer may ask for permission. {previewNeeded ? downloadInfo ? `${engine} download: ${diskSize(downloadInfo.size)}.` : sizeError ? "The download size couldn't be checked." : "Checking the download size…" : ""}</>}
             {platform === "darwin" && !checks.software.value?.git.ok ? <p style={{ marginTop: 8 }}>For Git, your Mac will show its own window — choose Install. This step carries on once it's done.</p> : null}
             <div className="on-actions">
               <Button variant="primary" disabled={busy || !!previewNeeded && !downloadInfo} onClick={() => onAction("software")}>
@@ -116,7 +117,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
             </div>
           </Callout> : null}
           {tool ? <Callout tone="info" title="Your computer may ask for permission">Look for a small window asking for a password, fingerprint or PIN. It can open behind this one. Keep CARE Desktop open.</Callout> : null}
-          {sizeError ? <Callout tone="danger" title="Couldn't check the download">{sizeError}<div className="on-actions"><Button disabled={busy} onClick={() => setSizeAttempt((n) => n + 1)}>Try again</Button><LogButton /></div></Callout> : null}
+          {sizeError ? <Callout tone="danger" title={sizeError.title ?? "Couldn't check the download"}>{sizeError.message}<div className="on-actions"><Button disabled={busy} onClick={() => setSizeAttempt((n) => n + 1)}>Try again</Button><LogButton /></div></Callout> : null}
         </>
       ) : page === "cleanup" ? (
         <div className="on-card on-pad">
@@ -139,7 +140,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
           </Callout></div> : null}
         </div>
       )}
-      {check.error || actionError ? <Callout tone="danger" title="This step couldn't finish">{actionError || check.error}<div className="on-actions"><Button disabled={busy} onClick={() => actionError && page !== "space" ? onAction(page) : onCheck()}>Try again</Button><LogButton /></div></Callout> : null}
+      {check.error || actionError ? <Callout tone="danger" title={actionError?.title ?? "This step couldn't finish"}>{actionError?.message || check.error}<div className="on-actions"><Button disabled={busy} onClick={() => actionError && page !== "space" ? onAction(page) : onCheck()}>Try again</Button><LogButton /></div></Callout> : null}
       {actionNote && !actionError ? <Callout>{actionNote}{!busy ? <div className="on-actions">{footer()}</div> : null}</Callout> : null}
     </>
   );

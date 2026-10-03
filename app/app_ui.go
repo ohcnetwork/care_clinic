@@ -51,10 +51,51 @@ func (a *App) alertDialog(title, message string) {
 func (a *App) ChooseFolder(title string) (dir string, err error) {
 	defer a.logError(&err)
 	opts := wruntime.OpenDialogOptions{Title: title}
-	if home, err := os.UserHomeDir(); err == nil {
+	if runtime.GOOS == "windows" {
+		desktop, err := proc.DesktopDir()
+		if err != nil {
+			return "", fmt.Errorf("couldn't locate your Desktop: %w", err)
+		}
+		opts.DefaultDirectory = desktop
+	} else if home, err := os.UserHomeDir(); err == nil {
 		opts.DefaultDirectory = home
 	}
 	return wruntime.OpenDirectoryDialog(a.ctx, opts)
+}
+
+func recoverySaveDirectory() (string, error) {
+	if runtime.GOOS != "windows" {
+		return "", nil
+	}
+	return proc.DesktopDir()
+}
+
+func (a *App) OpenSetupRecoveryFolder(codes bool) error {
+	return a.withReadJob(func() error {
+		if runtime.GOOS != "windows" {
+			return errors.New("opening the recovery folder is available only on Windows")
+		}
+		if err := a.requireRecoverySetup(); err != nil {
+			return err
+		}
+		cfg := a.loadConfig()
+		path := cfg.BackupRecoveryPath
+		if codes {
+			path = cfg.AdminRecoveryPath
+		}
+		if path == "" {
+			return errors.New("save the recovery file before opening its folder")
+		}
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("couldn't find the saved recovery file: %w", err)
+		}
+		cmd := proc.Command("explorer.exe", "/select,"+path)
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("couldn't open the recovery folder: %w", err)
+		}
+		go func() { _ = cmd.Wait() }()
+		return nil
+	})
 }
 
 func openDocument(path string) error {

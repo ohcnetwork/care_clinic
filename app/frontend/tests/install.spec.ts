@@ -74,6 +74,29 @@ async function fail(page: Page, offerUpdate = false) {
   if (offerUpdate) await expect(page.getByRole("button", { name: "Update now", exact: true })).toBeEnabled();
 }
 
+async function retryableFailure(page: Page, download = true, offerUpdate = false) {
+  if (offerUpdate) await page.evaluate((update) => window.careTest.setUpdate(update), availableUpdate);
+  await page.evaluate((interrupted) => {
+    window.careTest.fixtures.setupStarted = true;
+    window.careTest.emit("care-log", "error: download failed /private/diagnostics: exit status 1");
+    window.careTest.emit("setup-failed", { can_retry: true, download_interrupted: interrupted });
+    window.careTest.emit("care-done", 1, "setup");
+  }, download);
+  await expect(page.getByRole("heading", {
+    name: download ? "The download was interrupted" : "Something went wrong during installation", exact: true,
+  })).toBeVisible();
+  await expect(retry(page)).toBeEnabled();
+  if (offerUpdate) await expect(page.getByRole("button", { name: "Update now", exact: true })).toBeEnabled();
+}
+
+const savedSetup = (page: Page) => page.evaluate(() => ({
+  address: window.careTest.state.mdns_name,
+  backupDir: window.careTest.fixtures.backupDir,
+  password: window.careTest.fixtures.adminPassword,
+  recovery: window.careTest.fixtures.recovery,
+  backups: window.careTest.fixtures.backups,
+}));
+
 async function fits(page: Page) {
   expect(await page.evaluate(() => {
     const footer = document.querySelector(".install-foot")!.getBoundingClientRect();
@@ -300,6 +323,178 @@ test("Back to setup returns quietly without cleanup or discarding saved choices"
   await expect(page.getByLabel("Password", { exact: true })).toHaveValue(password);
   expect(await page.evaluate(() => window.careTest.fixtures.recovery.codes_saved)).toBe(true);
 });
+
+test("an interrupted download explains reconnecting without offering cleanup or an app update", async ({ page }) => {
+  await begin(page);
+  const updateChecks = await calls(page, "CheckAppUpdate");
+  await retryableFailure(page);
+  await expect(page.getByRole("heading", { name: "The download was interrupted", exact: true })).toBeFocused();
+  await expect(page.locator(".install-screen")).toContainText("Keep CARE Desktop open, reconnect to the internet, then try again.");
+  await expect(page.locator("#install-retry-consequences")).toContainText("clinic address, backup folder, admin password and saved recovery files");
+  await expect(page.locator(".install-screen")).not.toContainText(/exit status|\/private\/diagnostics|old Desktop admin codes stop working|clears the unfinished install first/);
+  await page.mouse.move(0, 0);
+  await expect(retry(page)).toHaveCSS("background-color", "rgb(5, 122, 85)");
+  await expect(page.getByRole("button", { name: /Update now|Check again/ })).toHaveCount(0);
+  expect(await calls(page, "CheckAppUpdate")).toBe(updateChecks);
+  expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+  for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) {
+    await page.setViewportSize(size);
+    await fits(page);
+    await expect(retry(page)).toBeInViewport();
+  }
+});
+
+test("repeated installation retries preserve the original setup until native success", async ({ page }) => {
+  const labels = await begin(page);
+  await retryableFailure(page);
+  const saved = await savedSetup(page);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await retry(page).click();
+    await expect(page.getByRole("heading", { name: "Installing CARE", exact: true })).toBeVisible();
+    await expect.poll(() => calls(page, "RetrySetup")).toBe(attempt);
+    expect(await railLabels(page)).toEqual(labels);
+    expect(await savedSetup(page)).toEqual(saved);
+    expect(await calls(page, "RunSetup")).toBe(1);
+    expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+    await expect(page.locator(".care-panel")).toHaveCount(0);
+    if (attempt === 1) await retryableFailure(page);
+  }
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "RetrySetup").map((call) => call.args))).toEqual([[], []]);
+  await page.evaluate(() => {
+    window.careTest.state.setup_done = true;
+    window.careTest.emit("setup-done", true);
+  });
+  await expect(page.getByRole("heading", { name: "Installing CARE", exact: true })).toBeVisible();
+  await page.evaluate(() => window.careTest.emit("care-done", 0, "setup"));
+  await expect(page.locator(".care-panel")).toBeVisible();
+  expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+});
+
+test("a rejected installation retry stays recoverable and cannot run twice", async ({ page }) => {
+  await begin(page);
+  await retryableFailure(page);
+  const saved = await savedSetup(page);
+  await page.evaluate(() => {
+    window.careTest.hold("RetrySetup");
+    window.careTest.failNext("RetrySetup", "missing backup location /private/diagnostics");
+  });
+  await retry(page).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+  await expect.poll(() => calls(page, "RetrySetup")).toBe(1);
+  await expect(page.getByRole("button", { name: "Back to setup", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Retrying installation…", exact: true })).toBeDisabled();
+  await expect(page.locator(".install-screen")).not.toContainText("Clearing the unfinished installation");
+  await page.evaluate(() => window.careTest.release("RetrySetup"));
+  await expect(page.getByText("Your saved setup has been kept.", { exact: false })).toBeVisible();
+  await expect(page.locator(".install-screen")).not.toContainText("/private/diagnostics");
+  await expect(retry(page)).toBeEnabled();
+  expect(await savedSetup(page)).toEqual(saved);
+  await retry(page).click();
+  await expect(page.getByRole("heading", { name: "Installing CARE", exact: true })).toBeVisible();
+  expect(await calls(page, "RetrySetup")).toBe(2);
+  expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+});
+
+for (const first of ["setup-done", "care-done"] as const) {
+  test(`an early retry success with ${first} first is not overwritten by acceptance`, async ({ page }) => {
+    await begin(page);
+    await retryableFailure(page);
+    await page.evaluate(() => {
+      window.careTest.respond("RetrySetup", undefined);
+      window.careTest.hold("RetrySetup");
+    });
+    await retry(page).click();
+    await expect.poll(() => calls(page, "RetrySetup")).toBe(1);
+    await page.evaluate((event) => {
+      window.careTest.state.setup_done = true;
+      if (event === "setup-done") window.careTest.emit("setup-done", true);
+      else window.careTest.emit("care-done", 0, "setup");
+      window.careTest.release("RetrySetup");
+    }, first);
+    await expect(page.getByRole("heading", { name: "Installing CARE", exact: true })).toBeVisible();
+    await expect(page.locator(".care-panel")).toHaveCount(0);
+    await page.evaluate((event) => {
+      if (event === "setup-done") window.careTest.emit("care-done", 0, "setup");
+      else window.careTest.emit("setup-done", true);
+    }, first);
+    await expect(page.locator(".care-panel")).toBeVisible();
+    expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+  });
+}
+
+test("retry failure metadata survives acceptance before the completion event", async ({ page }) => {
+  await begin(page);
+  await retryableFailure(page);
+  await page.evaluate(() => window.careTest.hold("RetrySetup"));
+  await retry(page).click();
+  await expect.poll(() => calls(page, "RetrySetup")).toBe(1);
+  await page.evaluate(() => {
+    window.careTest.emit("setup-failed", { can_retry: true, download_interrupted: false });
+    window.careTest.release("RetrySetup");
+  });
+  await expect(page.getByRole("heading", { name: "Installing CARE", exact: true })).toBeVisible();
+  await page.evaluate(() => window.careTest.emit("care-done", 1, "setup"));
+  await expect(failedHeading(page)).toBeVisible();
+  await expect(page.getByText("Your setup choices are kept", { exact: true })).toBeVisible();
+  await retry(page).click();
+  await expect.poll(() => calls(page, "RetrySetup")).toBe(2);
+  expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+});
+
+test("an early retry failure is not replaced by late acceptance or unrelated failure metadata", async ({ page }) => {
+  await begin(page);
+  await retryableFailure(page);
+  await page.evaluate(() => {
+    window.careTest.respond("RetrySetup", undefined);
+    window.careTest.hold("RetrySetup");
+  });
+  await retry(page).click();
+  await expect.poll(() => calls(page, "RetrySetup")).toBe(1);
+  await page.evaluate(() => {
+    window.careTest.emit("setup-failed", { can_retry: true, download_interrupted: true });
+    window.careTest.emit("care-done", 1, "setup");
+    window.careTest.release("RetrySetup");
+    window.careTest.emit("setup-failed", { can_retry: false, download_interrupted: false });
+  });
+  await expect(page.getByRole("heading", { name: "The download was interrupted", exact: true })).toBeVisible();
+  await expect(retry(page)).toBeEnabled();
+  await retry(page).click();
+  await expect.poll(() => calls(page, "RetrySetup")).toBe(2);
+  expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+});
+
+for (const first of ["retry", "update"] as const) {
+  test(`resuming setup, updating, and Back cannot race when ${first} is clicked first`, async ({ page }) => {
+    await begin(page);
+    await retryableFailure(page, false, true);
+    await page.evaluate((action) => {
+      window.careTest.hold("RetrySetup");
+      const button = (label: string) => [...document.querySelectorAll("button")].find((item) => item.textContent?.trim() === label)!;
+      const retry = button("Try again");
+      const update = button("Update now");
+      const back = button("Back to setup");
+      if (action === "retry") { retry.click(); update.click(); }
+      else { update.click(); retry.click(); }
+      back.click();
+    }, first);
+    if (first === "retry") {
+      await expect.poll(() => calls(page, "RetrySetup")).toBe(1);
+      expect(await calls(page, "InstallAppUpdate")).toBe(0);
+      await page.evaluate(() => window.careTest.release("RetrySetup"));
+      await expect(page.getByRole("heading", { name: "Installing CARE", exact: true })).toBeVisible();
+    } else {
+      await expect.poll(() => calls(page, "InstallAppUpdate")).toBe(1);
+      expect(await calls(page, "RetrySetup")).toBe(0);
+      await expect(retry(page)).toBeDisabled();
+      await page.evaluate(() => {
+        window.careTest.emit("setup-failed", { can_retry: false, download_interrupted: true });
+        window.careTest.finishUpdate("preview update cancelled");
+      });
+      await expect(failedHeading(page)).toBeVisible();
+      await expect(retry(page)).toBeEnabled();
+    }
+    expect(await calls(page, "CleanupFailedInstall")).toBe(0);
+  });
+}
 
 for (const failure of ["couldn't reach GitHub to check for updates: private transport error", "release 0.1.6 has no installer for this computer"]) {
   test(`an unavailable update check never becomes an offer: ${failure.slice(0, 25)}`, async ({ page }) => {

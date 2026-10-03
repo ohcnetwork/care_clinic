@@ -75,6 +75,23 @@ wails build
 
 Wails invokes the configured frontend install/build commands as part of its build workflow. Outputs go under `app/build/bin/`; platform packaging details are covered below.
 
+A running executable does not acquire source changes or merged branches
+automatically. Rebuild the desktop app to include updated retry, native folder,
+or launcher behavior; rebuilding CARE's container images does not update the
+desktop executable. Do not replace or close a desktop process during a retained
+installation retry: that attempt exists only in that process.
+
+When copying a Windows test executable to the visible Desktop, resolve the
+Windows folder rather than assuming `$env:USERPROFILE\Desktop`:
+
+```powershell
+$desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+Copy-Item -LiteralPath '.\build\bin\CARE Desktop.exe' -Destination $desktop
+```
+
+Run this from `app` after building, with the destination app closed. The result
+is a standalone local executable, not a signed release installer.
+
 ### A running development app has real effects
 
 `wails dev` is not a fake bridge. It can find the current user's saved clinic configuration, refresh installed files, advertise the name, and ask the backend to start the stack. Use an isolated machine/user and Docker environment for destructive end-to-end work.

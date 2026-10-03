@@ -1,19 +1,159 @@
 package prereq
 
 import (
+	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
+
+func TestDownloadErrorClassifiesConnectionsWithoutHidingOtherFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		err         error
+		interrupted bool
+	}{
+		{"closed connection", io.EOF, true},
+		{"truncated body", io.ErrUnexpectedEOF, true},
+		{"request timeout", context.DeadlineExceeded, true},
+		{"stall cancellation", context.Canceled, true},
+		{"reset connection", &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}, true},
+		{"disconnected network", &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ENETUNREACH}, true},
+		{"DNS failure", &net.DNSError{Err: "no such host", Name: "example.invalid"}, true},
+		{"wrapped request", &url.Error{Op: "Get", URL: "https://example.invalid", Err: io.ErrUnexpectedEOF}, true},
+		{"certificate", &url.Error{Op: "Head", URL: "https://example.invalid", Err: x509.UnknownAuthorityError{}}, false},
+		{"disk full", &os.PathError{Op: "write", Path: "/temporary-installer", Err: syscall.ENOSPC}, false},
+		{"local permission", &os.PathError{Op: "open", Path: "/temporary-installer", Err: os.ErrPermission}, false},
+		{"checksum", errors.New("SHA-256 mismatch"), false},
+		{"server rejection", errors.New("the server said 403 Forbidden"), false},
+		{"installer cancelled", errors.New("User cancelled the authorization dialog (-128)"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := downloadError(tc.err)
+			if !errors.Is(got, tc.err) || strings.Contains(got.Error(), "download connection interrupted:") != tc.interrupted {
+				t.Fatalf("incorrect download error classification or lost cause: %v", got)
+			}
+			if !tc.interrupted && got != tc.err {
+				t.Fatalf("a non-network error was changed: %v", got)
+			}
+		})
+	}
+}
+
+func downloadTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, dir)
+	}
+	return dir
+}
+
+func TestInterruptedDownloadDiscardsPartialFileAndRetries(t *testing.T) {
+	dir := downloadTempDir(t)
+	body := strings.Repeat("synthetic installer", 8192)
+	sum := sha256.Sum256([]byte(body))
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+		if requests.Add(1) == 1 {
+			_, _ = io.WriteString(w, body[:1024])
+			return
+		}
+		_, _ = io.WriteString(w, body)
+	}))
+	defer server.Close()
+	var events []DownloadProgress
+	pr := &Provisioner{Progress: func(p DownloadProgress) { events = append(events, p) }}
+	d := Download{Name: "Rancher-test.dmg", URL: server.URL, SHA256: hex.EncodeToString(sum[:])}
+	path, err := pr.download(d)
+	if path != "" || !errors.Is(err, io.ErrUnexpectedEOF) || !strings.Contains(err.Error(), "download connection interrupted:") {
+		t.Fatalf("a broken connection lost its cause or interruption classification: path=%q, err=%v", path, err)
+	}
+	if files, err := os.ReadDir(dir); err != nil || len(files) != 0 {
+		t.Fatalf("an incomplete installer was kept: %v, %v", files, err)
+	}
+	for _, event := range events {
+		if event.Phase == "verifying" || event.Phase == "complete" {
+			t.Fatalf("an interrupted installer reached verification or completion: %+v", event)
+		}
+	}
+	last := events[len(events)-1]
+	if last.Phase != "failed" || last.Done != 1024 || last.Total != int64(len(body)) {
+		t.Fatalf("lost the failed download's progress: %+v", last)
+	}
+	events = nil
+	path, err = pr.download(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != body {
+		t.Fatalf("retry did not retrieve the complete installer: %v", err)
+	}
+	if requests.Load() != 2 || events[0].Phase != "connecting" || events[0].Done != 0 || events[len(events)-1].Phase != "complete" {
+		t.Fatalf("retry did not restart and verify the download: %+v", events)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDownloadConnectionFailureBeforeHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.Close()
+	d := Download{Name: "Rancher-test.dmg", URL: server.URL}
+	if _, err := inspectDownload(d); err == nil || !strings.Contains(err.Error(), "download connection interrupted:") {
+		t.Fatalf("preview connection failure wasn't classified: %v", err)
+	}
+	var events []DownloadProgress
+	pr := &Provisioner{Progress: func(p DownloadProgress) { events = append(events, p) }}
+	if path, err := pr.download(d); path != "" || err == nil || !strings.Contains(err.Error(), "download connection interrupted:") {
+		t.Fatalf("download connection failure wasn't classified: path=%q, err=%v", path, err)
+	}
+	if len(events) != 2 || events[0].Phase != "connecting" || events[1].Phase != "failed" || events[1].Done != 0 {
+		t.Fatalf("failed connection reported download progress: %+v", events)
+	}
+}
+
+func TestStalledDownloadIsAnInterruptionNotUserCancellation(t *testing.T) {
+	dir := downloadTempDir(t)
+	previous := downloadStallTimeout
+	downloadStallTimeout = 50 * time.Millisecond
+	defer func() { downloadStallTimeout = previous }()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000000")
+		_, _ = io.WriteString(w, "partial")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	pr := &Provisioner{}
+	path, err := pr.download(Download{Name: "Rancher-test.dmg", URL: server.URL})
+	if path != "" || !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "download connection interrupted:") {
+		t.Fatalf("a stalled download looked like an unrelated cancellation: path=%q, err=%v", path, err)
+	}
+	if files, err := os.ReadDir(dir); err != nil || len(files) != 0 {
+		t.Fatalf("a stalled installer was kept: %v, %v", files, err)
+	}
+}
 
 func TestDownloadPreviewOnlyRequestsHeaders(t *testing.T) {
 	var methods []string
@@ -42,8 +182,8 @@ func TestDownloadPreviewRejectsUnavailableSize(t *testing.T) {
 				w.WriteHeader(status)
 			}))
 			defer server.Close()
-			if _, err := inspectDownload(Download{Name: "installer", URL: server.URL}); err == nil {
-				t.Fatal("missing size or failed request accepted")
+			if _, err := inspectDownload(Download{Name: "installer", URL: server.URL}); err == nil || strings.Contains(err.Error(), "download connection interrupted:") {
+				t.Fatalf("missing size or rejected request was accepted or called a connection interruption: %v", err)
 			}
 		})
 	}
@@ -91,8 +231,8 @@ func TestDownloadReportsBytesAndVerification(t *testing.T) {
 				if err != nil || string(data) != body {
 					t.Fatal("download contents changed")
 				}
-			} else if err == nil || path != "" {
-				t.Fatal("checksum mismatch did not fail")
+			} else if err == nil || path != "" || strings.Contains(err.Error(), "download connection interrupted:") {
+				t.Fatalf("checksum mismatch did not fail distinctly from a connection interruption: %v", err)
 			}
 			if len(events) < 4 || events[0].Phase != "connecting" || events[1].Phase != "downloading" {
 				t.Fatalf("missing download lifecycle: %+v", events)

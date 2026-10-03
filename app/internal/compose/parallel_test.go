@@ -97,6 +97,43 @@ func TestParallelPrefixesEachJobsOutput(t *testing.T) {
 	}
 }
 
+func TestParallelPreservesTheFailedWorkersNetworkCause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX command fixture")
+	}
+	b, _ := parallelFixture(t)
+	err := b.Parallel(
+		Job{Label: "caddy", Run: func(w *Builder) error {
+			return w.run.Run("/bin/sh", "-c", `printf 'Get "https://example.invalid/module": unexpected EOF\n' >&2; exit 1`)
+		}},
+		Job{Label: "backend", Run: func(w *Builder) error { return w.run.Run("sleep", "30") }},
+	)
+	var network *proc.NetworkError
+	if !errors.As(err, &network) || !strings.Contains(err.Error(), "caddy image") {
+		t.Fatalf("the failed download was replaced by its cancelled sibling: %v", err)
+	}
+}
+
+func TestParallelDoesNotUseASuccessfulWorkersNetworkWarning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX command fixture")
+	}
+	b, _ := parallelFixture(t)
+	warned := make(chan struct{})
+	compile := errors.New("compile failed")
+	err := b.Parallel(
+		Job{Label: "backend", Run: func(w *Builder) error {
+			defer close(warned)
+			return w.run.Run("/bin/sh", "-c", "printf 'connection reset by peer; retry succeeded\\n'")
+		}},
+		Job{Label: "frontend", Run: func(*Builder) error { <-warned; return compile }},
+	)
+	var network *proc.NetworkError
+	if !errors.Is(err, compile) || errors.As(err, &network) {
+		t.Fatalf("another image's warning changed the reported failure: %v", err)
+	}
+}
+
 func TestParallelRecoversAPanickingJob(t *testing.T) {
 	b, _ := parallelFixture(t)
 	err := b.Parallel(Job{Label: "caddy", Run: func(*Builder) error { panic("bad") }})

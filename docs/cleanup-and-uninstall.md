@@ -553,6 +553,13 @@ This keeps expensive downloaded images/cache for another setup attempt and
 does not erase backup data. It still removes the partial live project and
 native changes through the normal engine sequence.
 
+This is the destructive fallback, not the normal retry for an attempt retained
+in the current desktop process. `RetrySetup()` reuses that attempt without
+calling `CleanupFailedInstall()`, preserving its configuration and recovery
+materials. The failure screen states which behavior **Try again** will use.
+Closing the desktop loses the retained attempt; see
+[installation retries](desktop-workflows.md#during-installation).
+
 ### Why the unused-certificate handling must be last
 
 Public certificate installation can succeed before a later build or startup

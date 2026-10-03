@@ -79,6 +79,7 @@ declare global {
           ChooseRecoveryFile(): Promise<string>;
           SaveAdminRecoveryCodes(adminPassword: string, backupDir: string): Promise<boolean>;
           OpenSetupRecoveryCodes(): Promise<void>;
+          OpenSetupRecoveryFolder(codes: boolean): Promise<void>;
           ValidateSetup(name: string, password: string, backupDir: string): Promise<SetupIssue[]>;
           ChangeAdminPassword(currentPassword: string, newPassword: string): Promise<void>;
           ResetAdminPassword(code: string, newPassword: string): Promise<void>;
@@ -89,6 +90,7 @@ declare global {
             adminPassword: string,
             backupDir: string,
           ): Promise<void>;
+          RetrySetup(): Promise<void>;
           CleanupFailedInstall(): Promise<void>;
           ReadEnv(name: string, adminPassword: string): Promise<string>;
           WriteEnv(name: string, content: string, adminPassword: string): Promise<void>;
