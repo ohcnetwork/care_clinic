@@ -58,6 +58,43 @@ async function fillPassword(page: Page, password = samplePassword) {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Confirm password", { exact: true }).fill(password);
 }
+
+test("Windows recovery folders and backup capacity copy", async ({ page }) => {
+  await backups(page, "windows");
+  await estimatedBackupSpace(page);
+  await expect(page.getByText(/room for about .* of backups/i)).toHaveCount(0);
+  await expect(page.getByText(/Desktop may sync to OneDrive/)).toBeVisible();
+  await saveBackup(page);
+  await page.getByRole("button", { name: "Open folder", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.careTest.calls
+    .filter((call) => call.method === "OpenSetupRecoveryFolder").map((call) => call.args))).toEqual([[false]]);
+  await forward(page).click();
+  await fillPassword(page);
+  await page.getByRole("button", { name: "Choose where to save", exact: true }).click();
+  await page.getByRole("button", { name: "Open folder", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.careTest.calls
+    .filter((call) => call.method === "OpenSetupRecoveryFolder").map((call) => call.args))).toEqual([[false], [true]]);
+});
+
+test("Non-Windows backup presentation is unchanged", async ({ page }) => {
+  await backups(page);
+  await estimatedBackupSpace(page);
+  await expect(page.getByText(/room for about .* of backups/i)).toBeVisible();
+  await saveBackup(page);
+  await expect(page.getByRole("button", { name: "Open folder", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Desktop may sync to OneDrive/)).toHaveCount(0);
+});
+
+async function estimatedBackupSpace(page: Page) {
+  await page.evaluate(() => window.careTest.respond("BackupDirSpace", {
+    dir: "/test-fixtures/CLINIC-BACKUP/care-db-backups", free: 418 * 2 ** 30, total: 500 * 2 ** 30,
+    need: 6 * 2 ** 30, set_bytes: 2 * 2 ** 30, days_left: 190,
+    shares_docker_drive: false, level: "ok", message: "",
+  }));
+  await page.getByRole("button", { name: "Change folder", exact: true }).click();
+  await expect(page.getByText("/test-fixtures/CLINIC-BACKUP/care-db-backups", { exact: true })).toBeVisible();
+}
+
 async function review(page: Page, platform = "darwin") {
   await admin(page, platform);
   await fillPassword(page);

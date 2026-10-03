@@ -393,6 +393,7 @@ export function installTestHost() {
       return true;
     },
     OpenSetupRecoveryCodes: async () => { logs.push("Test only: the codes would open for printing."); },
+    OpenSetupRecoveryFolder: async () => { logs.push("Test only: the recovery folder would open."); },
     ClinicHealth: async () => ({ ...fixtures.health }),
     ClinicStatus: async () => fixtures.clinicStatus,
     ListBackups: async () => fixtures.backups.map((backup) => ({ ...backup })),

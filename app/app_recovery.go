@@ -169,9 +169,14 @@ func (a *App) saveSetupBackupRecovery(backupDir string, replace bool) (bool, err
 		if cfg.BackupCertificate != "" && !replace {
 			return errors.New("the recovery file has already been saved; select it using Verify saved file")
 		}
+		directory, err := recoverySaveDirectory()
+		if err != nil {
+			return fmt.Errorf("couldn't locate your Desktop: %w", err)
+		}
 		path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
-			Title:           "Save backup recovery file on a separate secure drive",
-			DefaultFilename: "CARE-" + cfg.MDNSName + "-backup-recovery.pem",
+			DefaultDirectory: directory,
+			Title:            "Save backup recovery file on a separate secure drive",
+			DefaultFilename:  "CARE-" + cfg.MDNSName + "-backup-recovery.pem",
 		})
 		if err != nil || path == "" {
 			return err
@@ -285,9 +290,14 @@ func (a *App) SaveAdminRecoveryCodes(adminPassword, backupDir string) (bool, err
 		} else if err := a.requireRecoverySetup(); err != nil {
 			return err
 		}
+		directory, err := recoverySaveDirectory()
+		if err != nil {
+			return fmt.Errorf("couldn't locate your Desktop: %w", err)
+		}
 		path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
-			Title:           "Save six Desktop admin recovery codes",
-			DefaultFilename: "CARE-" + cfg.MDNSName + "-desktop-admin-codes.txt",
+			DefaultDirectory: directory,
+			Title:            "Save six Desktop admin recovery codes",
+			DefaultFilename:  "CARE-" + cfg.MDNSName + "-desktop-admin-codes.txt",
 		})
 		if err != nil || path == "" {
 			return err

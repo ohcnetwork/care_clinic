@@ -9,6 +9,7 @@ import type { PasswordStrength } from "@/hooks/use-password-strength";
 import { diskSize } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { SetupForm } from "@/state/forms";
+import { useCare } from "@/state/care-store";
 import type { BackupSpace, SetupIssue, SetupPage, SetupRecoveryStatus } from "@/types";
 import { isRequirement, SETUP_LABELS } from "./setup-model";
 
@@ -38,19 +39,22 @@ export function AddressStep({ value, result, disabled, onChange, onCheck }: {
   );
 }
 
-function spaceDescription(space: BackupSpace): string {
+function spaceDescription(space: BackupSpace, windows: boolean): string {
   if (space.total === 0) return "The available space couldn't be measured. Check the location again.";
+  if (windows) return `${diskSize(space.free)} free`;
   const room = space.days_left > 365 ? `room for about ${Math.floor(space.days_left / 365)} years of backups`
     : space.days_left > 0 ? `room for about ${space.days_left} days of backups`
     : space.need > 0 ? `each backup needs about ${diskSize(space.need)}` : "";
   return `${diskSize(space.free)} free${room ? ` · ${room}` : ""}`;
 }
 
-export function BackupStep({ form, space, folderProblem, recovery, recoveryError, busy, action, onChoose, onCheck, onSave, onVerify, onReplace, onReload }: {
+export function BackupStep({ form, space, folderProblem, recovery, recoveryError, busy, action, onChoose, onCheck, onSave, onVerify, onReplace, onReload, onOpenFolder }: {
   form: SetupForm; space: BackupSpace | null; folderProblem: string; recovery: SetupRecoveryStatus;
   recoveryError: string; busy: boolean; action: string;
   onChoose: () => void; onCheck: () => void; onSave: () => void; onVerify: () => void; onReplace: () => void; onReload: () => void;
+  onOpenFolder: () => void;
 }) {
+  const { platform } = useCare();
   const folderReady = space !== null && !folderProblem;
   return (
     <>
@@ -59,7 +63,7 @@ export function BackupStep({ form, space, folderProblem, recovery, recoveryError
           <span className="on-tile"><Folder aria-hidden="true" /></span>
           <div className="on-grow"><div className="on-eyebrow">Backups are saved to</div>
             <strong className="on-mono">{space?.dir || form.backupDir || "Checking the backup location…"}</strong>
-            {space ? <p>{spaceDescription(space)}</p> : null}
+            {space ? <p>{spaceDescription(space, platform === "windows")}</p> : null}
           </div>
           <Button disabled={busy} onClick={onChoose}><FolderOpen aria-hidden="true" />Change folder</Button>
         </div>
@@ -78,6 +82,7 @@ export function BackupStep({ form, space, folderProblem, recovery, recoveryError
           </div>
           {recovery.backup_saved ? !recovery.backup_problem ? <StatusBadge tone="ok"><Check />Saved</StatusBadge> : null
             : <Button variant="primary" className="on-save-primary" disabled={busy || !folderReady} onClick={onSave}>{action === "save-backup" ? <Spinner /> : <FolderOpen aria-hidden="true" />}Choose where to save</Button>}
+          {platform === "windows" && recovery.backup_saved && !recovery.backup_problem ? <Button disabled={busy} onClick={onOpenFolder}>Open folder</Button> : null}
         </div>
         <div className="on-data-row">
           <span className={cn("on-tile", recovery.backup_verified && "on-solid")}>{recovery.backup_verified ? <Check /> : <ShieldAlert />}</span>
@@ -93,16 +98,19 @@ export function BackupStep({ form, space, folderProblem, recovery, recoveryError
       </Callout> : null}
       {recoveryError ? <Callout tone="danger" title="The recovery file couldn't be checked">{recoveryError}<div className="on-actions"><Button disabled={busy} onClick={onReload}>Check saved files again</Button><LogButton /></div></Callout> : null}
       <Callout tone="danger" title="Keep this file safe, and don't share it with anyone">It unlocks every backup this clinic makes.</Callout>
+      {platform === "windows" ? <Callout title="Choose a secure location">An external drive is recommended for backups. Desktop may sync to OneDrive; saving recovery files there can upload them to your cloud account.</Callout> : null}
     </>
   );
 }
 
-export function AdminStep({ form, patch, strength, passwordError, folderProblem, recovery, recoveryError, busy, action, onSave, onPrint, onReload, onBackups }: {
+export function AdminStep({ form, patch, strength, passwordError, folderProblem, recovery, recoveryError, busy, action, onSave, onPrint, onReload, onBackups, onOpenFolder }: {
   form: SetupForm; patch: (form: Partial<SetupForm>) => void; strength: PasswordStrength;
   passwordError: string; folderProblem: string;
   recovery: SetupRecoveryStatus; recoveryError: string; busy: boolean; action: string;
   onSave: () => void; onPrint: () => void; onReload: () => void; onBackups: () => void;
+  onOpenFolder: () => void;
 }) {
+  const { platform } = useCare();
   const [show, setShow] = useState(false);
   const length = [...form.adminPassword].length;
   const rules = [
@@ -149,11 +157,13 @@ export function AdminStep({ form, patch, strength, passwordError, folderProblem,
               <Button variant="primary" className="on-save-primary" disabled={busy || !passwordReady || !!folderProblem} onClick={onSave}>{action === "save-codes" ? <Spinner /> : <FolderOpen aria-hidden="true" />}Choose where to save</Button>
               {!passwordReady ? <p className="on-small">{strength.strong ? "Confirm your password first." : "Set your password first."}</p> : null}
             </div>}
+          {platform === "windows" && saved ? <Button disabled={busy} onClick={onOpenFolder}>Open folder</Button> : null}
         </div>
         {saved ? <p className="on-small" style={{ padding: "0 20px 14px" }}>Saving a new set cancels every code on the old sheet.</p> : null}
       </section>
       {recovery.codes_problem ? <Callout title="The recovery codes file isn't available">Save a fresh set before continuing. The old codes stop working once the new set is saved.</Callout> : null}
       {recoveryError ? <Callout tone="danger" title="The recovery codes couldn't be saved or checked">{recoveryError}<div className="on-actions"><Button disabled={busy} onClick={onReload}>Check saved files again</Button><LogButton /></div></Callout> : null}
+      {platform === "windows" ? <Callout title="Keep recovery codes private">Desktop may sync to OneDrive. Choose a secure location if you don't want these codes uploaded to your cloud account.</Callout> : null}
     </>
   );
 }

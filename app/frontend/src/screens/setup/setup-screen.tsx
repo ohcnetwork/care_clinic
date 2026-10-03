@@ -501,9 +501,11 @@ function SetupWizard({ form, patch, update, onBusy }: {
         onRestart={() => setRestart(requirements.current.current.windows.value?.restart ?? null)} />
         : page === "address" ? <AddressStep value={form.hostInput} result={address} disabled={operation !== "" || update.active || care.busy} onChange={changeHost} onCheck={() => void checkAddress(formRef.current.hostInput)} />
         : page === "backup" ? <BackupStep form={form} space={space} folderProblem={folderError} recovery={recovery} recoveryError={recoveryError} busy={locked} action={operation}
+          onOpenFolder={() => void execute("open-backup-folder", () => bridge.OpenSetupRecoveryFolder(false), true)}
           onChoose={chooseFolder} onCheck={() => void execute("check-folder", async () => { await checkFolder(formRef.current.backupDir); })}
           onSave={() => saveRecovery("save-backup")} onVerify={() => saveRecovery("verify-backup")} onReplace={() => saveRecovery("replace-backup")} onReload={reloadRecovery} />
         : page === "admin" ? <AdminStep form={form} patch={changeForm} strength={strength} passwordError={passwordError} folderProblem={folderError} recovery={recovery} recoveryError={recoveryError} busy={locked} action={operation}
+          onOpenFolder={() => void execute("open-codes-folder", () => bridge.OpenSetupRecoveryFolder(true), true)}
           onSave={() => saveRecovery("save-codes")} onPrint={() => void execute("open-codes", () => bridge.OpenSetupRecoveryCodes(), true)} onReload={reloadRecovery}
           onBackups={() => void execute("backup-location", () => visit("backup", editingRef.current ? "edit" : "back"))} />
         : <ReviewStep steps={steps} form={form} backupPath={space?.dir || form.backupDir} issues={issues} verified={verified} busy={locked} onEdit={edit} />}

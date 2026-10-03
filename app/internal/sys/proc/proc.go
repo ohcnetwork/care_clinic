@@ -58,6 +58,48 @@ func (r Runner) Run(name string, args ...string) error {
 	return r.RunWith(nil, name, args...)
 }
 
+// RunLauncher gives launched applications a durable output handle instead of a
+// pipe tied to CARE's lifetime. Readiness must be checked separately.
+func (r Runner) RunLauncher(timeout time.Duration, logPath, name string, args ...string) error {
+	output, err := os.OpenFile(logPath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600)
+	if err != nil {
+		return fmt.Errorf("open launcher log: %w", err)
+	}
+	defer output.Close()
+	info, err := output.Stat()
+	if err != nil {
+		return fmt.Errorf("read launcher log size: %w", err)
+	}
+	start := info.Size()
+	parent := r.Ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	cmd := CommandContext(ctx, name, args...)
+	cmd.Dir, cmd.Env = r.Dir, r.Env
+	cmd.Stdout, cmd.Stderr = output, output
+	r.logln("Launcher output: " + logPath)
+	err = cmd.Run()
+	out, readErr := io.ReadAll(io.NewSectionReader(output, start, chunkSize))
+	if readErr != nil {
+		r.logln("Warning: could not read launcher output: " + readErr.Error())
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line != "" {
+			r.logln(strings.TrimSuffix(line, "\r"))
+		}
+	}
+	if len(out) == chunkSize {
+		r.logln("Launcher output truncated here; full output is in " + logPath)
+	}
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s launch interrupted: %w", name, ctx.Err())
+	}
+	return err
+}
+
 func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 	cmd := r.cmd(name, args...)
 	if len(extraEnv) > 0 {

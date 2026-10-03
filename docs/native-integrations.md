@@ -2,6 +2,15 @@
 
 # Native integrations and machine readiness
 
+On Windows, the default backup location uses the Windows Desktop known folder,
+including OneDrive or administrator redirection, rather than assuming
+`C:\Users\<name>\Desktop`. Explicitly configured backup locations are unchanged.
+The native folder chooser and recovery save dialogs start at that Desktop.
+Windows setup offers **Open folder** for saved recovery files and codes, warns
+that Desktop may sync to OneDrive, and shows free space without an estimated
+number of days or years of backups. Other platforms retain their existing
+folder and setup behavior.
+
 This guide explains how CARE Desktop interacts with the computer running the
 clinic: child processes, files, logs, administrator approval, local name
 resolution, certificates, LAN discovery, Windows networking, prerequisite tools,
@@ -1509,6 +1518,16 @@ because a freshly installed `~/.rd/bin` is not yet on the PATH CARE inherits.
 (`--no-modal-dialogs` plus `rancherSettings`), which opens no window, skips the
 first-run wizard, and applies the settings to an instance that is already
 running.
+
+A launcher may exit while Rancher keeps its stdout/stderr handles open. CARE
+uses `RunLauncher` for these commands, directing output to `rancher-launch.log`
+in CARE's diagnostic log directory instead of a pipe. It waits for the launcher
+process, copies up to 64 KiB of its output into the main log, and then proceeds
+to readiness checks without waiting for Rancher itself to exit. The inherited
+file handle stays valid even when CARE exits; closing an inherited pipe could
+otherwise break Rancher's later output. Launcher commands have a separate
+two-minute timeout; nonzero exits and cancellation remain failures. This prevents
+an inherited log pipe from blocking the Docker-readiness timer indefinitely.
 
 A Rancher Desktop that has never run its Linux environment before regularly
 fails its first start with `Timed out after waiting for /run/wsl-init.pid` and
