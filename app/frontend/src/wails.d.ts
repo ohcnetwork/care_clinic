@@ -73,6 +73,7 @@ declare global {
           SetMDNSName(name: string): Promise<void>;
           VerifyAdminPassword(pw: string): Promise<boolean>;
           GetSetupRecoveryStatus(): Promise<SetupRecoveryStatus>;
+          GetAdminRecoveryCodeCount(): Promise<number>;
           SaveSetupBackupRecovery(backupDir: string): Promise<boolean>;
           ReplaceSetupBackupRecovery(backupDir: string): Promise<boolean>;
           VerifySetupBackupRecovery(backupDir: string): Promise<boolean>;
@@ -99,6 +100,7 @@ declare global {
           PluginCatalog(): Promise<PluginCatalogEntry[]>;
           ListBackups(): Promise<Backup[]>;
           GetBackupDir(): Promise<string>;
+          ExportBackupRecovery(adminPassword: string, recoveryFile: string): Promise<boolean>;
           GetBackupPolicy(): Promise<BackupPolicy>;
           SetBackupDir(dir: string): Promise<string>;
           ChooseBackupFile(): Promise<string>;

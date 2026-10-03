@@ -121,7 +121,34 @@ sidecar's `date`. The list sorts by the timestamp embedded in the filename, not
 by filesystem modification time.
 
 The suffix `.enc` identifies encrypted backup content. The separate
-`CARE-<clinic>-backup-recovery.pem` file is a private key, not a backup.
+`CARE-<clinic>-backup-recovery-<UTC timestamp>-<random suffix>.pem` file is a
+private key, not a backup. Recovery PEM exports and Desktop admin code sheets
+use a portable UTC timestamp (including nanoseconds) plus a random suffix in
+their suggested filenames, so repeated saves have distinct names. CARE never
+overwrites an existing recovery file, even if a native dialog approves it.
+
+During setup, **Save a new recovery file** remains available next to
+**Select saved file**, including after saving or verification. This explicitly
+replaces the setup key and clears verification: select the new PEM before
+continuing. Cancellation or a failed save leaves the previous key active.
+Replacement is locked once installation starts.
+
+For an installed clinic, **Backups > Re-download backup key** requires the
+current Desktop admin password. Once enrolled, it decrypts the encrypted local
+copy even if the original PEM has been deleted or disconnected. Existing
+installations without this copy need one successful export from their original
+saved PEM, or **Select another saved copy**. The dialog explains that this
+enrolls password-only downloads. The key must match both the configured and
+installed public certificate before a save dialog opens. No key rotation or
+change to earlier backups occurs. Keep the exported copy outside CARE's
+settings, installation, logs and backup folder.
+
+Cancellation leaves enrollment unchanged. A failed enrollment persistence
+after export explicitly reports that the exported PEM was saved but the local
+copy was not confirmed. Preserve that PEM and retry. A corrupt local copy
+does not silently fall back to a file: explicitly select a matching PEM to
+re-enroll. Keys already lost before this feature was enrolled cannot be
+reconstructed.
 
 ### Host folders versus container paths
 
@@ -190,20 +217,63 @@ OpenSSL.
 | Item | What it does | What it cannot replace |
 | --- | --- | --- |
 | `keys/backup-cert.pem` | Public certificate for unattended encryption; also copied into the backup folder as an ownership marker. | The private recovery file. This is not the clinic's HTTPS certificate. |
-| `CARE-<clinic>-backup-recovery.pem` | Private key exported to a location chosen by the clinic manager. Select it to restore encrypted backups. | Backup data, Desktop authorisation, or another clinic's key. |
-| Desktop admin password | Authorises protected Desktop operations. | Backup decryption or the independently stored CARE web login. |
+| `CARE-<clinic>-backup-recovery-<timestamp>-<suffix>.pem` | Private key exported to a location chosen by the clinic manager. Select it to restore encrypted backups. | Backup data, Desktop authorisation, or another clinic's key. |
+| Desktop admin password | Authorises protected Desktop operations and unlocks an enrolled encrypted local key copy. | Direct OpenSSL backup decryption without the private key, or the independently stored CARE web login. |
 | Six Desktop admin recovery codes | Each unused code can reset the Desktop password offline. | Backup decryption or CARE web password recovery. |
 | Database password | Authenticates PostgreSQL commands. | Any recovery material. |
 
 ### Setup and custody
 
-There is no backup password or OS-keyring entry. During setup,
+There is no separate backup password or OS-keyring entry. During setup,
 [`app_recovery.go`](../app/app_recovery.go) uses Go's standard cryptographic
 library to generate a random RSA-4096 key and a self-signed X.509 certificate
 with `CN=care-backup` and 100-year validity. The PEM private key is compatible
-with OpenSSL. It is written only to the user-selected recovery file, never to
-the installation or backup folder. The config retains only the public
-certificate, the selected path and verification state.
+with OpenSSL. The plaintext PEM is written only to the user-selected recovery
+file, never to the installation or backup folder. When installation starts,
+`RunSetup` uses the finalized admin password to encrypt the verified PEM and
+atomically save the encrypted copy with the password hash and other config.
+The password is chosen after the backup wizard step, so there is no retained
+local copy before installation begins.
+
+### Encrypted local copy: protection and tradeoffs
+
+`app_backup_key.go` uses the existing `golang.org/x/crypto` dependency:
+Argon2id (64 MiB memory, three passes, two lanes) derives a 256-bit wrapping
+key from the Desktop password and a fresh 16-byte random salt. AES-256-GCM
+uses a fresh 12-byte random nonce. Authenticated associated data binds the
+versioned envelope to the clinic address and SHA-256 digest of its public
+certificate. Fixed versioned parameters and bounded envelope sizes avoid
+accepting arbitrary KDF work or malformed nonce sizes from settings.
+No plaintext password, wrapping key, or private PEM is persisted in config.
+
+Config writes are atomic and synced before replacement. POSIX files are mode
+0600 in a mode-0700-created directory; Windows applies a protected DACL granting
+only the current user access to the new file before writing its contents.
+The encrypted copy is not installed beside backups or sent to a service.
+Private-key byte buffers and derived keys are cleared after use where
+practical, but Go/runtime and operating-system memory cannot be guaranteed
+forensically erased.
+
+This is a convenience/security tradeoff, not protection against a compromised
+computer. A stolen config enables offline password guessing (the existing
+bcrypt hash can also assist guessing); choose a strong unique Desktop
+password, use OS full-disk encryption, and protect the user account. Malware
+running as that user can observe passwords or decrypted keys. Local
+administrators can bypass file permissions. Older copies/snapshots of config
+can remain unlockable with the old password after a password change.
+
+**Change password**, with the current password, decrypts and re-encrypts the
+same private key using a fresh salt/nonce and atomically saves both its new
+envelope and new password hash. A key-unlock or persistence failure leaves
+the old password and envelope unchanged.
+
+**Forgot Desktop password?**, using a recovery code, cannot decrypt the
+old-password envelope. The UI warns before resetting; reset preserves that
+ciphertext but marks password-only export as needing re-enrollment from a
+surviving PEM. The code consumption, password hash and enrollment flag are
+saved together. Re-enrollment does not rotate the backup key. If every PEM is
+lost, try recovering the old password before resetting. Recovery codes do not
+decrypt or rewrap the local key.
 
 The manager must select the saved file again. CARE parses it and matches its
 public key to the clinic certificate before installation is allowed. Recovery
@@ -216,9 +286,12 @@ checkmarks and a clear pending action for each step. The six-code sheet has its
 own saved confirmation; a cancelled or failed operation does not mark a step done.
 
 **Anyone with the recovery file and the backups can decrypt patient data.**
-Keep them separate. If all copies of the recovery file are lost, the encrypted
-backups cannot be unlocked. The recovery file contains no patient-data backup.
-Uninstall does not delete user-exported recovery materials.
+Keep them separate. An enrolled local copy can replace a lost PEM only while
+the matching Desktop password and settings remain available. Losing the
+computer/settings, uninstalling, or resetting a forgotten password may remove
+that route. Keep an independent off-device PEM even after enrollment. The
+recovery file contains no patient-data backup. Uninstall removes the local
+config copy but does not delete user-exported recovery materials.
 
 `InstallCertificate` validates and installs only the public certificate.
 Copying the same certificate is idempotent; a different certificate or a
@@ -1188,6 +1261,7 @@ This is the complete Go-file inventory owned by this guide.
 | [`app/internal/backup/store.go`](../app/internal/backup/store.go) | `Store` dependency fields, runner attachment through `New`, optional logging, and the Compose command helper. |
 | [`app/internal/backup/crypto.go`](../app/internal/backup/crypto.go) | Recovery-file generation/validation, public certificate installation, location checks, certificate ownership, and owned-entry backup deletion. |
 | [`app/app_recovery.go`](../app/app_recovery.go) | Native recovery exports, setup verification, single-use Desktop recovery codes, password changes, and offline reset throttling. |
+| [`app/app_backup_key.go`](../app/app_backup_key.go) | Versioned Argon2id/AES-GCM local key encryption, certificate/clinic binding, and setup enrollment. |
 | [`app/internal/backup/restore.go`](../app/internal/backup/restore.go) | `Backup` list shape, filename recognition/pairing, configured/external source validation, key selection, staging orchestration, cutover orchestration, activation, and finalization call. |
 | [`app/internal/backup/restore_data.go`](../app/internal/backup/restore_data.go) | Database readiness/settings/identity helpers, SQL load/swap/rollback/cleanup scripts, file snapshot/replacement helpers, and Python archive validation. |
 | [`app/internal/backup/restore_journal.go`](../app/internal/backup/restore_journal.go) | Restore IDs/tags, journal schema/validation/durable writes, helper/writer shutdown, Docker-volume ownership, pending detection, recovery, and final cleanup. |

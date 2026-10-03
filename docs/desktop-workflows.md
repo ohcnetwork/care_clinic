@@ -33,25 +33,41 @@ screen's time estimate is not a deadline or measured installation progress.
 
 1. **Computer checks.** CARE checks free space, required software, earlier
    installation files, and the applicable Windows setup and network requirements.
-   Passing checks can advance automatically; a failed check keeps an explanation,
-   a fix where available, and a way to check again. Requirements that do not apply
-   to this operating system are omitted. A red **Action required** badge identifies
-   a check that needs intervention; a green **Ready** badge identifies a passing check.
+   Every applicable step stays on screen until you choose **Continue**, even when
+   it already passes, finishes installing software, or passes a repeated check.
+   This includes free space and checking for earlier installation files on a clean
+   computer. Requirements that do not apply to this operating system are omitted.
+   Required software uses green **Available** and red **Needs setup** badges, with
+   a plain-language description of what each program does.
+   A failed check keeps an explanation, a fix where available, and **Check again**.
+   The free-space screen shows both the space needed and the amount available:
+   green when sufficient, red when space needs freeing. CARE Desktop needs at least
+   **30 GB** on the clinic data drive (`storage.InstallMinFree`); a separate settings
+   drive also needs **1 GB**. If that separate drive is too full, its own measurements
+   are shown instead. An unavailable measurement never enables Continue.
 2. **Clinic address.** Choose the local clinic name. CARE validates it and checks
    for another visible server using it. Keep other clinic servers awake during
    setup: an offline or isolated computer cannot be detected. Choosing a name
    does not start advertising it.
 3. **Backups.** Choose a writable backup destination. Save the private backup
    recovery file separately, then select that same file again so CARE can verify
-   it. Cancellation is not a successful save or verification.
+   it. **Save a new recovery file** remains available beside file selection after
+   saving. Replacing the key requires selecting and verifying the new file before
+   continuing; cancelling replacement preserves the saved file and verification.
+   Cancellation is not a successful save or verification. Selecting an incorrect
+   or unreadable PEM clears the previous verification; the row no longer shows
+   Checked and Continue stays disabled until the correct file is checked.
 4. **Admin password.** Choose the Desktop password and save the sheet of six
    single-use recovery codes. The password must contain 8 through 20 Unicode
    characters, including an uppercase letter, lowercase letter and digit.
+   A reminder asks the administrator to save the password in a password manager
+   or write it down somewhere secure before installation starts.
    The sheet can be opened for printing through its associated application.
 5. **Review.** Review the selections and use Edit or Fix to return to the relevant
    step. CARE rechecks requirements, locations and recovery files before enabling
    installation; `RunSetup` repeats the checks under the native operation lock.
-   A rejected request stays on Review.
+   A rejected request stays on Review. A passing edited or fixed check also waits
+   for **Continue** before returning directly to Review.
 
 Once installation has actually begun, going Back cannot undo it. An incomplete
 installation has its own cleanup/retry flow; it is not an unused role choice.
@@ -81,6 +97,10 @@ save-dialog and capacity presentation.
 Keep secure copies outside CARE's installation, settings, logs and backup
 folder, preferably away from this computer. CARE validates locations and file
 contents, but cannot prove that a selected drive is physically offsite.
+At installation, CARE also encrypts a local copy of the verified backup key
+using the Desktop admin password. This does not replace an off-device recovery
+file: losing this computer, or resetting a forgotten password with recovery
+codes, can make that encrypted local copy unavailable.
 Replacing a lost pre-install backup key requires an explicit new export and
 verification. Keep old keys for any older backups. Replacing the recovery-code
 sheet invalidates the old codes.
@@ -187,6 +207,20 @@ and [earlier-installation recovery](client-recovery.md).
 platform's certificate instructions; displaying or scanning the code is not
 proof that trust was installed.
 
+When two or fewer admin recovery codes remain, a persistent banner appears at
+the top of every control-panel tab. It shows the unused count, turns red at zero,
+and returns after restarting the app. **Save new recovery codes** asks for the
+current Desktop admin password before opening the save dialog for six new codes.
+Saving a new set invalidates every previous code. Cancelling or failing to save
+does not clear the reminder. Successful replacement in either the banner or
+Advanced clears it; using a recovery code updates the count immediately.
+
+Storage highlights the **currently used** amount under **CARE Desktop storage**,
+with Rancher Desktop's total capacity shown separately rather than as usage.
+This is usage inside the shared Rancher Desktop disk, including supporting
+software and potentially other apps; it is not an exact CARE-only measurement
+or the disk image's physical size on the host computer.
+
 The Overview backup summary shows useful status, size and encryption information
 without a `saved to /...` filesystem path. The actual destination remains
 available where it can be managed in Backups.
@@ -197,6 +231,28 @@ Scheduled backups run at a 24-hour interval while their service is running, not
 at a fixed nightly clock time. The displayed retention comes from the installed
 settings; zero means keep backups indefinitely. Start CARE before taking a
 manual backup.
+
+**Re-download backup key** asks for the current Desktop admin password and saves
+another copy of the original recovery file. After installation or explicit
+enrollment, CARE can unlock its encrypted local copy without asking you to find
+the original file. For an older installation without a usable encrypted copy,
+use the tracked recovery file or **Select another saved copy** to enroll a
+compatible PEM file. The **Enable password-only downloads** notice explains
+enrollment; **Choose where to save** exports the PEM and saves its encrypted
+local copy. CARE verifies the configured and installed public certificates and
+never rotates the installed backup key. A corrupt local copy requires explicitly
+selecting a surviving PEM rather than silently falling back to a file.
+Cancelling the save leaves enrollment unchanged. If export succeeds but local
+enrollment cannot be saved, CARE reports that distinction: keep the exported
+PEM and retry enrollment.
+
+Changing the Desktop admin password re-encrypts an enrolled, usable local key
+with the new password; a failure leaves both unchanged. A forgotten-password
+reset using recovery codes cannot unlock the
+previously encrypted key; CARE preserves that encrypted data and requires an
+explicit recovery-file enrollment to enable export again. Keep an off-device
+PEM file even when re-download is available. If no usable encrypted copy or
+external recovery file remains, CARE cannot reconstruct the private key.
 
 Use **Restore from a backup file** for a file in the current backup folder or
 one copied from elsewhere. The dialog identifies the selected database dump and

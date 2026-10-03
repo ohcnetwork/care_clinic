@@ -14,6 +14,12 @@
 .onboarding .on-small { font-size: 12.5px; color: var(--on-muted); }
 .onboarding .on-error { display: block; color: #991b1b; font-size: 13px; }
 .onboarding .on-success { color: #046c4e; }
+.onboarding .on-space-summary { display: flex; flex-wrap: wrap; gap: 16px 32px; padding: 16px; border-radius: 12px; background: var(--on-bg); margin-bottom: 16px; }
+.onboarding .on-space-summary > div { flex: 1; min-width: 120px; }
+.onboarding .on-space-summary dt { font-size: 13px; }
+.onboarding .on-space-summary dd { font-size: 24px; font-weight: 700; }
+.onboarding .on-space-sufficient { background: #e3f7ee; color: #046c4e; }
+.onboarding .on-space-insufficient { background: #fdecec; color: #991b1b; }
 .onboarding .on-row { display: flex; align-items: center; gap: 14px; }
 .onboarding .on-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .onboarding .on-stack { display: flex; flex-direction: column; gap: 12px; max-width: 720px; }

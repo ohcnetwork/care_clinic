@@ -71,7 +71,7 @@ export function SetupLayout({ steps, page, done, blocked = [], working, title, s
         <header className="on-head"><h1 className="on-title" id="setup-title" tabIndex={-1} ref={heading}>{title}</h1><p className="on-subtitle">{subtitle}</p></header>
         <div className="on-body" ref={body}>
           <div className="on-stack">
-            {editing ? <Callout tone="info" title="Fixing this for the review step">Your choices are kept. When this is sorted you go straight back to Review, without walking through the other steps again.</Callout> : null}
+            {editing ? <Callout tone="info" title="Fixing this for the review step">Your choices are kept. When this is sorted, choose Continue to return to Review without walking through the other steps again.</Callout> : null}
             {children}
           </div>
         </div>
@@ -80,7 +80,7 @@ export function SetupLayout({ steps, page, done, blocked = [], working, title, s
           <p className="on-foot-note" role="status">{update.active ? "Wait for the CARE Desktop update to finish." : note}</p>
           {next ? <Button variant="primary" className="on-primary" disabled={working || update.active || nextDisabled} onClick={next}>
             {page === "review" ? <Download aria-hidden="true" /> : null}
-            {page === "review" ? "Install" : editing ? "Back to review" : "Continue"}
+            {page === "review" ? "Install" : "Continue"}
             {page !== "review" ? <ArrowRight aria-hidden="true" /> : null}
           </Button> : null}
         </footer>

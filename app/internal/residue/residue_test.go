@@ -1,6 +1,7 @@
 package residue
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -48,6 +49,10 @@ func TestMissingDockerIsNotDockerResidue(t *testing.T) {
 	}, noSystemTraces)
 	if err != nil || !report.Clean || len(report.Traces) != 0 {
 		t.Fatalf("a computer without Docker is not dirty: %+v, %v", report, err)
+	}
+	data, err := json.Marshal(report)
+	if err != nil || string(data) != `{"clean":true,"traces":[]}` {
+		t.Fatalf("empty scan must serialize traces as an array: %s, %v", data, err)
 	}
 	dir, err := InstallDirFrom(run, "care-desktop", filepath.Join(root, "missing"))
 	if err != nil || dir != filepath.Join(root, "missing") {
@@ -177,6 +182,9 @@ func TestSystemTracesClassifySetupResidue(t *testing.T) {
 			}, func(proc.Runner) ([]Trace, error) { return tc.traces, tc.err })
 			if report.Clean != tc.clean || !errors.Is(err, tc.err) || len(report.Traces) != len(tc.traces) {
 				t.Fatalf("system inspection was lost: %+v, %v", report, err)
+			}
+			if report.Traces == nil {
+				t.Fatal("scan returned null traces instead of an empty array")
 			}
 		})
 	}

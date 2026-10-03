@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
+import { continueServerChecks } from "./helpers/setup";
 import { RUN_STEPS } from "../src/lib/run-steps";
 import type { AppUpdate } from "../src/types";
 
@@ -37,7 +38,7 @@ test.beforeEach(async ({ page }) => {
 
 async function review(page: Page, { platform = "darwin", residue = false } = {}) {
   await page.goto(`/tests/fixtures/index.html?scenario=${residue ? "setup-cleanup" : "current"}&role=server&platform=${platform}`);
-  if (residue) await page.getByRole("button", { name: "Remove it all", exact: true }).click();
+  await continueServerChecks(page, { removeResidue: residue });
   await expect(page.getByRole("heading", { name: "Choosing the clinic address", exact: true })).toBeVisible();
   await page.getByLabel("Clinic address", { exact: true }).fill(clinicName);
   await forward(page).click();
@@ -158,8 +159,8 @@ test("installation follows log milestones without percentages, controls, or upda
   expect(await calls(page, "OpenLogFolder")).toBe(1);
 });
 
-for (const [platform, residue, count] of [["windows", false, 10], ["darwin", false, 7], ["darwin", true, 8]] as const) {
-  test(`installation and failure keep the ${count}-step rail and fit both window sizes`, async ({ page }) => {
+for (const [platform, residue, count] of [["windows", false, 10], ["darwin", false, 8], ["darwin", true, 8]] as const) {
+  test(`installation and failure keep the ${count}-step rail ${residue ? "after cleanup" : "on a clean computer"} and fit both window sizes`, async ({ page }) => {
     const labels = await begin(page, { platform, residue });
     expect(labels).toHaveLength(count);
     expect(await railLabels(page)).toEqual(labels);
@@ -295,6 +296,7 @@ for (const [error, friendly] of [
     await expect(page.locator(".install-screen")).not.toContainText(error);
     await expect(retry(page)).toBeEnabled();
     await retry(page).click();
+    await continueServerChecks(page);
     await expect(page.getByRole("heading", { name: "Choosing the clinic address", exact: true })).toBeVisible();
     await expect(page.getByLabel("Clinic address", { exact: true })).toHaveValue(clinicName);
     expect(await page.evaluate(() => window.careTest.fixtures.backups)).toEqual(backups);
@@ -314,6 +316,7 @@ test("Back to setup returns quietly without cleanup or discarding saved choices"
   await begin(page);
   await fail(page);
   await page.getByRole("button", { name: "Back to setup", exact: true }).click();
+  await continueServerChecks(page);
   await expect(page.getByRole("heading", { name: "Choosing the clinic address", exact: true })).toBeVisible();
   expect(await calls(page, "CleanupFailedInstall")).toBe(0);
   await expect(page.getByLabel("Clinic address", { exact: true })).toHaveValue(clinicName);
@@ -566,6 +569,7 @@ for (const first of ["retry", "update"] as const) {
       expect(await calls(page, "InstallAppUpdate")).toBe(0);
       await expect(failedHeading(page)).toBeVisible();
       await page.evaluate(() => window.careTest.release("CleanupFailedInstall"));
+      await continueServerChecks(page);
       await expect(page.getByRole("heading", { name: "Choosing the clinic address", exact: true })).toBeVisible();
     } else {
       await expect.poll(() => calls(page, "InstallAppUpdate")).toBe(1);

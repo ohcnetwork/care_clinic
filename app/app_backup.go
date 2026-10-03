@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,6 +43,87 @@ func (a *App) RestoreBackup(dbDump, filesArchive, recoveryFile, adminPassword st
 }
 
 func (a *App) GetBackupDir() string { return a.engine().BackupDirPath() }
+
+// Export the password-protected local key, or enroll a surviving matching PEM.
+// Neither operation creates a replacement encryption identity.
+func (a *App) ExportBackupRecovery(adminPassword, recoveryFile string) (bool, error) {
+	return a.exportBackupRecovery(adminPassword, recoveryFile, func(opts wruntime.SaveDialogOptions) (string, error) {
+		return wruntime.SaveFileDialog(a.ctx, opts)
+	})
+}
+
+func (a *App) exportBackupRecovery(adminPassword, recoveryFile string, choose func(wruntime.SaveDialogOptions) (string, error)) (bool, error) {
+	saved := false
+	err := a.withServerJob(func() error {
+		if err := a.requireAdmin(adminPassword); err != nil {
+			return err
+		}
+		if err := a.requireStableClinic(); err != nil {
+			return err
+		}
+		cfg := a.loadConfig()
+		source := strings.TrimSpace(recoveryFile)
+		enroll := source != "" || cfg.BackupKeyEncrypted == "" || cfg.BackupKeyNeedsEnrollment
+		var key []byte
+		var err error
+		if enroll {
+			if source == "" {
+				source = cfg.BackupRecoveryPath
+			}
+			key, err = backup.ReadRecoveryFile(source)
+			if err != nil {
+				return errors.New("password-only downloads are not enrolled and the existing backup recovery file is unavailable or unreadable; connect its drive or select a surviving PEM. Keys lost before enrollment cannot be reconstructed")
+			}
+		} else {
+			key, err = decryptBackupKey(cfg, adminPassword)
+			if err != nil {
+				return err
+			}
+		}
+		defer clear(key)
+		if err := backup.VerifyRecoveryFile([]byte(cfg.BackupCertificate), key); err != nil {
+			return fmt.Errorf("the selected recovery file does not match this clinic's configured backup key: %w", err)
+		}
+		if err := a.engine().Backups().VerifyInstalledRecoveryFile(key); err != nil {
+			return fmt.Errorf("the installed backup encryption key could not be verified; no file was exported: %w", err)
+		}
+		directory, err := recoverySaveDirectory()
+		if err != nil {
+			return fmt.Errorf("couldn't locate your Desktop: %w", err)
+		}
+		filename, err := recoveryFilename(cfg.MDNSName, "backup-recovery", "pem")
+		if err != nil {
+			return err
+		}
+		path, err := choose(wruntime.SaveDialogOptions{
+			DefaultDirectory: directory,
+			Title:            "Save another copy of your backup recovery file",
+			DefaultFilename:  filename,
+		})
+		if err != nil || path == "" {
+			return err
+		}
+		if err := a.recoveryLocation(path, ""); err != nil {
+			return err
+		}
+		if err := saveRecoveryFile(path, key); err != nil {
+			return err
+		}
+		if enroll {
+			cfg.BackupKeyEncrypted, err = encryptBackupKey(cfg, adminPassword, key)
+			if err == nil {
+				cfg.BackupKeyNeedsEnrollment = false
+				err = a.saveConfig(cfg)
+			}
+			if err != nil {
+				return fmt.Errorf("the PEM was exported, but its encrypted local copy could not be saved; keep the exported file and retry enrollment: %w", err)
+			}
+		}
+		saved = true
+		return nil
+	})
+	return saved, err
+}
 
 func (a *App) GetBackupPolicy() (policy clinic.BackupPolicy, err error) {
 	defer a.logError(&err)

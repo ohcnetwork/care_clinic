@@ -168,7 +168,7 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
   if (recovering) return <section className="advanced-card advanced-gate-recovery">
     <h2>Reset the Desktop admin password</h2>
     <AdminPasswordForm onCancel={() => { setRecovering(false); setProblem(null); }} onSuccess={(next) => {
-      toast("Desktop password reset. Mark that recovery code used. Your CARE web login is unchanged.");
+      toast("Desktop password reset. Mark that recovery code used. Your CARE web login is unchanged. Re-enroll a surviving backup PEM in Backups before using password-only key downloads.");
       onUnlock(next);
     }} />
   </section>;

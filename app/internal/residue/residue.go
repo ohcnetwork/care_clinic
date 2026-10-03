@@ -58,7 +58,7 @@ func missingCommand(err error) bool {
 }
 
 func scan(o Options, inspectSystem func(proc.Runner) ([]Trace, error)) (Report, error) {
-	var traces []Trace
+	traces := []Trace{}
 	var failed []error
 	add := func(id, label, detail string) {
 		traces = append(traces, Trace{ID: id, Label: label, Detail: detail})

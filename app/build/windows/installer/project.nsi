@@ -84,15 +84,67 @@ OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the inst
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
+Var CareUpdate
+
 Function .onInit
    !insertmacro wails.checkArchitecture
 !ifdef WRITE_UNINSTALLER
    WriteUninstaller "${WRITE_UNINSTALLER}"
    Quit
 !endif
+   ${GetParameters} $0
+   ${GetOptions} $0 "/CAREUPDATE=" $CareUpdate
+   ${If} $CareUpdate == "1"
+       SetSilent silent
+       SetRegView 64
+       ReadRegStr $1 HKLM "${UNINST_KEY}" "UninstallString"
+       ${If} $1 != '$\"$INSTDIR\uninstall.exe$\"'
+           SetErrorLevel 71
+           Abort
+       ${EndIf}
+   ${EndIf}
+FunctionEnd
+
+# Update only the executable. Never invoke the uninstaller, WebView bootstrapper,
+# or clinic setup, and never schedule replacement for a later reboot.
+Function CareInPlaceUpdate
+    IfFileExists "$INSTDIR\${PRODUCT_EXECUTABLE}" 0 updateFailed
+    IfFileExists "$INSTDIR\.care-update-previous.exe" updateFailed 0
+    IfFileExists "$INSTDIR\.care-update-new" updateFailed 0
+    ClearErrors
+    SetOutPath "$INSTDIR\.care-update-new"
+    SetOverwrite on
+    !insertmacro wails.files
+    IfErrors stageFailed
+    SetOutPath $INSTDIR
+    ClearErrors
+    Rename "$INSTDIR\${PRODUCT_EXECUTABLE}" "$INSTDIR\.care-update-previous.exe"
+    IfErrors stageFailed
+    ClearErrors
+    Rename "$INSTDIR\.care-update-new\${PRODUCT_EXECUTABLE}" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    IfErrors restorePrevious
+    SetRegView 64
+    WriteRegStr HKLM "${UNINST_KEY}" "DisplayVersion" "${INFO_PRODUCTVERSION}"
+    Delete "$INSTDIR\.care-update-previous.exe"
+    RMDir "$INSTDIR\.care-update-new"
+    SetErrorLevel 0
+    Return
+  restorePrevious:
+    Rename "$INSTDIR\.care-update-previous.exe" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+  stageFailed:
+    SetOutPath $INSTDIR
+    Delete "$INSTDIR\.care-update-new\${PRODUCT_EXECUTABLE}"
+    RMDir "$INSTDIR\.care-update-new"
+  updateFailed:
+    SetErrorLevel 72
+    Abort
 FunctionEnd
 
 Section
+    ${If} $CareUpdate == "1"
+        Call CareInPlaceUpdate
+        Goto updateComplete
+    ${EndIf}
     !insertmacro wails.setShellContext
 
     !insertmacro wails.webview2runtime
@@ -124,6 +176,7 @@ Section
 !else
     !insertmacro wails.writeUninstaller
 !endif
+  updateComplete:
 SectionEnd
 
 !ifndef SIGNED_UNINSTALLER

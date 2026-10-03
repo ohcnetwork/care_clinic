@@ -60,7 +60,7 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 720, height: 560 
 
     await section(page, "Storage").click();
     await expect(page.getByRole("heading", { name: "Storage", exact: true })).toBeVisible();
-    await expect(page.getByText("37 GB used of 100 GB", { exact: true })).toBeVisible();
+    await expect(page.getByText("37 GB currently used", { exact: true })).toBeVisible();
     await fits(page);
     await capture(page, `panel-actual-storage-${viewport.width}`);
     await section(page, "Updates").click();
@@ -159,7 +159,13 @@ test("storage refresh and cleanup use native results without invented freed-spac
   await openPanel(page);
   await section(page, "Storage").click();
   const storage = page.locator('.panel-page[aria-label="Storage"]');
-  await expect(storage.getByText("37 GB used of 100 GB", { exact: true })).toBeVisible();
+  await expect(storage.getByText("37 GB currently used", { exact: true })).toBeVisible();
+  const vm = storage.locator(".panel-storage-vm");
+  await expect(vm.getByRole("heading", { name: "CARE Desktop storage" })).toBeVisible();
+  await expect(vm).toContainText("Storage capacity: 100 GB");
+  await expect(vm).toContainText("not the amount used");
+  await expect(vm).toContainText("Other apps using Rancher Desktop may also be included.");
+  await expect(vm.getByRole("progressbar")).toHaveCount(0);
   await page.evaluate(() => {
     window.careTest.fixtures.finishJobs = false;
     window.careTest.hold("ClinicAction");
@@ -172,7 +178,7 @@ test("storage refresh and cleanup use native results without invented freed-spac
     window.careTest.fixtures.storage.drives![1].free = 70 * 2 ** 30;
     window.careTest.finishJob("free-space");
   });
-  await expect(storage.getByText("29 GB used of 100 GB", { exact: true })).toBeVisible();
+  await expect(storage.getByText("29 GB currently used", { exact: true })).toBeVisible();
   await expect(storage).not.toContainText("freed");
 });
 
@@ -190,8 +196,9 @@ test("storage read failure retains explicitly old readings and can be retried", 
     drive.level = "unknown"; drive.free = 0; drive.total = 0;
     window.careTest.emit("care-storage", window.careTest.fixtures.storage);
   });
-  const vm = storage.locator("section").filter({ has: page.getByRole("heading", { name: "Rancher Desktop disk", exact: true }) });
+  const vm = storage.locator("section").filter({ has: page.getByRole("heading", { name: "CARE Desktop storage", exact: true }) });
   await expect(vm).toContainText("Space unavailable");
+  await expect(vm.locator(".panel-storage-usage")).toHaveCount(0);
   await expect(vm.getByRole("progressbar")).toHaveCount(0);
 });
 
@@ -205,7 +212,7 @@ test("requirements stay absent when healthy, recheck throughout panel lifetime, 
   });
   await page.clock.fastForward(60_100);
   const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
-  await expect(requirements).toContainText("Git not ready");
+  await expect(requirements).toContainText("Git needs setup");
   await expect(requirements).not.toContainText("exit status");
   await page.evaluate(() => {
     window.careTest.hold("InstallGit");
@@ -226,6 +233,11 @@ test("Rancher download confirmation cancels without installation", async ({ page
   await openPanel(page, "panel-requirements");
   const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
   await expect(requirements).toBeVisible();
+  await expect(requirements).toContainText("Rancher Desktop needs setup");
+  await expect(requirements).toContainText("Git needs setup");
+  await expect(requirements.getByText("Runs the clinic software on this computer.", { exact: true })).toBeVisible();
+  await expect(requirements.getByText("Downloads the clinic software and its updates.", { exact: true })).toBeVisible();
+  await expect(requirements.getByText(/^(Ready|Action required)$/)).toHaveCount(0);
   await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
   await expect(dialog.getByRole("heading", { name: "Download Rancher Desktop?" })).toBeVisible();
@@ -260,7 +272,7 @@ for (const stage of ["preview", "download"] as const) {
     expect(await calls(page, "InstallDocker")).toBe(stage === "preview" ? 0 : 1);
     await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Download and install", exact: true }).click();
-    await expect(requirements).toContainText("Rancher Desktop ready");
+    await expect(requirements).toContainText("Rancher Desktop available");
     await expect(failure).toHaveCount(0);
     expect(await calls(page, "InstallDocker")).toBe(stage === "preview" ? 1 : 2);
     expect(await page.evaluate(() => ({
@@ -471,7 +483,7 @@ test("reopening stopped Rancher waits for native readiness, then unlocks clinic 
   await expect(progress).toBeVisible();
   expect(await calls(page, "OpenDocker")).toBe(1);
   await page.evaluate(() => window.careTest.release("OpenDocker"));
-  await expect(dialog.getByText("Runs the clinic on this computer.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Runs the clinic software on this computer.", { exact: true })).toBeVisible();
   await expect(progress).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Start clinic", exact: true })).toBeEnabled();
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeEnabled();

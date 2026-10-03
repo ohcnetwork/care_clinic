@@ -1,8 +1,9 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
 import { downloadProblem } from "../src/lib/prerequisite-errors";
+import { INSTALL_MIN_FREE } from "../src/screens/setup/setup-model";
 import type { SetupPage } from "../src/types";
 
 const samplePassword = "ClinicTest123";
@@ -32,8 +33,21 @@ async function client(page: Page) {
   await page.getByRole("button", { name: "Connect to an existing server on the local network" }).click();
   await expect(page.getByRole("heading", { name: "Find your clinic's server" })).toBeVisible();
 }
+async function continueTo(page: Page, title = "Choosing the clinic address") {
+  const heading = page.locator("#setup-title");
+  await expect(heading).toBeVisible();
+  for (let step = 0; step < 6; step++) {
+    const current = await heading.innerText();
+    if (current === title) return;
+    await expect(forward(page)).toBeEnabled();
+    await forward(page).click();
+    await expect(heading).not.toHaveText(current);
+  }
+  await expect(heading).toHaveText(title);
+}
 async function address(page: Page, platform = "darwin") {
   await page.goto(`/tests/fixtures/index.html?scenario=current&role=server&platform=${platform}`);
+  await continueTo(page);
   await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
   await expect(forward(page)).toBeEnabled();
 }
@@ -59,6 +73,12 @@ async function fillPassword(page: Page, password = samplePassword) {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Confirm password", { exact: true }).fill(password);
 }
+
+test("admin setup reminds the user to save the password securely", async ({ page }) => {
+  await admin(page);
+  await expect(page.getByText("Save this password in your password manager or write it down somewhere secure before starting installation.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /copy.*password/i })).toHaveCount(0);
+});
 
 test("Windows recovery folders and backup capacity copy", async ({ page }) => {
   await backups(page, "windows");
@@ -247,6 +267,7 @@ for (const role of ["client", "server"] as const) {
     test(`terminal ${phase} app-update keeps ${role} locked until ${phase === "installer" ? "acknowledgement" : "reopening"}`, async ({ page }) => {
       await page.setViewportSize({ width: 720, height: 560 });
       await page.goto(`/tests/fixtures/index.html?scenario=available&role=${role}`);
+      if (role === "server") await continueTo(page);
       const next = role === "client" ? page.getByRole("button", { name: "Find server", exact: true }) : forward(page);
       await expect(next).toBeEnabled();
       await page.getByRole("button", { name: "Update now", exact: true }).click();
@@ -336,7 +357,7 @@ test("unfinished server setup points to Setup and never runs client cleanup", as
   expect(await calls(page, "FindClinic")).toBe(0);
   expect(await calls(page, "PurgeResidue")).toBe(0);
   await page.getByRole("button", { name: "Open setup" }).click();
-  await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Room for the clinic" })).toBeVisible();
   expect(await calls(page, "BeginServerSetup")).toBe(1);
 });
 
@@ -426,38 +447,161 @@ test("a partially saved connection stays removable without claiming connection s
   expect(await page.evaluate(() => window.careTest.state.role)).toBe("client");
 });
 
+test("setup disk requirement matches the native installation threshold", async () => {
+  const source = await readFile(new URL("../../internal/storage/storage.go", import.meta.url), "utf8");
+  const gigabytes = source.match(/InstallMinFree\s*=\s*(\d+)\s*\*\s*GB/);
+  expect(gigabytes).not.toBeNull();
+  expect(INSTALL_MIN_FREE).toBe(Number(gigabytes![1]) * 2 ** 30);
+});
+
+for (const platform of ["darwin", "linux", "windows"]) {
+  test(`already-satisfied ${platform} setup steps wait for Continue, including revisits`, async ({ page }) => {
+    await page.clock.install();
+    await page.goto(`/tests/fixtures/index.html?scenario=current&role=server&platform=${platform}`);
+    const titles = [
+      "Room for the clinic",
+      ...(platform === "windows" ? ["Getting Windows ready"] : []),
+      "Installing what CARE needs",
+      "Removing stale files from an earlier setup",
+      ...(platform === "windows" ? ["Setting this network to Private"] : []),
+    ];
+    for (const title of titles) {
+      await expect(page.locator("#setup-title")).toHaveText(title);
+      await expect(forward(page)).toBeEnabled();
+      await page.clock.fastForward(10_000);
+      await expect(page.locator("#setup-title")).toHaveText(title);
+      expect(await calls(page, "SetMDNSName")).toBe(0);
+      if (title === "Room for the clinic") {
+        await expect(page.locator(".on-space-summary")).toContainText("Available space212 GB");
+        await expect(page.locator(".on-space-summary")).toHaveCSS("color", "rgb(4, 108, 78)");
+      }
+      if (title === "Installing what CARE needs") {
+        await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available", "Available"]);
+        await expect(page.locator(".on-data-row").first().locator("strong")).toHaveText(platform === "linux" ? "Docker" : "Rancher Desktop");
+      }
+      await forward(page).click();
+    }
+    await expect(page.locator("#setup-title")).toHaveText("Choosing the clinic address");
+    await expect(forward(page)).toBeEnabled();
+    for (const title of [...titles].reverse()) {
+      await page.getByRole("button", { name: "Back", exact: true }).click();
+      await expect(forward(page)).toBeEnabled();
+      await page.clock.fastForward(6_000);
+      await expect(page.locator("#setup-title")).toHaveText(title);
+    }
+    for (const method of ["InstallDocker", "InstallGit", "PurgeResidue", "RunSetup"]) expect(await calls(page, method)).toBe(0);
+  });
+}
+
 test("space blocks setup before any downloads or configuration writes", async ({ page }) => {
   await page.goto("/tests/fixtures/index.html?scenario=setup-space");
-  await expect(page.getByText("Only 12 GB is free. CARE needs 30 GB.")).toBeVisible();
+  await expect(page.getByText("CARE Desktop needs at least 30 GB for the clinic software and records.")).toBeVisible();
+  const summary = page.locator(".on-space-summary");
+  await expect(summary).toContainText("Space needed30 GB");
+  await expect(summary).toContainText("Available space12 GB");
+  await expect(summary).toHaveCSS("color", "rgb(153, 27, 27)");
+  await expect(page.getByText("Free up space", { exact: true })).toBeVisible();
   await expect(forward(page)).toBeDisabled();
   for (const method of ["InstallDocker", "InstallGit", "PurgeResidue", "SetMDNSName", "RunSetup"]) expect(await calls(page, method)).toBe(0);
-  await page.evaluate(() => { window.careTest.fixtures.disk.ok = true; });
+  await page.evaluate(() => { window.careTest.fixtures.disk.ok = true; window.careTest.fixtures.disk.free = 30 * 2 ** 30; });
   await page.getByRole("button", { name: "Check again" }).click();
-  await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
+  await expect(forward(page)).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Room for the clinic" })).toBeVisible();
+  await expect(summary).toContainText("Available space30 GB");
+  await expect(summary).toHaveCSS("color", "rgb(4, 108, 78)");
+  await expect(page.getByText("Enough space", { exact: true })).toBeVisible();
+  expect(await calls(page, "SetMDNSName")).toBe(0);
+  await forward(page).click();
+  await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
+});
+
+test("space distinguishes the separate settings drive from the 30 GB data drive", async ({ page }) => {
+  await start(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.disk = {
+      ok: false, need: 2 ** 30, free: 100 * 2 ** 20, message: "",
+      how: "The drive that holds CARE's settings is nearly full.",
+    };
+  });
+  await page.getByRole("button", { name: "Start setup" }).click();
+  await expect(page.getByText("CARE Desktop needs at least 30 GB for the clinic software and records.")).toBeVisible();
+  await expect(page.locator(".on-space-summary")).toContainText("Settings drive needs1.0 GB");
+  await expect(page.locator(".on-space-summary")).toContainText("Available on settings drive100 MB");
+  await expect(page.locator(".on-space-summary")).toHaveCSS("color", "rgb(153, 27, 27)");
+  await expect(forward(page)).toBeDisabled();
+});
+
+for (const measurement of ["unknown", "too small", "failed"] as const) {
+  test(`space never enables Continue for a ${measurement} measurement`, async ({ page }) => {
+    await page.goto("/tests/fixtures/index.html?scenario=current&role=server");
+    await expect(forward(page)).toBeEnabled();
+    await page.evaluate((kind) => {
+      if (kind === "failed") window.careTest.failNext("DiskStatus", "private disk measurement error");
+      else window.careTest.fixtures.disk = {
+        ok: true, need: kind === "unknown" ? 0 : 30 * 2 ** 30, free: 12 * 2 ** 30, message: "", how: "",
+      };
+    }, measurement);
+    await page.getByRole("button", { name: "Check again", exact: true }).click();
+    await expect(forward(page)).toBeDisabled();
+    await expect(page.locator("#setup-title")).toHaveText("Room for the clinic");
+    await expect(page.locator(".on-space-sufficient")).toHaveCount(0);
+    await expect(page.getByText("Enough space", { exact: true })).toHaveCount(0);
+    expect(await calls(page, "SetMDNSName")).toBe(0);
+    await expect(page.getByText("private disk measurement error", { exact: true })).toHaveCount(0);
+  });
+}
+
+test("software polling stops at Available without advancing the step", async ({ page }) => {
+  await page.clock.install();
+  await start(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.git.ok = false;
+    window.careTest.respond("InstallGit", "");
+  });
+  await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page, "Installing what CARE needs");
+  await page.getByRole("button", { name: "Install Git", exact: true }).click();
+  await expect(page.getByText("Your Mac may have opened an installation window.", { exact: false })).toBeVisible();
+  await page.evaluate(() => { window.careTest.fixtures.git.ok = true; });
+  await page.clock.fastForward(5_100);
+  await expect(forward(page)).toBeEnabled();
+  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available", "Available"]);
+  const checked = await calls(page, "GitStatus");
+  await page.clock.fastForward(20_000);
+  expect(await calls(page, "GitStatus")).toBe(checked);
+  await expect(page.locator("#setup-title")).toHaveText("Installing what CARE needs");
+  expect(await calls(page, "SetMDNSName")).toBe(0);
+  await forward(page).click();
+  await expect(page.locator("#setup-title")).toHaveText("Removing stale files from an earlier setup");
 });
 
 test("platform-inapplicable steps are omitted without skipping unknown failures", async ({ page }) => {
   await address(page);
-  await expect(page.getByRole("complementary", { name: "Setup progress" })).toContainText("Step 3 of 7");
+  await expect(page.getByRole("complementary", { name: "Setup progress" })).toContainText("Step 4 of 8");
   await expect(page.getByRole("complementary", { name: "Setup progress" })).not.toContainText("Windows setup");
   await address(page, "windows");
   await expect(page.getByRole("complementary", { name: "Setup progress" })).toContainText("Step 6 of 10");
   await start(page);
   await page.evaluate(() => window.careTest.failNext("WSLStatus", "private WSL probe failed"));
   await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page);
   await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
   expect(await calls(page, "WSLStatus")).toBeGreaterThanOrEqual(2);
 });
 
 for (const missing of ["docker", "git"] as const) {
-  test(`required software shows missing ${missing} in red and ready software in green`, async ({ page }) => {
+  test(`required software shows missing ${missing} in red and available software in green`, async ({ page }) => {
     await start(page);
     await page.evaluate((id) => { window.careTest.fixtures[id].ok = false; }, missing);
     await page.getByRole("button", { name: "Start setup" }).click();
+    await continueTo(page, "Installing what CARE needs");
     await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
     const rows = page.locator(".on-data-row");
-    const incomplete = rows.filter({ hasText: "Action required" });
-    const ready = rows.filter({ has: page.getByText("Ready", { exact: true }) });
+    const incomplete = rows.filter({ hasText: "Needs setup" });
+    const ready = rows.filter({ has: page.getByText("Available", { exact: true }) });
+    await expect(rows.filter({ hasText: "Rancher Desktop" }).locator("p")).toHaveText("Runs the clinic software on this computer.");
+    await expect(rows.filter({ hasText: "Git" }).locator("p")).toHaveText("Downloads the clinic software and its updates.");
+    await expect(page.getByText(/^(Ready|Action required)$/)).toHaveCount(0);
     await expect(incomplete).toHaveCount(1);
     await expect(ready).toHaveCount(1);
     for (const selector of [".on-badge", ".on-tile"]) {
@@ -479,6 +623,7 @@ test("software downloads wait for a real size and remain single-flight", async (
     window.careTest.hold("InstallDocker");
   });
   await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page, "Installing what CARE needs");
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Install them" })).toBeDisabled();
   await page.evaluate(() => window.careTest.release("RancherDownloadInfo"));
@@ -491,7 +636,9 @@ test("software downloads wait for a real size and remain single-flight", async (
   await page.evaluate(() => window.careTest.emit("prereq-download-progress", { name: "Rancher Desktop", phase: "downloading", done: 2e6, total: 0 }));
   await expect(page.getByRole("progressbar", { name: "Rancher Desktop download progress" })).not.toHaveAttribute("aria-valuenow");
   await page.evaluate(() => window.careTest.release("InstallDocker"));
-  await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
+  await expect(forward(page)).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
+  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available", "Available"]);
   expect(await calls(page, "InstallGit")).toBe(1);
   expect(await calls(page, "RunSetup")).toBe(0);
 });
@@ -509,6 +656,7 @@ for (const [platform, tool, method] of [
       window.careTest.failNext(method, 'could not download installer: download connection interrupted: Get "https://private.example/installer": unexpected EOF');
     }, { tool, method });
     await page.getByRole("button", { name: "Start setup" }).click();
+    await continueTo(page, "Installing what CARE needs");
     await page.getByRole("button", { name: tool === "docker" ? "Install them" : "Install Git", exact: true }).click();
     await expect.poll(() => calls(page, method)).toBe(1);
     await page.evaluate(() => window.careTest.emit("prereq-download-progress", {
@@ -525,7 +673,7 @@ for (const [platform, tool, method] of [
     await expect(failure).toContainText("downloads the file from the beginning");
     await expect(failure).not.toContainText(/private\.example|unexpected EOF|didn't approve|The required change couldn't finish/);
     await expect(forward(page)).toBeDisabled();
-    await expect(page.locator(".on-data-row .on-badge").filter({ hasText: "Action required" })).toHaveCount(1);
+    await expect(page.locator(".on-data-row .on-badge").filter({ hasText: "Needs setup" })).toHaveCount(1);
     await page.setViewportSize({ width: 720, height: 560 });
     await fits(page);
     await page.evaluate((method) => window.careTest.hold(method), method);
@@ -535,7 +683,8 @@ for (const [platform, tool, method] of [
     await expect.poll(() => calls(page, method)).toBe(2);
     await expect(forward(page)).toBeDisabled();
     await page.evaluate((method) => window.careTest.release(method), method);
-    await expect(page.getByRole("heading", { name: "Choosing the clinic address", exact: true })).toBeVisible();
+    await expect(forward(page)).toBeEnabled();
+    await expect(page.getByRole("heading", { name: "Installing what CARE needs", exact: true })).toBeVisible();
     for (const action of ["RunSetup", "CleanupFailedInstall", "PurgeResidue"]) expect(await calls(page, action)).toBe(0);
     expect(await page.evaluate(() => window.careTest.logs.some((line) => line.includes("unexpected EOF")))).toBe(true);
   });
@@ -548,6 +697,7 @@ test("an offline Rancher size preview asks to reconnect before any download", as
     window.careTest.failNext("RancherDownloadInfo", "could not check the download size: download connection interrupted: lookup private.example: no such host");
   });
   await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page, "Installing what CARE needs");
   const failure = page.getByRole("alert").filter({ hasText: "Couldn't reach the download server" });
   await expect(failure).toBeVisible();
   await expect(failure).toContainText("Check the internet connection, then try again.");
@@ -598,6 +748,7 @@ for (const [detail, message] of [
       window.careTest.failNext("InstallDocker", error);
     }, detail);
     await page.getByRole("button", { name: "Start setup" }).click();
+    await continueTo(page, "Installing what CARE needs");
     await page.getByRole("button", { name: "Install them", exact: true }).click();
     const failure = page.getByRole("alert").filter({ hasText: message });
     await expect(failure).toBeVisible();
@@ -610,6 +761,7 @@ for (const [detail, message] of [
 
 test("cleanup requires the destructive button and verifies partial removal before retry", async ({ page }) => {
   await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");
+  await continueTo(page, "Removing stale files from an earlier setup");
   await expect(page.getByRole("heading", { name: "Removing stale files from an earlier setup" })).toBeVisible();
   expect(await calls(page, "PurgeResidue")).toBe(0);
   await page.evaluate(() => {
@@ -626,13 +778,44 @@ test("cleanup requires the destructive button and verifies partial removal befor
   await expect(page.getByRole("alert")).toContainText("Cleanup didn't finish");
   expect(await page.evaluate(() => window.careTest.calls.find((call) => call.method === "PurgeResidue")?.args)).toEqual([true]);
   await page.getByRole("button", { name: "Try again", exact: true }).first().click();
+  await expect(forward(page)).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Removing stale files from an earlier setup" })).toBeVisible();
+  await expect(page.getByText("The check found no leftovers. Your backups have been kept.")).toBeVisible();
+  await forward(page).click();
   await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
 });
+
+for (const clean of [true, false]) {
+  test(`cleanup handles null traces with clean=${clean} without reloading`, async ({ page }) => {
+    await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");
+    await continueTo(page, "Removing stale files from an earlier setup");
+    const leftovers = await page.locator(".on-leftovers li").count();
+    expect(leftovers).toBeGreaterThan(0);
+    await page.evaluate((isClean) => {
+      window.careTest.respond("ScanResidue", { clean: isClean, traces: null });
+    }, clean);
+    await page.getByRole("button", { name: "Remove it all", exact: true }).click();
+    await expect(page.locator("#setup-title")).toHaveText("Removing stale files from an earlier setup");
+    await expect(page.locator(".on-leftovers li .on-success")).toHaveCount(leftovers);
+    if (clean) {
+      await expect(page.getByText("The check found no leftovers. Your backups have been kept.")).toBeVisible();
+      await expect(forward(page)).toBeEnabled();
+      await forward(page).click();
+      await expect(page.locator("#setup-title")).toHaveText("Choosing the clinic address");
+    } else {
+      await expect(forward(page)).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
+      await expect(page.getByText("The check found no leftovers. Your backups have been kept.")).toHaveCount(0);
+    }
+    await expect(page.getByText("CARE Desktop hit a problem")).toHaveCount(0);
+  });
+}
 
 test("Windows restart can be deferred without bypassing the requirement", async ({ page }) => {
   await start(page, "&platform=windows");
   await page.evaluate(() => { window.careTest.fixtures.restart.needed = true; });
   await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page, "Getting Windows ready");
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await page.getByRole("button", { name: "I'll restart later" }).click();
   await expect(page.getByRole("heading", { name: "Getting Windows ready" })).toBeVisible();
@@ -704,13 +887,15 @@ for (const item of [
       window.careTest.failNext(method, "private permission denied");
     }, item);
     await page.getByRole("button", { name: "Start setup" }).click();
+    await continueTo(page, item.heading);
     await expect(page.getByRole("heading", { name: item.heading })).toBeVisible();
-    await expect(page.getByText("Action required", { exact: true })).toBeVisible();
+    await expect(page.getByText("Needs setup", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: item.button, exact: true }).click();
     await expect(page.getByRole("alert")).toContainText("Your computer didn't approve the change");
     expect(await calls(page, item.method)).toBe(1);
     await page.getByRole("alert").getByRole("button", { name: "Try again", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
+    await expect(forward(page)).toBeEnabled();
+    await expect(page.getByRole("heading", { name: item.heading })).toBeVisible();
     expect(await calls(page, item.method)).toBe(2);
     expect(await calls(page, "RunSetup")).toBe(0);
     expect(await page.locator("body").innerText()).not.toContain("private permission denied");
@@ -721,6 +906,7 @@ test("an address field disabled during entry receives focus after its asynchrono
   await start(page);
   await page.evaluate(() => window.careTest.hold("MDNSStatus"));
   await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page);
   const input = page.getByLabel("Clinic address", { exact: true });
   await expect(input).toBeVisible();
   await expect(input).toBeDisabled();
@@ -786,6 +972,7 @@ test("address check failures offer a log without putting technical causes on scr
 
 test("typing an address blocks an update even before the debounced check starts", async ({ page }) => {
   await page.goto("/tests/fixtures/index.html?scenario=available&role=server");
+  await continueTo(page);
   await expect(forward(page)).toBeEnabled();
   await page.evaluate(() => {
     const input = document.querySelector<HTMLInputElement>("#mdnsname")!;
@@ -801,6 +988,7 @@ test("typing an address blocks an update even before the debounced check starts"
 
 test("a synchronous invalid-address retry releases the update lock", async ({ page }) => {
   await page.goto("/tests/fixtures/index.html?scenario=available&role=server");
+  await continueTo(page);
   await expect(forward(page)).toBeEnabled();
   await page.getByLabel("Clinic address", { exact: true }).fill("-");
   await page.getByRole("button", { name: "Check again", exact: true }).click();
@@ -842,6 +1030,7 @@ test("native dialog cancellation never marks recovery files saved or checked", a
 for (const first of ["save", "update"] as const) {
   test(`recovery dialogs and app updates cannot race when ${first} starts first`, async ({ page }) => {
     await page.goto("/tests/fixtures/index.html?scenario=available&role=server");
+    await continueTo(page);
     await expect(forward(page)).toBeEnabled();
     await forward(page).click();
     await expect(page.getByRole("button", { name: "Choose where to save", exact: true })).toBeEnabled();
@@ -893,6 +1082,84 @@ test("a lost private recovery file requires explicit replacement and verificatio
   await page.getByRole("button", { name: "Select saved file" }).click();
   await expect(forward(page)).toBeEnabled();
   expect(await calls(page, "ReplaceSetupBackupRecovery")).toBe(1);
+});
+
+test("a saved backup recovery file can be replaced immediately and must be verified again", async ({ page }) => {
+  await backups(page);
+  await page.getByRole("button", { name: "Choose where to save", exact: true }).click();
+  const replace = page.getByRole("button", { name: "Save a new recovery file", exact: true });
+  await expect(replace).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Select saved file", exact: true })).toBeEnabled();
+  await expect(page.getByText("Lost the saved file?", { exact: false })).toContainText("replaces the old key");
+  await page.getByRole("button", { name: "Select saved file", exact: true }).click();
+  await expect(forward(page)).toBeEnabled();
+  await expect(replace).toBeEnabled();
+  await replace.click();
+  await expect(page.locator("#setup-title")).toHaveText("Setting up backups");
+  await expect(page.getByText("/test-fixtures/recovery/CARE-backup-recovery-new.pem", { exact: true })).toBeVisible();
+  await expect(page.getByText("Recovery file checked", { exact: true })).toHaveCount(0);
+  await expect(forward(page)).toBeDisabled();
+  await expect(replace).toBeEnabled();
+  await page.getByRole("button", { name: "Select saved file", exact: true }).click();
+  await expect(forward(page)).toBeEnabled();
+  expect(await calls(page, "SaveSetupBackupRecovery")).toBe(1);
+  expect(await calls(page, "ReplaceSetupBackupRecovery")).toBe(1);
+  expect(await calls(page, "VerifySetupBackupRecovery")).toBe(2);
+});
+
+test("cancelling backup recovery replacement preserves the saved verified file", async ({ page }) => {
+  await backups(page);
+  await saveBackup(page);
+  const before = await page.evaluate(() => ({ ...window.careTest.fixtures.recovery }));
+  await page.evaluate(() => window.careTest.respond("ReplaceSetupBackupRecovery", false));
+  await page.getByRole("button", { name: "Save a new recovery file", exact: true }).click();
+  await expect(forward(page)).toBeEnabled();
+  await expect(page.locator("#setup-title")).toHaveText("Setting up backups");
+  await expect(page.getByText(before.backup_path, { exact: true })).toBeVisible();
+  await expect(page.getByText("Recovery file checked", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.careTest.fixtures.recovery)).toEqual(before);
+  expect(await calls(page, "ReplaceSetupBackupRecovery")).toBe(1);
+  expect(await calls(page, "VerifySetupBackupRecovery")).toBe(1);
+});
+
+for (const recheck of [false, true]) {
+  test(`an older PEM never shows Checked after replacement (recheck=${recheck})`, async ({ page }) => {
+    await backups(page);
+    await saveBackup(page);
+    await page.getByRole("button", { name: "Save a new recovery file", exact: true }).click();
+    await expect(page.getByText("/test-fixtures/recovery/CARE-backup-recovery-new.pem", { exact: true })).toBeVisible();
+    const recovery = page.getByRole("region", { name: "Your backup recovery file" });
+    const row = recovery.locator(".on-data-row").nth(1);
+    if (recheck) {
+      await page.getByRole("button", { name: "Select saved file", exact: true }).click();
+      await expect(row.getByText("Checked", { exact: true })).toBeVisible();
+    }
+    await page.evaluate(() => {
+      window.careTest.hold("VerifySetupBackupRecovery");
+      window.careTest.failNext("VerifySetupBackupRecovery", "the recovery file does not match this clinic");
+    });
+    await row.getByRole("button", { name: recheck ? "Check again" : "Select saved file", exact: true }).click();
+    await expect(row.locator(".on-solid")).toHaveCount(0);
+    await expect(row.getByText("Checked", { exact: true })).toHaveCount(0);
+    await page.evaluate(() => window.careTest.release("VerifySetupBackupRecovery"));
+    await expect(page.getByText(/That file doesn't match this clinic/)).toBeVisible();
+    await expect(row.locator(".on-tile")).toHaveCSS("color", "rgb(153, 27, 27)");
+    await expect(row.getByText("The file matches this clinic.", { exact: true })).toHaveCount(0);
+    await expect(row.getByText("Checked", { exact: true })).toHaveCount(0);
+    await expect(forward(page)).toBeDisabled();
+    await row.getByRole("button", { name: "Select saved file", exact: true }).click();
+    await expect(row.getByText("Checked", { exact: true })).toBeVisible();
+    await expect(forward(page)).toBeEnabled();
+  });
+}
+
+test("cancelling a backup verification preserves the previous successful check", async ({ page }) => {
+  await backups(page);
+  await saveBackup(page);
+  await page.evaluate(() => window.careTest.respond("VerifySetupBackupRecovery", false));
+  await page.getByRole("region", { name: "Your backup recovery file" }).getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(page.getByText("Recovery file checked", { exact: true })).toBeVisible();
+  await expect(forward(page)).toBeEnabled();
 });
 
 test("password validity resets immediately when input changes and stale validation cannot pass", async ({ page }) => {
@@ -1037,6 +1304,9 @@ test("Review Fix returns directly and preserves address, password and recovery d
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
   await expect(page.locator('[aria-current="step"]')).toContainText("Review");
   await page.getByRole("button", { name: "Start Rancher Desktop" }).click();
+  await expect(forward(page)).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
+  await forward(page).click();
   await expect(page.getByRole("heading", { name: "Review before installing" })).toBeVisible();
   await expect(install(page)).toBeEnabled();
   expect(await calls(page, "SaveAdminRecoveryCodes")).toBe(savedCodes);
@@ -1045,6 +1315,24 @@ test("Review Fix returns directly and preserves address, password and recovery d
   await expect(page.getByLabel("Confirm password", { exact: true })).toHaveValue(samplePassword);
   await page.getByRole("button", { name: "Back to review", exact: true }).first().click();
   await expect(install(page)).toBeEnabled();
+});
+
+test("Review fixing an already-satisfied check waits for Continue before returning", async ({ page }) => {
+  await review(page);
+  await page.evaluate(() => { window.careTest.fixtures.disk.ok = false; });
+  await install(page).click();
+  await expect(install(page)).toBeDisabled();
+  await page.evaluate(() => { window.careTest.fixtures.disk.ok = true; });
+  await page.getByRole("button", { name: "Fix Free space", exact: true }).click();
+  await expect(page.locator("#setup-title")).toHaveText("Room for the clinic");
+  await expect(forward(page)).toBeEnabled();
+  await page.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(forward(page)).toBeEnabled();
+  await expect(page.locator("#setup-title")).toHaveText("Room for the clinic");
+  await forward(page).click();
+  await expect(page.locator("#setup-title")).toHaveText("Review before installing");
+  await expect(install(page)).toBeEnabled();
+  expect(await calls(page, "RunSetup")).toBe(0);
 });
 
 test("editing Admin focuses the password after the saved-file check finishes", async ({ page }) => {
@@ -1085,14 +1373,17 @@ test("RunSetup rejection before acceptance stays on Review; acceptance alone ent
 });
 
 for (const { platform, cleanup, total } of [
-  { platform: "darwin", cleanup: false, total: 7 },
+  { platform: "darwin", cleanup: false, total: 8 },
   { platform: "darwin", cleanup: true, total: 8 },
   { platform: "windows", cleanup: false, total: 10 },
 ]) {
-  test(`installation preserves the ${total}-step ${platform} wizard rail`, async ({ page }) => {
+  test(`installation preserves the ${total}-step ${platform} wizard rail ${cleanup ? "after cleanup" : "on a clean computer"}`, async ({ page }) => {
     if (cleanup) {
       await page.goto(`/tests/fixtures/index.html?scenario=setup-cleanup&platform=${platform}`);
+      await continueTo(page, "Removing stale files from an earlier setup");
       await page.getByRole("button", { name: "Remove it all" }).click();
+      await expect(forward(page)).toBeEnabled();
+      await forward(page).click();
       await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
       await forward(page).click();
       await saveBackup(page);
@@ -1165,24 +1456,28 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
   test(`requirement and taken-address screens fit ${size.width}x${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
     for (const [scenario, title, requiredActions] of [
-      ["setup-space", "Room for the clinic", 1],
+      ["setup-space", "Room for the clinic", 0],
       ["setup-windows", "Getting Windows ready", 1],
       ["setup-software", "Installing what CARE needs", 2],
       ["setup-cleanup", "Removing stale files from an earlier setup", 0],
       ["setup-address", "Choosing the clinic address", 0],
     ] as const) {
       await page.goto(`/tests/fixtures/index.html?scenario=${scenario}`);
+      await continueTo(page, title);
       await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
       await expect(page.getByRole("button", { name: "Back", exact: true })).toBeEnabled();
-      await expect(page.getByText("Action required", { exact: true })).toHaveCount(requiredActions);
+      await expect(page.getByText("Needs setup", { exact: true })).toHaveCount(requiredActions);
       await expect(page.getByText("Needs you", { exact: true })).toHaveCount(0);
       await fits(page); await capture(page, `onboarding-${scenario}-${size.width}x${size.height}`);
       await expect(forward(page)).toBeInViewport();
       if (scenario === "setup-windows") {
         await page.evaluate(() => { window.careTest.fixtures.wsl.ok = true; });
         await page.getByRole("button", { name: "Check again", exact: true }).click();
+        await expect(forward(page)).toBeEnabled();
+        await expect(page.getByRole("heading", { name: "Getting Windows ready" })).toBeVisible();
+        await continueTo(page, "Setting this network to Private");
         await expect(page.getByRole("heading", { name: "Setting this network to Private" })).toBeVisible();
-        await expect(page.getByText("Action required", { exact: true })).toBeVisible();
+        await expect(page.getByText("Needs setup", { exact: true })).toBeVisible();
         await expect(forward(page)).toBeDisabled();
         await fits(page); await capture(page, `onboarding-setup-network-${size.width}x${size.height}`);
       }
@@ -1191,6 +1486,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
   test(`Windows setup with the update card stays usable at ${size.width}x${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
     await page.goto("/tests/fixtures/index.html?scenario=available&role=server&platform=windows");
+    await continueTo(page);
     await expect(forward(page)).toBeEnabled();
     await expect(page.getByRole("complementary", { name: "Setup progress" })).toContainText("Step 6 of 10");
     await fits(page); await capture(page, `onboarding-windows-address-${size.width}x${size.height}`);

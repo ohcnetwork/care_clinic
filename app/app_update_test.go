@@ -80,6 +80,9 @@ func TestDownloadVerifiedRetriesThenRejectsDamagedInstallers(t *testing.T) {
 			t.Setenv("TMPDIR", tmp)
 			t.Setenv("TMP", tmp)
 			t.Setenv("TEMP", tmp)
+			t.Setenv("HOME", tmp)
+			t.Setenv("XDG_CACHE_HOME", tmp)
+			t.Setenv("LOCALAPPDATA", tmp)
 			var requests atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				n := requests.Add(1)
@@ -106,10 +109,23 @@ func TestDownloadVerifiedRetriesThenRejectsDamagedInstallers(t *testing.T) {
 			if !strings.Contains(strings.Join(logs, "\n"), "Trying once more") {
 				t.Fatalf("retry was not logged: %q", logs)
 			}
-			if left, _ := os.ReadDir(tmp); len(left) != 0 {
+			cache, _ := os.UserCacheDir()
+			if left, _ := os.ReadDir(filepath.Join(cache, "CARE Desktop", "updates")); len(left) != 0 {
 				t.Fatalf("damaged download was left behind: %v", left)
 			}
 		})
+	}
+}
+
+func TestDownloadRejectsUnsafeAssetAndChecksum(t *testing.T) {
+	sum := strings.Repeat("a", 64)
+	for _, name := range []string{"../installer.exe", `..\installer.exe`, "", "."} {
+		if _, err := downloadVerified(ghAsset{Name: name}, sum, "1.2.3", nil, nil); err == nil {
+			t.Errorf("unsafe filename %q accepted", name)
+		}
+	}
+	if _, err := downloadVerified(ghAsset{Name: "installer.exe"}, "invalid", "1.2.3", nil, nil); err == nil {
+		t.Fatal("invalid checksum accepted")
 	}
 }
 
@@ -141,6 +157,21 @@ func TestSwapScriptReplacesBundleOrKeepsTheOldOne(t *testing.T) {
 	}
 	if got := marker(target); got != "old" {
 		t.Fatalf("a failed swap left %q installed, want the old bundle back", got)
+	}
+
+	brokenRename := strings.Replace(swapScript(target, staged),
+		`/bin/mv "$slot/new.app"`, `/usr/bin/false`, 1)
+	if err := elevate.Run(brokenRename, false); err == nil {
+		t.Fatal("failed final rename reported success")
+	}
+	if got := marker(target); got != "old" {
+		t.Fatalf("failed final rename did not restore old bundle: %q", got)
+	}
+	// Failed transactions retain their private directory for diagnosis.
+	for _, entry := range []string{".care-update-" + filepath.Base(tmp)} {
+		if err := os.RemoveAll(filepath.Join(apps, entry)); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if err := elevate.Run(swapScript(target, staged), false); err != nil {

@@ -500,6 +500,7 @@ test("protected and everyday keys cannot be duplicated in support-only extras", 
 test("password reset validates the pair, handles used codes, and clears all sensitive fields", async ({ page }) => {
   await openAdvanced(page);
   await root(page).getByRole("button", { name: "Forgot Desktop password?" }).click();
+  await expect(root(page)).toContainText("Password-only backup key downloads will require re-enrollment");
   await root(page).getByLabel("Unused recovery code", { exact: true }).fill(recoveryCode);
   await fillNewPassword(page);
   await root(page).getByLabel("Confirm new Desktop admin password", { exact: true }).fill("Different789");
@@ -524,6 +525,7 @@ test("password reset validates the pair, handles used codes, and clears all sens
   await expect(page.getByLabel("Unused recovery code", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/Mark that recovery code used/)).toBeVisible();
   expect(await page.evaluate(() => window.careTest.fixtures.recoveryCodes.filter(Boolean).length)).toBe(5);
+  expect(await page.evaluate(() => window.careTest.fixtures.recovery.backup_key_needs_enrollment)).toBe(true);
   await root(page).getByRole("button", { name: "Lock Advanced settings" }).click();
   await root(page).getByRole("button", { name: "Forgot Desktop password?" }).click();
   await root(page).getByLabel("Unused recovery code", { exact: true }).fill(recoveryCode);
@@ -563,6 +565,16 @@ test("changing the Desktop password doesn't reset the web login or replace recov
   expect(await count(page, "SaveAdminRecoveryCodes")).toBe(0);
   expect(await page.evaluate(() => window.careTest.fixtures.recoveryCodes)).toEqual(originalCodes);
   await expect(root(page).getByRole("button", { name: "Change password", exact: true })).toBeEnabled();
+  await page.evaluate(() => {
+    window.careTest.fixtures.recoveryFile = "";
+    window.careTest.fixtures.recovery.backup_path = "";
+  });
+  await page.getByRole("button", { name: "Backups", exact: true }).click();
+  await page.getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await dialog(page).getByLabel("CARE Desktop admin password", { exact: true }).fill(nextPassword);
+  await dialog(page).getByRole("button", { name: "Choose where to save", exact: true }).click();
+  await expect(dialog(page)).toBeHidden();
+  expect(await count(page, "ExportBackupRecovery")).toBe(1);
 });
 
 test("replacement-code cancellation keeps the previous codes valid", async ({ page }) => {

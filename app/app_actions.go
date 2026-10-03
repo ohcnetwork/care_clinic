@@ -348,6 +348,9 @@ func (a *App) RunSetup(mdnsName, adminPassword, backupDir string) (err error) {
 			return fmt.Errorf("couldn't secure the admin password: %w", err)
 		}
 		cfg.AdminPwHash = string(h)
+		if err := prepareSetupBackupKey(&cfg, adminPassword); err != nil {
+			return err
+		}
 		if strings.TrimSpace(backupDir) != "" {
 			cfg.BackupDir = filepath.Join(strings.TrimSpace(backupDir), "care-db-backups")
 		}
