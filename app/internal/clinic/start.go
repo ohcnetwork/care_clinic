@@ -9,6 +9,9 @@ import (
 )
 
 func (e *Clinic) Start() error {
+	if recovered, err := e.RecoverPlugins(); err != nil || recovered {
+		return err
+	}
 	if err := e.Backups().RecoverRestore(); err != nil {
 		return err
 	}

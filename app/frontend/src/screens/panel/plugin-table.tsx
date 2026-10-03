@@ -42,7 +42,7 @@ const CUSTOM = "__custom__";
 type SavePhase = "idle" | "saving" | "applying" | "save-error" | "apply-error" | "finished";
 
 export function PluginTable({ disabled = false }: { disabled?: boolean }) {
-  const { busy, tab, flow, restorePending, runAction, log, operationError, clearOperationError } = useCare();
+  const { busy, tab, flow, restorePending, pluginRecoveryPending, runAction, log, operationError, clearOperationError } = useCare();
   const [rows, setRows] = useState<PluginRow[]>([]);
   const [catalog, setCatalog] = useState<PluginCatalogEntry[]>([]);
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
@@ -62,6 +62,8 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
   const reading = useRef(false);
   const saving = useRef(false);
   const applying = useRef(false);
+  const submittedRows = useRef<PluginRow[]>([]);
+  const appliedRows = useRef<PluginRow[]>([]);
   const initialRows = useRef<PluginRow[]>([]);
   const sources = useRef<{ saved: CarePlugin[] | null; catalog: PluginCatalogEntry[] | null }>({ saved: null, catalog: null });
   const savedUIDs = useRef<ReadonlySet<number>>(new Set());
@@ -75,7 +77,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
 
   const working = phase === "saving" || phase === "applying";
   const ready = loaded && catalogLoaded;
-  const locked = disabled || busy || restorePending || flow !== "panel" || !ready || loading || working;
+  const locked = disabled || busy || restorePending || pluginRecoveryPending || flow !== "panel" || !ready || loading || working;
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const dirty = loaded && pluginSnapshot(rows) !== baseline;
@@ -92,6 +94,16 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
     }
     if (!active || locked) setPickerOpen(false);
   }, [active, locked]);
+
+  useEffect(() => {
+    if (active || phase !== "apply-error") return;
+    setRows(appliedRows.current);
+    setExpanded(new Set());
+    setNeedsApply(false);
+    setSaveProblem("");
+    setPhase("idle");
+    submittedRows.current = [];
+  }, [active, phase]);
 
   const load = useCallback(async () => {
     if (reading.current || (sources.current.saved && sources.current.catalog)) return;
@@ -126,6 +138,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
       if (sources.current.saved) {
         const next = initialRows.current.map((row) => sources.current.catalog
           ? reconcileCatalog(row, sources.current.catalog) : row);
+        appliedRows.current = next;
         setRows(next);
         setBaseline(pluginSnapshot(next));
         savedUIDs.current = new Set(next.map((row) => row.uid));
@@ -149,6 +162,11 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
     applying.current = false;
     saving.current = false;
     setNeedsApply(code !== 0);
+    if (code === 0) {
+      appliedRows.current = submittedRows.current;
+      setBaseline(pluginSnapshot(submittedRows.current));
+      savedUIDs.current = new Set(submittedRows.current.map((row) => row.uid));
+    }
     setPhase(code === 0 ? "finished" : "apply-error");
   }), []);
 
@@ -238,17 +256,13 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
     saving.current = true;
     setSaveProblem("");
     if (operationError?.action === "apply-plugins") clearOperationError();
-    let persisted = needsApply && !dirty;
+    let persisted = false;
     try {
-      if (!persisted) {
-        setPhase("saving");
-        await bridge.SavePlugins(serializePlugins(rows));
-        persisted = true;
-        if (!mounted.current) return;
-        setBaseline(pluginSnapshot(rows));
-        savedUIDs.current = new Set(rows.map((row) => row.uid));
-        setNeedsApply(true);
-      }
+      setPhase("saving");
+      await bridge.SavePlugins(serializePlugins(rows));
+      persisted = true;
+      submittedRows.current = rows;
+      setNeedsApply(true);
       if (!mounted.current) return;
       applying.current = true;
       setPhase("applying");
@@ -288,7 +302,9 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
       {loading ? <div role="status" className="care-plugins-loading">
         <span aria-hidden="true"><Spinner /></span><span>{loaded ? "Loading the plugin catalog…" : "Loading plugins…"}</span>
       </div> : null}
-      {restorePending ? <Alert variant="warn" role="status">
+      {pluginRecoveryPending ? <Alert variant="warn" role="status">
+        Plugin recovery is unfinished. Use Recover clinic in Overview before changing plugins.
+      </Alert> : restorePending ? <Alert variant="warn" role="status">
         An earlier restore needs to finish. Start CARE from Overview before changing plugins.
       </Alert> : (busy || disabled) && !working ? <Alert variant="info" role="status">
         Wait for the current operation to finish before changing plugins. Your edits stay here.
@@ -296,9 +312,10 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
       {phase === "save-error" || phase === "apply-error" ? (
         <Alert variant="danger" role="alert" className="care-plugins-message">
           <div>
-            <strong>{phase === "save-error" ? "Plugin settings couldn't be saved." : "Settings are saved, but applying didn't finish."}</strong>
-            <p>{phase === "save-error" ? "Your edits are still here. " : "Keep your settings here and try applying again. "}
-              {saveProblem || "Try again, or open the log file for support."}</p>
+            <strong>{phase === "save-error" ? "Plugin settings couldn't be saved." : "The plugin changes couldn't be applied."}</strong>
+            <p>{phase === "save-error" ? "Your edits are still here. " : "These changes were not applied. Leaving this tab discards the failed changes. "}
+              {saveProblem || (operationError?.action === "apply-plugins" ? operationError.message : "") ||
+                "Check the settings before retrying, or open the log file for support."}</p>
           </div>
           <PanelLogButton />
         </Alert>
@@ -309,8 +326,8 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
           <strong>{phase === "saving" ? "Saving plugin settings…"
             : phase === "applying" ? "Applying plugin changes…" : "Plugin task finished."}</strong>
           <p>{phase === "saving" ? "The changes haven't been applied yet."
-            : phase === "applying" ? "Settings are saved. Wait for CARE to finish; it may need to rebuild."
-              : "Settings are saved. If CARE is stopped, changes take effect the next time it starts. Reload CARE in staff browsers."}</p>
+            : phase === "applying" ? "Wait for CARE to rebuild and check clinic health. If loading fails, the previous settings will be restored."
+              : "Plugins are applied and CARE is online. Reload CARE in staff browsers."}</p>
         </div>
       </Alert> : null}
 
@@ -323,6 +340,8 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
           const open = expanded.has(row.uid);
           const description = row.catalog ? describe.get(row.id) : "";
           const name = row.label.trim() || row.id.trim() || "New plugin";
+          const applied = appliedRows.current.find((saved) => saved.uid === row.uid);
+          const unapplied = !applied || pluginSnapshot([row]) !== pluginSnapshot([applied]);
           const errors = problems.get(row.uid)!;
           const field = (name: string) => `plugin-${row.uid}-${name}`;
           return (
@@ -354,6 +373,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
                   </span>
                 </button>
                 <div className="care-plugin-badges">
+                  {loaded && unapplied ? <Badge size="sm" variant="warn">Not applied</Badge> : null}
                   {row.backend ? <Badge size="sm" variant="plain">Backend</Badge> : null}
                   {row.frontend ? <Badge size="sm" variant="plain">Frontend</Badge> : null}
                   {!row.catalog ? <Badge size="sm">Custom</Badge> : null}
@@ -582,7 +602,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
       </div>
 
       {ready ? <div className="care-plugins-edit-status" role="status" aria-live="polite">
-        {dirty ? "Unsaved changes" : needsApply && !working ? "Saved changes still need to be applied" : ""}
+        {dirty ? "Unsaved changes" : needsApply && !working ? "Plugin changes have not been applied" : ""}
         {invalid ? <p>Check the highlighted fields before saving.</p> : null}
       </div> : null}
       <div className="care-plugins-actions care-plugins-footer">

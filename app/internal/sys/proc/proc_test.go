@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNetworkFailureDiagnostics(t *testing.T) {
@@ -128,9 +129,26 @@ func TestRunWithPreservesInheritedEnvironment(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a POSIX command fixture")
 	}
+
 	t.Setenv("CARE_INHERITED", "kept")
 	if err := (Runner{}).RunWith([]string{"CARE_EXTRA=added"}, "/bin/sh", "-c",
 		`test "$CARE_INHERITED" = kept && test "$CARE_EXTRA" = added`); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCancelledRunDoesNotWaitForInheritedOutputPipes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX command fixture")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := (Runner{Ctx: ctx}).Run("/bin/sh", "-c", "sleep 1 & wait")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline was not reported: %v", err)
+	}
+	if time.Since(started) >= 800*time.Millisecond {
+		t.Fatal("an inherited output pipe kept the cancelled command open")
 	}
 }

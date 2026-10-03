@@ -15,7 +15,7 @@ carrying consistent configuration into subprocesses, and refusing unsafe
 continuation after a failed check.
 
 This describes the current implementation, including verified worker stops,
-staged-restore recovery hooks, atomic domain-file replacement, and the Silo
+staged-restore and plugin-rollback recovery hooks, atomic domain-file replacement, and the Silo
 storage replacement. Historical design descriptions are not an alternative
 specification.
 
@@ -52,8 +52,8 @@ not a second installation procedure or evidence of a separately installed
 ## 1. Engine boundaries and file roles
 
 [`Clinic`](../app/internal/clinic/clinic.go) is a concrete Go struct with methods
-such as `Setup`, `Start`, and `Uninstall`. It has no Wails imports, durable
-configuration store, or internal job scheduler. The App layer constructs it for
+such as `Setup`, `Start`, and `Uninstall`. It has no Wails imports or internal
+job scheduler and does not own Desktop's `config.json`. The App layer constructs it for
 an operation and supplies its dependencies.
 
 ```mermaid
@@ -103,7 +103,8 @@ remaining teardown files and the residue package.
 | [`secret.go`](../app/internal/clinic/secret.go) | One-time replacement of the Django secret placeholder. |
 | [`domain.go`](../app/internal/clinic/domain.go) | Discover managed hostnames, update selected settings and kit files, and construct the clinic host. |
 | [`domain_test.go`](../app/internal/clinic/domain_test.go) | Unmanaged-setting preservation, multiline dotenv handling, mode preservation, idempotence, incomplete setups, and validation before writes. |
-| [`start.go`](../app/internal/clinic/start.go) | Restore recovery, prerequisites for startup, worker safety, phased Compose startup, migrations, health, and native completion. |
+| [`start.go`](../app/internal/clinic/start.go) | Plugin rollback before normal startup; restore recovery, prerequisites, worker safety, phased Compose startup, migrations, health, and native completion. |
+| [`plugin_transaction.go`](../app/internal/clinic/plugin_transaction.go), [`plugin_health.go`](../app/internal/clinic/plugin_health.go) | Durable plugin apply/rollback and sustained container/HTTP readiness; see [Plugins](plugins.md#save-and-apply). |
 | [`migrate.go`](../app/internal/clinic/migrate.go) | Verified worker stopping, live and staged migrations, staged PostgreSQL URL construction, and initial administrator creation. |
 | [`migrate_test.go`](../app/internal/clinic/migrate_test.go) | Fake-command tests for startup/rebuild ordering, migration/admin failures, stopped-worker verification, and credentials passed through environment rather than command arguments. |
 | [`status.go`](../app/internal/clinic/status.go) | Service/state text from Compose, distinct from HTTP health. |
@@ -143,7 +144,7 @@ Do not confuse these locations:
 other embedded kit files can be refreshed. Placeholder `.gitkeep` files are not
 installation payloads. The App reapplies the saved domain after normal kit
 refresh. It deliberately suppresses that refresh while removal or a pending
-restore makes replacement unsafe; see [Wails application](wails-application.md).
+restore or plugin rollback makes replacement unsafe; see [Wails application](wails-application.md).
 
 `Setup()` therefore assumes its input kit has already been unpacked. It does
 not compile the desktop UI, copy the executable, save `SetupDone`, or export
@@ -166,7 +167,7 @@ interface.
 ## 3. One subprocess environment for the clinic
 
 Each call to [`Runner()`](../app/internal/clinic/clinic.go) creates a
-`proc.Runner{Dir, Env, Log}`:
+`proc.Runner{Dir, Env, Log, Ctx}`:
 
 - `Dir` is `InstallDir` if it currently exists as a directory, otherwise empty.
   The latter lets label-based inspection run even when installation files are
@@ -195,7 +196,8 @@ trimmed stdout without streaming stderr into the returned string;
 `captureLines` returns nonempty trimmed stdout lines. `Run` streams stdout and
 stderr through the callback, potentially concurrently. These runner methods
 do not automatically impose a timeout on a Git fetch, image build, or
-migration.
+migration without `Ctx`. Plugin transactions supply an apply/recovery deadline,
+and readiness inspection uses its own shorter deadline.
 
 Executable lookup uses the desktop process's PATH when Go constructs a
 command. The App's process-level PATH repair is therefore important as well
@@ -527,7 +529,8 @@ Which commit a builder resolves depends on what it is for:
    the commit is offered again by the next check instead of being remembered as
    something already refused.
 
-There is no image-level rollback. The old image is reproducible from the branch
+CARE updates do not have image-level rollback (plugin application has its own
+[rollback transaction](plugins.md#save-and-apply)). The old image is reproducible from the branch
 by commit; the database is not, which is why the safety backup is the part that
 is not optional.
 
@@ -819,7 +822,9 @@ unfinished restore to recover safely.
 
 ```mermaid
 flowchart TD
-    Begin["Start"] --> Recover["Backups.RecoverRestore"]
+    Begin["Start"] --> PluginRecovery{"Plugin recovery journal?"}
+    PluginRecovery -->|Yes| Rollback["Restore previous plugins and image; verify health; return"]
+    PluginRecovery -->|No| Recover["Backups.RecoverRestore"]
     Recover --> Ports["EnsurePortFree for HTTP and HTTPS"]
     Ports --> Images["Ensure backend, frontend, backup, Caddy images in parallel"]
     Images --> Keys["Ensure keys directory"]
@@ -855,7 +860,8 @@ it.
 
 | Phase | Engine behavior | Failure meaning |
 | --- | --- | --- |
-| Restore recovery | `Backups().RecoverRestore()` runs first. | An uncertain restore must not be bypassed by an ordinary start. No later startup work runs on error. |
+| Plugin recovery | `RecoverPlugins()` runs first; a found journal is recovered and Start returns without normal builds, migrations or queued updates. | Failed recovery retains the journal and reports that CARE could not be recovered. |
+| Restore recovery | `Backups().RecoverRestore()` runs on the normal startup path, after ruling out pending plugin recovery. | An uncertain restore must not be bypassed by an ordinary start. No later startup work runs on error. |
 | Ports | `health.EnsurePortFree(Runner(), host)` checks for conflicts on 80/443 while recognizing an already-running clinic proxy. | A conflicting listener blocks startup instead of failing later with only a port-bind error. |
 | Images | Ensure backend, frontend, backup, and Caddy in one parallel group. | Input/inspection/build errors propagate. Existing workers have not yet been deliberately stopped by this Start path. |
 | Keys | Ensure the bind-mount source exists. | Do not allow Compose to create the missing key directory with unintended ownership. |

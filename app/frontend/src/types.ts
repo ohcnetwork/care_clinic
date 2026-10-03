@@ -47,6 +47,7 @@ export type AppState = {
   mdns_name: string;
   docker: DockerStatus;
   restore_pending: boolean;
+  plugin_recovery_pending: boolean;
 };
 
 export type ClientConnectPhase = "finding" | "connecting" | "checking" | "opening";

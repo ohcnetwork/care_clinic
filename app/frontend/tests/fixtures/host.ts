@@ -87,6 +87,7 @@ export function installTestHost() {
     mdns_name: "",
     docker: { ok: true, message: "" },
     restore_pending: false,
+    plugin_recovery_pending: false,
   };
   const calls: Call[] = [];
   const logs: string[] = [];
@@ -234,7 +235,12 @@ export function installTestHost() {
   const emit = (event: string, ...data: unknown[]) => {
     listeners.get(event)?.forEach((handler) => handler(...data));
   };
+  let stagedPlugins: CarePlugin[] | null = null;
   const finishJob = (action: string, error?: string) => {
+    if (action === "apply-plugins") {
+      if (!error && stagedPlugins) fixtures.plugins = structuredClone(stagedPlugins);
+      stagedPlugins = null;
+    }
     if (error) {
       emit("care-log", `error: ${error}`);
       const title = action === "restore" ? "Restore didn't finish" : action === "backup-now" ? "Backup didn't finish" : "CARE couldn't finish that";
@@ -490,7 +496,7 @@ export function installTestHost() {
       if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
       if (new Set(plugins.map((plugin) => plugin.id)).size !== plugins.length) throw new Error("duplicate plugin id");
       if (plugins.some((plugin) => !plugin.id || (!plugin.frontend && !plugin.backend))) throw new Error("each plugin needs an id and a frontend or backend");
-      fixtures.plugins = structuredClone(plugins);
+      stagedPlugins = structuredClone(plugins);
     },
     ChangeAdminPassword: async (current: string, next: string) => {
       requireServer();

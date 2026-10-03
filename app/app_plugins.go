@@ -20,7 +20,7 @@ func (a *App) SavePlugins(pluginList []plugins.Plugin) error {
 		if err := a.requireStableClinic(); err != nil {
 			return err
 		}
-		return plugins.New(a.installDir()).SavePlugins(pluginList)
+		return plugins.New(a.installDir()).StagePlugins(pluginList)
 	})
 }
 

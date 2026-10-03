@@ -85,7 +85,7 @@ An arrow in an architecture diagram means "calls or depends on" unless stated ot
 
 ## Scope and source of truth
 
-These guides describe the code in this checkout, including the shared read lock for environment/plugin reads, staged restore recovery, recovery-key-safe cleanup, and the Silo-backed storage service.
+These guides describe the code in this checkout, including the shared read lock for environment/plugin reads, staged restore recovery, plugin-load rollback and transient failed drafts, recovery-key-safe cleanup, and the Silo-backed storage service.
 
 The implementation and these guides are the source of truth; removed design
 boards and historical notes are not runtime specifications. Settings reads use

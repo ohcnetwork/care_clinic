@@ -92,14 +92,20 @@ flowchart TD
     Catalog["catalog.yml (embedded)"] --> PC["PluginCatalog()"]
     PC --> Panel["plugin-table.tsx"]
     Panel -->|"SavePlugins(list)"| Prepare["plugins.Prepare: validate, refresh catalog sources"]
-    Prepare --> Env["backend.env ADDITIONAL_PLUGS (backend parts only)"]
-    Prepare --> List["plugins.json (full list)"]
+    Prepare --> Draft["plugins-pending.json (inactive draft)"]
     Panel -->|"ClinicAction apply-plugins"| Apply["Clinic.ApplyPlugins"]
-    Apply -->|"backend inputs changed"| Rebuild["RebuildBackend: build image, migrate"]
-    Apply -->|"unchanged and running"| Sync["SyncFrontendPlugins"]
+    Draft --> Apply
+    Apply --> Journal["Preserve configuration, image and registrations"]
+    Journal --> Env["backend.env ADDITIONAL_PLUGS (backend parts only)"]
+    Journal --> List["plugins.json (full list)"]
+    Apply -->|"backend inputs changed"| Rebuild["Build image, start backend, migrate"]
+    Apply -->|"backend unchanged"| Sync["SyncFrontendPlugins"]
     Rebuild --> Sync
     Start["Clinic.Start"] --> Sync
     List --> Sync
+    Sync --> Health["Verify sustained clinic health"]
+    Health -->|"failure"| Recover["Restore previous configuration and image"]
+    Start -->|"unfinished journal"| Recover
     Sync -->|"manage.py shell in backend"| Rows["CARE PlugConfig rows"]
     Rows -->|"GET /api/v1/plug_config/"| FE["care_fe PluginEngine"]
 ```
@@ -108,7 +114,8 @@ flowchart TD
 | --- | --- | --- |
 | Catalog | [`internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) | The plugins on offer. |
 | Plugin model and storage | [`internal/plugins/plugins.go`](../app/internal/plugins/plugins.go) | `Plugin`, `Backend`, `Frontend`, `CatalogEntry`; `Catalog()`, `Prepare()`, `Manager.ReadPlugins/SavePlugins/FrontendRows`; `ADDITIONAL_PLUGS` dotenv editing. |
-| Engine steps | [`internal/clinic/plugins.go`](../app/internal/clinic/plugins.go) | `ApplyPlugins`, `SyncFrontendPlugins`, the Python sync script, and the running-backend check. |
+| Inactive drafts | [`internal/plugins/pending.go`](../app/internal/plugins/pending.go) | Validate, stage and consume plugin attempts without changing active configuration on save. |
+| Engine steps | [`internal/clinic/plugins.go`](../app/internal/clinic/plugins.go), [`plugin_transaction.go`](../app/internal/clinic/plugin_transaction.go), [`plugin_health.go`](../app/internal/clinic/plugin_health.go) | Candidate build/sync, durable apply/rollback, and bounded container/endpoint readiness. |
 | Image freshness | [`internal/compose/build.go`](../app/internal/compose/build.go) | `BackendImageCurrent` compares the backend image label with the source ref plus a hash of `ADDITIONAL_PLUGS`. |
 | Startup and rebuild hooks | [`start.go`](../app/internal/clinic/start.go), [`rebuild.go`](../app/internal/clinic/rebuild.go) | Sync frontend rows after migrations; a failure is only a warning. |
 | Bindings | [`app_plugins.go`](../app/app_plugins.go), [`app_actions.go`](../app/app_actions.go) | `ReadPlugins`, `SavePlugins`, `PluginCatalog`; the `apply-plugins` action. |
@@ -122,7 +129,7 @@ flowchart TD
 
 The saved list lives in `plugins.json` in the install directory, next to `backend.env`. It uses mode `0600` and is replaced atomically. It is the source of truth: `ADDITIONAL_PLUGS` and the `PlugConfig` rows are both derived from it. Each item has the same shape as `plugin` in the catalog, plus `catalog: true` when it came from the catalog.
 
-When the file does not exist, `ReadPlugins` builds the list from `ADDITIONAL_PLUGS`. Each entry becomes a backend-only custom plugin. This carries over installations from before the file existed. The first save writes the file.
+When the file does not exist, `ReadPlugins` builds the list from `ADDITIONAL_PLUGS`. Each entry becomes a backend-only custom plugin. This carries over installations from before the file existed. The first successful apply keeps the new list file; a failed apply restores its absence.
 
 New-clinic `Clinic.Setup` calls `InitializeDefaults` before building images. If `plugins.json` is absent, it preserves those legacy backend entries, adds catalog entries marked `default: true` (without replacing an existing ID), and persists the list. If a list already exists, it is left untouched, including an empty list. Reads, restarts, rebuilds and upgrades never initialize defaults. Existing clinics must explicitly add CARE Onboarding; removing it and saving keeps it removed.
 
@@ -130,7 +137,7 @@ CARE Onboarding uses the hosted GitHub Pages remote with `{"config":{"redirect_a
 
 ### `ADDITIONAL_PLUGS`
 
-`SavePlugins` writes only the backend parts to `ADDITIONAL_PLUGS`, as `[{name, package_name, version?, configs?}]` wrapped in single quotes so dotenv does not expand values. Frontend data never goes there, because CARE builds a strict dataclass from each entry and an unknown key would crash the backend at startup. Unrelated lines are preserved, duplicate assignments (including `export` forms) are removed, the result is re-parsed before it is written, and an empty list removes the variable. The settings editor refuses to edit `ADDITIONAL_PLUGS` directly.
+The domain manager's `SavePlugins`, called during setup or inside the apply transaction, writes only the backend parts to `ADDITIONAL_PLUGS`, as `[{name, package_name, version?, configs?}]` wrapped in single quotes so dotenv does not expand values. The desktop binding of the same name only stages a draft. Frontend data never goes in `ADDITIONAL_PLUGS`, because CARE builds a strict dataclass from each entry and an unknown key would crash the backend at startup. Unrelated lines are preserved, duplicate assignments (including `export` forms) are removed, the result is re-parsed before it is written, and an empty list removes the variable. The settings editor refuses to edit `ADDITIONAL_PLUGS` directly.
 
 ### Frontend rows
 
@@ -160,21 +167,82 @@ Rows created by hand in CARE's `/admin/apps` are never touched unless they share
 
 ## Save and apply
 
-The panel calls `SavePlugins(list)`, which validates and persists, and then `ClinicAction("apply-plugins")`. Both require a stable installed server clinic (no unfinished restore), but neither requires a Desktop admin password. Explicit rebuild actions remain password-protected. `ApplyPlugins` then:
+The panel calls `SavePlugins(list)`, which validates and writes a private
+`plugins-pending.json` draft, and then `ClinicAction("apply-plugins")`. Saving
+does **not** change `plugins.json`, `backend.env`, or the running clinic.
+`ReadPlugins` returns the active list, not this draft. Both operations require
+an installed server with no unfinished restore or plugin rollback; neither
+requires a Desktop admin password. Explicit rebuild actions remain protected.
 
-1. Recovers any pending restore.
-2. If `BackendImageCurrent` is false, runs `RebuildBackend`: build, stop workers, start backend, migrate, sync frontend rows, restart workers.
-3. Otherwise, if the backend container is not running, logs that plugins apply at the next start and returns.
-4. Otherwise syncs frontend rows. Here a sync failure fails the action.
+Plugin application now requires a running, healthy clinic. Start it from
+Overview first if it is stopped. `ApplyPlugins`:
 
-So a change to frontend parts only takes a few seconds, and a change to any backend part takes a full backend rebuild.
+1. Consumes the staged draft and verifies every configured container and the
+   clinic's HTTPS `/ping/` endpoint for 30 continuous seconds.
+2. Pins the currently running backend image under a safety tag and atomically
+   saves a private `plugin-recovery.json`. It preserves the exact previous
+   `backend.env`, `plugins.json` (including absence), `channel.lock`, container
+   metadata, and affected frontend registration rows, including manual rows
+   sharing a candidate slug.
+3. Writes the candidate configuration. Changed backend inputs trigger a
+   rebuild, worker stop, backend start, migrations, frontend sync, and service
+   startup. A queued backend update built with old plugin inputs is invalidated.
+   Frontend-only changes just sync registrations, without restarting services.
+4. Requires another 30 seconds of continuous container and endpoint health
+   before removing the journal and reporting success. Readiness has a
+   three-minute deadline and detects missing, exited, unhealthy and restarting
+   containers, replacement containers, and restarts even between polls. Compose
+   startup waits are bounded, and the complete apply attempt has a 20-minute
+   deadline.
+5. On build, write, migration, sync, startup, or health failure, restores the
+   saved files, image tag, and frontend rows, then recreates the backend/workers
+   from the preserved image without downloading, rebuilding, applying queued
+   updates, or running migrations again. Recovery has its own eight-minute
+   deadline and must pass the same readiness checks before saying CARE is back
+   online. Volumes are never removed.
 
-The desktop distinguishes saving from applying. A successful `SavePlugins`
-means the configuration was persisted; `ClinicAction("apply-plugins")` resolving
-only means the job was accepted. The editor waits for the matching `care-done`
-before reporting that application finished. If apply fails after saving, the
-saved list remains and the retry applies it rather than pretending the write
-was rolled back.
+If recovery fails, the error says CARE could not be recovered and the journal
+and safety image remain. Overview exposes **Recover clinic**, which runs
+`Start`. Start checks the journal before any normal startup/build/update work;
+reopening Desktop also requests this recovery. Other configuration mutations
+are blocked until it finishes. An interrupted attempt is therefore rolled
+back rather than retried with the bad plugin inputs. Do not delete the journal
+or prune the safety image while recovery is pending.
+
+The editor waits for the matching `care-done` event before treating settings as
+applied. New or changed entries are marked **Not applied** until the job succeeds.
+After failure it shows whether recovery succeeded and keeps the failed batch
+visible for correction only while the operator stays on Plugins. Leaving the
+tab discards that batch and restores the last successfully applied list,
+including any existing plugins removed or edited by the failed attempt. A
+failure that arrives while another tab is open discards the batch too. An
+explicit retry on Plugins stages the draft afresh; successful changes remain
+when switching tabs. Ordinary unsaved edits and file-save errors still retain
+their drafts across tabs.
+Private native diagnostics stay in the log rather than the error banner.
+
+**Limits:** this is configuration/image/runtime recovery, not a database
+point-in-time restore. Plugin migrations and external side effects cannot
+generally be reversed safely; newly created tables/data remain. An incompatible
+or destructive migration can still prevent the previous backend from becoming
+healthy, in which case recovery is reported as unfinished. Keep backups and
+only install trusted plugins. Hosted frontend assets are downloaded by staff
+browsers; successful clinic readiness does not validate those remote bundles.
+
+Regression coverage in `plugin_transaction_test.go` injects build, partial
+configuration-write, startup, migration, sync, readiness, and recovery failures.
+`plugin_health_test.go` covers crash loops, missing services, health timeouts,
+and the stability window. To exercise the real Docker metadata and frontend
+snapshot queries **without changing a running clinic**, run from `app/`:
+
+```sh
+CARE_PLUGIN_READONLY_INSTALL_DIR="/path/to/installed/clinic" \
+  go test ./internal/clinic -run '^TestPluginLiveReadOnlyPreflight$' -count=1 -v
+```
+
+This read-only check is not an end-to-end failing-plugin rollback test. For
+that test, use a disposable or backed-up clinic, stop competing Desktop
+processes, then use **Save and apply** with a known-bad plugin configuration.
 
 `Start` and `RebuildBackend` also sync after migrations. There a failure is only logged as a warning, because a missing plugin screen is less harmful than a clinic that will not start. Syncing on every start also repairs rows after a database restore or a hand edit in CARE's admin.
 
@@ -194,16 +262,17 @@ can be omitted, and a local HTTP frontend URL is allowed just as in native
 validation. Only configure sources the clinic trusts.
 
 Saved-plugin and catalog reads have independent retry states. Another clinic
-job, a pending restore or an unresolved Desktop update disables mutations while
+job, a pending restore/plugin recovery or an unresolved Desktop update disables mutations while
 preserving the draft. Readable errors distinguish a failed load, a failed save,
-and saved settings whose apply failed. These are frontend protections in
+and unapplied drafts whose loading failed. These are frontend protections in
 addition to the native stable-clinic and operation guards.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 | --- | --- |
-| Backend will not start after saving | `backend.name` does not match the installed module, or the plugin's own startup checks failed. Check the log for `ModuleNotFoundError`, fix or remove the plugin, and save again. |
+| Plugin loading fails | Desktop restores the previous configuration and image. Check the log for missing settings, `ModuleNotFoundError`, or startup failures, correct the draft, and save again. |
+| Plugin recovery is unfinished | Use **Recover clinic** in Overview. Keep the recovery journal, safety image and backups; if recovery still fails, share the log with support. |
 | Rebuild fails during `pip install` | Wrong `package_name`/`version`, a private repository, or no internet during the build. |
 | Plugin UI does not appear | The browser cannot reach `frontend.url`, the URL is not a `remoteEntry.js`, or the log shows the sync warning. The browser console names the slug that failed. |
 | A setting has no effect | Backend settings apply only after the rebuild that saving triggers. Frontend settings apply on the next page load. Check that the key is what the plugin actually reads. |

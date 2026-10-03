@@ -414,7 +414,7 @@ test("save persists configuration but only the matching completion event finishe
   await expect(root(page)).toContainText("Applying plugin changes…");
   await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
   await expect(root(page)).toContainText("Plugin task finished.");
-  await expect(root(page)).toContainText("If CARE is stopped");
+  await expect(root(page)).toContainText("CARE is online");
   await expect(saveButton(page)).toBeEnabled();
   await expect(root(page)).not.toContainText("Plugins applied");
 });
@@ -428,19 +428,19 @@ test("fixture persistence saves a copy without treating it as a completed apply"
   await saveButton(page).click();
   await expect(root(page)).toContainText("Applying plugin changes…");
   const saved = { ...custom, frontend: { ...custom.frontend!, meta: { config: { saved: "fixture" } } } };
+  expect(await page.evaluate(() => window.careTest.fixtures.plugins)).toEqual([]);
+  await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
+  await expect(root(page)).toContainText("Plugin task finished.");
   expect(await page.evaluate(() => window.careTest.fixtures.plugins)).toEqual([saved]);
   expect(await page.evaluate(async () => {
     const result = await window.go.main.App.ReadPlugins();
     result[0].label = "Only the returned copy changed";
     return window.careTest.fixtures.plugins[0].label;
   })).toBe(saved.label);
-  await expect(root(page)).not.toContainText("Plugin task finished.");
-  await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
-  await expect(root(page)).toContainText("Plugin task finished.");
 });
 
 for (const failure of ["rejected", "async"] as const) {
-  test(`${failure} apply keeps saved choices and retry does not save them again`, async ({ page }) => {
+  test(`${failure} apply keeps the draft and retry stages it again`, async ({ page }) => {
     await openPlugins(page, { finishJobs: false });
     if (failure === "rejected") {
       await page.evaluate(() => window.careTest.failNext("ClinicAction", "exited 71: private source and config"));
@@ -450,18 +450,95 @@ for (const failure of ["rejected", "async"] as const) {
       await expect(root(page)).toContainText("Applying plugin changes…");
       await page.evaluate(() => window.careTest.finishJob("apply-plugins", "exited 71: private source and config"));
     }
-    await expect(root(page).getByRole("alert")).toContainText("Settings are saved, but applying didn't finish.");
+    await expect(root(page).getByRole("alert")).toContainText("The plugin changes couldn't be applied.");
     await expect(root(page)).not.toContainText("exited 71");
     await expect(row(page, "CARE Onboarding")).toBeVisible();
     await expect(root(page).getByRole("button", { name: "Try applying again", exact: true })).toBeEnabled();
     await root(page).getByRole("button", { name: "Try applying again", exact: true }).click();
     await expect(root(page)).toContainText("Applying plugin changes…");
-    expect(await countCalls(page, "SavePlugins")).toBe(1);
+    expect(await countCalls(page, "SavePlugins")).toBe(2);
     expect(await countApply(page)).toBe(2);
     await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
     await expect(root(page)).toContainText("Plugin task finished.");
   });
 }
+
+for (const failure of ["rejected", "async"] as const) {
+  test(`${failure} three-plugin batch is discarded on tab change without removing applied plugins`, async ({ page }) => {
+    await openPlugins(page, { finishJobs: false });
+    for (const name of ["Booking notifications", "Filly"]) {
+      await addButton(page).click();
+      await page.getByRole("option", { name, exact: true }).click();
+    }
+    await fillCustom(await addCustom(page));
+    await expect(root(page).getByText("Not applied", { exact: true })).toHaveCount(3);
+    if (failure === "rejected") {
+      await page.evaluate(() => window.careTest.failNext("ClinicAction", "something else is still running"));
+    }
+    await saveButton(page).click();
+    if (failure === "async") {
+      await expect(root(page)).toContainText("Applying plugin changes");
+      await page.evaluate(() => window.careTest.finishJob("apply-plugins", "plugin loading failed; previous settings were restored and CARE is back online: failed batch"));
+    }
+    await expect(root(page).getByRole("alert")).toContainText("Leaving this tab discards the failed changes");
+    await expect(root(page).locator(".care-plugin-row")).toHaveCount(4);
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await page.getByRole("button", { name: "Plugins", exact: true }).click();
+    await expect(root(page).locator(".care-plugin-row")).toHaveCount(1);
+    await expect(row(page, "CARE Onboarding")).toBeVisible();
+    await expect(root(page).getByText("Not applied", { exact: true })).toHaveCount(0);
+    await expect(root(page)).not.toContainText("Unsaved changes");
+    expect(await countCalls(page, "SavePlugins")).toBe(1);
+    expect(await page.evaluate(() => window.careTest.fixtures.plugins.map((p) => p.id))).toEqual(["care_onboarding_fe"]);
+    await addButton(page).click();
+    await expect(page.getByRole("option", { name: "Booking notifications", exact: true })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Filly", exact: true })).toBeVisible();
+  });
+}
+
+for (const success of [false, true]) {
+  test(`apply finishing on another tab ${success ? "keeps successful plugins" : "discards failed plugins"}`, async ({ page }) => {
+    await openPlugins(page, { saved: [], finishJobs: false });
+    await addButton(page).click();
+    await page.getByRole("option", { name: "CARE Onboarding", exact: true }).click();
+    await saveButton(page).click();
+    await expect(root(page)).toContainText("Applying plugin changes");
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await page.evaluate((success) => window.careTest.finishJob("apply-plugins", success ? undefined : "plugin load failed"), success);
+    await page.getByRole("button", { name: "Plugins", exact: true }).click();
+    await expect(root(page).locator(".care-plugin-row")).toHaveCount(success ? 1 : 0);
+    await expect(root(page).getByText("Not applied", { exact: true })).toHaveCount(0);
+    await expect(root(page)).not.toContainText("Unsaved changes");
+  });
+}
+
+test("discarding a failed batch restores edits and removals to the latest successful list", async ({ page }) => {
+  await openPlugins(page, { finishJobs: false });
+  await fillCustom(await addCustom(page));
+  await saveButton(page).click();
+  await expect(root(page)).toContainText("Applying plugin changes");
+  await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
+  await expect(root(page)).toContainText("Plugin task finished");
+  await expect(row(page, "Custom example").getByText("Not applied", { exact: true })).toHaveCount(0);
+
+  const onboarding = row(page, "CARE Onboarding");
+  await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
+  await onboarding.getByLabel("Frontend settings (JSON)").fill('{"config":{"auto_onboarding":false}}');
+  await root(page).getByRole("button", { name: "Remove Custom example", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove plugin", exact: true }).click();
+  await saveButton(page).click();
+  await expect(root(page)).toContainText("Applying plugin changes");
+  await page.evaluate(() => window.careTest.finishJob("apply-plugins", "plugin load failed"));
+  await expect(root(page).getByRole("alert")).toContainText("Leaving this tab discards the failed changes");
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  await expect(root(page).locator(".care-plugin-row")).toHaveCount(2);
+  await expect(row(page, "Custom example")).toBeVisible();
+  await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
+  await expect(onboarding.getByLabel("Frontend settings (JSON)")).toHaveValue(/"auto_onboarding": true/);
+  await expect(root(page)).not.toContainText("Unsaved changes");
+  expect(await countCalls(page, "SavePlugins")).toBe(2);
+});
 
 test("restore-pending state keeps plugin actions disabled without a password bypass", async ({ page }) => {
   await openPlugins(page, { restorePending: true, ready: false });
@@ -471,6 +548,34 @@ test("restore-pending state keeps plugin actions disabled without a password byp
   expect(await countCalls(page, "SavePlugins")).toBe(0);
   expect(await countCalls(page, "VerifyAdminPassword")).toBe(0);
 });
+
+for (const recovered of [true, false]) {
+  test(`plugin failure reports ${recovered ? "successful rollback" : "unfinished recovery"} without leaking native details`, async ({ page }) => {
+    await openPlugins(page, { finishJobs: false });
+    await addButton(page).click();
+    await page.getByRole("option", { name: "Booking notifications", exact: true }).click();
+    await saveButton(page).click();
+    await expect(root(page)).toContainText("Applying plugin changes");
+    await page.evaluate((recovered) => {
+      window.careTest.state.plugin_recovery_pending = !recovered;
+      window.careTest.finishJob("apply-plugins", recovered
+        ? "plugin loading failed; previous settings were restored and CARE is back online: private-token"
+        : "plugin loading failed (private-token). Plugin rollback is unfinished; CARE could not be recovered. Start CARE to retry recovery: private-path");
+    }, recovered);
+    await expect(root(page).getByRole("alert")).toContainText(recovered ? "CARE is back online" : "CARE has not been confirmed online");
+    await expect(root(page)).not.toContainText("private-token");
+    await expect(root(page)).toContainText("Unsaved changes");
+    await expect(row(page, "Booking notifications")).toBeVisible();
+    expect(await page.evaluate(() => window.careTest.fixtures.plugins.map((p) => p.id))).toEqual(["care_onboarding_fe"]);
+    if (!recovered) {
+      await expect(saveButton(page)).toBeDisabled();
+      await page.getByRole("button", { name: "Overview", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Recover clinic", exact: true })).toBeEnabled();
+      await page.getByRole("button", { name: "Recover clinic", exact: true }).click();
+      expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ClinicAction").slice(-1)[0]?.args[0])).toBe("start");
+    }
+  });
+}
 
 test("another clinic job locks the editor and preserves its dirty data", async ({ page }) => {
   await openPlugins(page, { saved: [], finishJobs: false });
