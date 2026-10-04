@@ -246,15 +246,7 @@ func TestCatalogPluginsTakeSourcesFromTheCatalogAndKeepSettings(t *testing.T) {
 	if err != nil || len(catalog) == 0 {
 		t.Fatalf("catalog did not load: %v", err)
 	}
-	var entry Plugin
-	for _, e := range catalog {
-		if e.Plugin.Backend != nil && e.Plugin.Frontend != nil {
-			entry = e.Plugin
-		}
-	}
-	if entry.ID == "" {
-		t.Skip("no catalog entry has both parts")
-	}
+	entry := catalog[0].Plugin
 	stale := Plugin{ID: entry.ID, Catalog: true,
 		Backend:  &Backend{Name: "tampered", PackageName: "elsewhere", Configs: map[string]any{"KEY": "kept"}},
 		Frontend: &Frontend{Slug: "tampered", URL: "https://elsewhere.example/x.js", Meta: map[string]any{"config": "kept"}},
@@ -264,15 +256,25 @@ func TestCatalogPluginsTakeSourcesFromTheCatalogAndKeepSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := got[0]
-	if p.Backend.PackageName != entry.Backend.PackageName || p.Backend.Name != entry.Backend.Name ||
+	if p.Label != entry.Label || p.Backend != nil ||
 		p.Frontend.URL != entry.Frontend.URL || p.Frontend.Slug != entry.Frontend.Slug {
 		t.Fatalf("catalog sources were not applied: %#v", p)
 	}
-	if p.Backend.Configs["KEY"] != "kept" || p.Frontend.Meta["config"] != "kept" {
+	if p.Frontend.Meta["config"] != "kept" {
 		t.Fatalf("operator settings were lost: %#v", p)
 	}
 	if _, err := Prepare([]Plugin{{ID: "gone", Catalog: true, Backend: &Backend{Name: "care_gone", PackageName: "pkg"}}}); err != nil {
 		t.Fatalf("a plugin dropped from the catalog should stay as a custom plugin: %v", err)
+	}
+}
+
+func TestCatalogOnlyOffersOnboarding(t *testing.T) {
+	catalog, err := Catalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog) != 1 || catalog[0].Plugin.ID != "care_onboarding_fe" || !catalog[0].Default {
+		t.Fatalf("expected only onboarding, enabled by default: %#v", catalog)
 	}
 }
 
