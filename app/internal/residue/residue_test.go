@@ -25,12 +25,12 @@ func TestUnavailableDockerIsNotClean(t *testing.T) {
 	t.Setenv("PATH", root)
 	run := proc.Runner{Env: os.Environ()}
 	report, err := scan(Options{
-		Runner: run, Project: "care-desktop", InstallDir: filepath.Join(root, "install"),
+		Runner: run, Project: "care-clinic", InstallDir: filepath.Join(root, "install"),
 	}, noSystemTraces)
 	if err == nil || report.Clean {
 		t.Fatalf("unavailable Docker was called clean: %+v, %v", report, err)
 	}
-	if _, err := InstallDirFrom(run, "care-desktop", filepath.Join(root, "missing")); err == nil {
+	if _, err := InstallDirFrom(run, "care-clinic", filepath.Join(root, "missing")); err == nil {
 		t.Fatal("failed installation discovery was ignored")
 	}
 }
@@ -44,7 +44,7 @@ func TestMissingDockerIsNotDockerResidue(t *testing.T) {
 	t.Setenv("PATH", filepath.Join(root, "empty"))
 	run := proc.Runner{Env: os.Environ()}
 	report, err := scan(Options{
-		Runner: run, Project: "care-desktop", InstallDir: filepath.Join(root, "install"),
+		Runner: run, Project: "care-clinic", InstallDir: filepath.Join(root, "install"),
 		Images: []string{"care:clinic"},
 	}, noSystemTraces)
 	if err != nil || !report.Clean || len(report.Traces) != 0 {
@@ -54,7 +54,7 @@ func TestMissingDockerIsNotDockerResidue(t *testing.T) {
 	if err != nil || string(data) != `{"clean":true,"traces":[]}` {
 		t.Fatalf("empty scan must serialize traces as an array: %s, %v", data, err)
 	}
-	dir, err := InstallDirFrom(run, "care-desktop", filepath.Join(root, "missing"))
+	dir, err := InstallDirFrom(run, "care-clinic", filepath.Join(root, "missing"))
 	if err != nil || dir != filepath.Join(root, "missing") {
 		t.Fatalf("installation discovery needed Docker: %q, %v", dir, err)
 	}
@@ -63,7 +63,7 @@ func TestMissingDockerIsNotDockerResidue(t *testing.T) {
 		t.Fatal(err)
 	}
 	report, err = scan(Options{
-		Runner: run, Project: "care-desktop", InstallDir: filepath.Join(root, "install"),
+		Runner: run, Project: "care-clinic", InstallDir: filepath.Join(root, "install"),
 	}, func(proc.Runner) ([]Trace, error) { return []Trace{{ID: "hosts"}}, nil })
 	if err != nil || report.Clean || len(report.Traces) != 2 {
 		t.Fatalf("file and system traces were lost without Docker: %+v, %v", report, err)
@@ -81,7 +81,7 @@ func TestStoppedDockerIsDistinguishedFromAnAbsentOne(t *testing.T) {
 	}
 	t.Setenv("PATH", root)
 	report, err := scan(Options{
-		Runner: proc.Runner{Env: os.Environ()}, Project: "care-desktop",
+		Runner: proc.Runner{Env: os.Environ()}, Project: "care-clinic",
 		InstallDir: filepath.Join(root, "install"),
 	}, noSystemTraces)
 	if err == nil || report.Clean || !strings.Contains(err.Error(), "start Docker and try again") {
@@ -107,7 +107,7 @@ func TestWorkingDirFormatMatchesDockerPsContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := dockerPsRow{labels: map[string]string{
-		"com.docker.compose.project":             "care-desktop",
+		"com.docker.compose.project":             "care-clinic",
 		"com.docker.compose.project.working_dir": "/clinic/install",
 	}}
 	var out strings.Builder
@@ -131,7 +131,7 @@ func TestCachedImagesDoNotBlockSetup(t *testing.T) {
 	}
 	t.Setenv("PATH", root)
 	report, err := scan(Options{
-		Runner: proc.Runner{Env: os.Environ()}, Project: "care-desktop",
+		Runner: proc.Runner{Env: os.Environ()}, Project: "care-clinic",
 		InstallDir: filepath.Join(root, "install"), Images: []string{"care:clinic"},
 	}, noSystemTraces)
 	if err != nil || !report.Clean || len(report.Traces) != 1 || report.Traces[0].ID != "images" {
@@ -141,7 +141,7 @@ func TestCachedImagesDoNotBlockSetup(t *testing.T) {
 		t.Fatal(err)
 	}
 	report, err = scan(Options{
-		Runner: proc.Runner{Env: os.Environ()}, Project: "care-desktop",
+		Runner: proc.Runner{Env: os.Environ()}, Project: "care-clinic",
 		InstallDir: filepath.Join(root, "install"), Images: []string{"care:clinic"},
 	}, noSystemTraces)
 	if err != nil || report.Clean {
@@ -177,7 +177,7 @@ func TestSystemTracesClassifySetupResidue(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			report, err := scan(Options{
-				Runner: proc.Runner{Env: os.Environ()}, Project: "care-desktop",
+				Runner: proc.Runner{Env: os.Environ()}, Project: "care-clinic",
 				InstallDir: filepath.Join(root, "install"),
 			}, func(proc.Runner) ([]Trace, error) { return tc.traces, tc.err })
 			if report.Clean != tc.clean || !errors.Is(err, tc.err) || len(report.Traces) != len(tc.traces) {

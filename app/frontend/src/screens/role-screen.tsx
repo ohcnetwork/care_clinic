@@ -21,10 +21,10 @@ export function RoleScreen() {
   };
   return (
     <div className="start-screen">
-      <aside className="start-brand-panel" aria-label="CARE Desktop">
+      <aside className="start-brand-panel" aria-label="CARE Clinic">
         <div className="start-brand">
           <img src={logoMark} alt="" />
-          <span>CARE Desktop</span>
+          <span>CARE Clinic</span>
         </div>
         <div className="start-hero">
           <h2>Your clinic's records, running on this computer.</h2>

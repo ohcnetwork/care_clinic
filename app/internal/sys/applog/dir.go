@@ -13,7 +13,7 @@ const logName = logStem + ".log"
 // appFolder matches the name every folder this app owns uses, on every OS. It
 // mirrors appDirName in package main; the two cannot share a constant because
 // internal/ must not depend on the app package.
-const appFolder = "care-desktop"
+const appFolder = "care-clinic"
 
 func DefaultLogDir() string {
 	home, err := os.UserHomeDir()

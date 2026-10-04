@@ -2,7 +2,7 @@
 
 [Documentation index](README.md)
 
-CARE Desktop lets operators add CARE plugins from a bundled catalog, or add custom ones, from the **Plugins** tab. No Desktop admin password is required to view, save or apply plugins. One click on **Save and apply** installs whatever the plugin needs, whether that's a backend part, a frontend part, or both. This includes custom plugin code, so access to the clinic computer should remain restricted to trusted staff.
+CARE Clinic lets operators add CARE plugins from a bundled catalog, or add custom ones, from the **Plugins** tab. No CARE Clinic admin password is required to view, save or apply plugins. One click on **Save and apply** installs whatever the plugin needs, whether that's a backend part, a frontend part, or both. This includes custom plugin code, so access to the clinic computer should remain restricted to trusted staff.
 
 This guide explains how CARE itself loads plugins, the catalog file format, every component on the desktop side, and how a save flows through them.
 
@@ -21,7 +21,7 @@ Staff browsers download a frontend plugin's bundle straight from its `url`. If t
 
 ## The catalog: `catalog.yml`
 
-[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Desktop release. CARE Onboarding is enabled by default for new clinic installations only; booking notifications and Filly are opt-in.
+[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. CARE Onboarding is enabled by default for new clinic installations only; booking notifications and Filly are opt-in.
 
 ### Structure
 
@@ -73,7 +73,7 @@ For a plugin added from the catalog, the panel shows only its settings (`backend
 
 As a result:
 
-- Bumping a `version` or `url` in the catalog reaches existing clinics the next time an administrator saves plugins after updating CARE Desktop.
+- Bumping a `version` or `url` in the catalog reaches existing clinics the next time an administrator saves plugins after updating CARE Clinic.
 - Adding a frontend part to an existing catalog entry turns it on for those clinics at that same save, starting from the catalog's default `meta`.
 - Removing an entry from the catalog does not uninstall it anywhere. The saved plugin becomes a custom plugin with the same sources.
 
@@ -149,17 +149,17 @@ The domain manager's `SavePlugins`, called during setup or inside the apply tran
     "name": "care_filly_fe",
     "config": { "MEDISPEAK_API_URL": "https://…" },
     "url": "https://…/remoteEntry.js",
-    "managed_by": "care-desktop"
+    "managed_by": "care-clinic"
   }
 }
 ```
 
 `name` defaults to the slug and can be overridden in `meta`. `url` and `managed_by` always come from Desktop.
 
-`SyncFrontendPlugins` runs `python manage.py shell -c <script>` in the backend container. The rows are passed through the `CARE_DESKTOP_FRONTEND_PLUGINS` environment variable, so settings never appear in command arguments or the log. The script:
+`SyncFrontendPlugins` runs `python manage.py shell -c <script>` in the backend container. The rows are passed through the `CARE_CLINIC_FRONTEND_PLUGINS` environment variable, so settings never appear in command arguments or the log. The script:
 
 1. Upserts each row by slug.
-2. Deletes rows with `meta.managed_by == "care-desktop"` that are no longer in the list.
+2. Deletes rows with `meta.managed_by == "care-clinic"` that are no longer in the list.
 3. Clears CARE's `care_plug_viewset_list` cache so the next page load sees the change.
 4. Prints how many rows were registered and removed.
 
@@ -172,7 +172,7 @@ The panel calls `SavePlugins(list)`, which validates and writes a private
 does **not** change `plugins.json`, `backend.env`, or the running clinic.
 `ReadPlugins` returns the active list, not this draft. Both operations require
 an installed server with no unfinished restore or plugin rollback; neither
-requires a Desktop admin password. Explicit rebuild actions remain protected.
+requires a CARE Clinic admin password. Explicit rebuild actions remain protected.
 
 Plugin application now requires a running, healthy clinic. Start it from
 Overview first if it is stopped. `ApplyPlugins`:

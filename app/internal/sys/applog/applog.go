@@ -131,7 +131,7 @@ func (l *Logger) PurgeFolder() error {
 }
 
 func (l *Logger) Header(version, installDir, clinicName string) {
-	l.Writef("CARE Desktop %s · %s/%s · Go %s", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	l.Writef("CARE Clinic %s · %s/%s · Go %s", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 	l.Writef("install dir: %s", fallback(installDir, "(none yet)"))
 	l.Writef("clinic name: %s", fallback(clinicName, "(unset)"))
 	l.Writef("log file: %s", l.Path())

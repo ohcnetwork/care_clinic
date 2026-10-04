@@ -15,24 +15,24 @@ function FailedInstallUpdate({ controller }: { controller: AppUpdateController }
   const { update, checking, problem, progress, active, disabled, check, install } = controller;
 
   if (checking) {
-    return <p className="install-update-checking" role="status"><span aria-hidden="true"><Spinner /></span>Checking for a CARE Desktop update…</p>;
+    return <p className="install-update-checking" role="status"><span aria-hidden="true"><Spinner /></span>Checking for a CARE Clinic update…</p>;
   }
   if (active) {
     const phase = progress?.phase;
-    const title = phase === "downloading" ? `Downloading CARE Desktop ${update?.version || ""}…`
-      : phase === "verifying" ? "Checking the CARE Desktop download…"
-      : phase === "installing" ? "Updating the CARE Desktop application…"
-      : phase === "restarting" ? "CARE Desktop is restarting…"
-      : phase === "installer" ? "The CARE Desktop installer has opened"
-      : "Preparing the CARE Desktop update…";
-    const detail = phase === "installer" ? "Finish updating in the installer, then reopen CARE Desktop before trying setup again."
+    const title = phase === "downloading" ? `Downloading CARE Clinic ${update?.version || ""}…`
+      : phase === "verifying" ? "Checking the CARE Clinic download…"
+      : phase === "installing" ? "Updating the CARE Clinic application…"
+      : phase === "restarting" ? "CARE Clinic is restarting…"
+      : phase === "installer" ? "The CARE Clinic installer has opened"
+      : "Preparing the CARE Clinic update…";
+    const detail = phase === "installer" ? "Finish updating in the installer, then reopen CARE Clinic before trying setup again."
       : phase === "installing" ? "Your computer may ask for permission to replace the app."
-      : phase === "restarting" ? "Reopen CARE Desktop after the update to try setup again."
+      : phase === "restarting" ? "Reopen CARE Clinic after the update to try setup again."
       : "Keep this window open until the update finishes.";
     return (
-      <section className="on-card install-update" aria-label="CARE Desktop update">
+      <section className="on-card install-update" aria-label="CARE Clinic update">
         <div role="status" aria-atomic="true"><h2>{title}</h2><p>{detail}</p></div>
-        {phase !== "restarting" && phase !== "installer" ? <Progress className="install-progress" aria-label="CARE Desktop update progress" /> : null}
+        {phase !== "restarting" && phase !== "installer" ? <Progress className="install-progress" aria-label="CARE Clinic update progress" /> : null}
         {progress?.phase === "downloading" && progress.done > 0 ? <div className="install-update-meta">
           {megabytes(progress.done)}{progress.total > 0 ? ` of ${megabytes(progress.total)}` : " downloaded"}
         </div> : null}
@@ -42,11 +42,11 @@ function FailedInstallUpdate({ controller }: { controller: AppUpdateController }
   if (problem) {
     const updateFailed = problem.kind === "download" || problem.kind === "install";
     const canRetryUpdate = updateFailed && update?.available;
-    const title = updateFailed ? "The CARE Desktop update didn't finish"
-      : problem.kind === "unavailable" ? `CARE Desktop ${problem.version} isn't available for this computer yet`
-      : "Couldn't check for a CARE Desktop update";
+    const title = updateFailed ? "The CARE Clinic update didn't finish"
+      : problem.kind === "unavailable" ? `CARE Clinic ${problem.version} isn't available for this computer yet`
+      : "Couldn't check for a CARE Clinic update";
     return (
-      <section className="on-card install-update" aria-label="CARE Desktop update">
+      <section className="on-card install-update" aria-label="CARE Clinic update">
         <div role="alert">
           <h2>{title}</h2>
           <p>{updateFailed ? "Try updating again, or retry setup with your current version. The log file has the details."
@@ -62,11 +62,11 @@ function FailedInstallUpdate({ controller }: { controller: AppUpdateController }
   }
   if (!update?.available) return null;
   return (
-    <section className="on-card install-update" aria-label="CARE Desktop update">
+    <section className="on-card install-update" aria-label="CARE Clinic update">
       <div className="install-update-row">
         <span className="on-tile" aria-hidden="true"><Download /></span>
         <div className="on-grow">
-          <h2>CARE Desktop {update.version} is available</h2>
+          <h2>CARE Clinic {update.version} is available</h2>
           <p>Worth installing before you try again — it may be the fix.</p>
         </div>
         <Button className="install-update-primary" disabled={disabled} onClick={() => void install()}>Update now</Button>
@@ -114,7 +114,7 @@ export function FailedScreen() {
           if (!pending.current && !busy && !update.isActive()) restartSetup();
         }}><ArrowLeft aria-hidden="true" />Back to setup</Button>
         <p className="on-foot-note" role="status">{retrying ? canResume ? "Retrying installation…" : "Clearing the unfinished installation…"
-          : update.active ? "Finish the CARE Desktop update before trying again."
+          : update.active ? "Finish the CARE Clinic update before trying again."
           : canResume ? "Trying again keeps your saved setup."
           : "Trying again clears the unfinished install first."}</p>
         <Button variant={canResume ? "primary" : "destructive"} className={canResume ? "install-retry-action install-resume-action" : "install-retry-action"} disabled={disabled}
@@ -128,7 +128,7 @@ export function FailedScreen() {
         <div className="on-card-head">
           <span className="on-tile on-large on-bad" aria-hidden="true"><AlertTriangle /></span>
           <div className="on-grow"><h2 id="install-failure-heading">{interrupted ? "Check the internet connection" : "CARE couldn't finish setting up the clinic"}</h2>
-            <p>{interrupted ? "A required download didn't finish. Keep CARE Desktop open, reconnect to the internet, then try again."
+            <p>{interrupted ? "A required download didn't finish. Keep CARE Clinic open, reconnect to the internet, then try again."
               : "It stopped partway through. The details are in the log file."}</p></div>
         </div>
         <LogButton />
@@ -137,10 +137,10 @@ export function FailedScreen() {
       <div className={canResume ? "install-retry-consequences install-resume-consequences" : "install-retry-consequences"} id="install-retry-consequences">
         {canResume ? <Callout tone="info" title="Your setup choices are kept">
           <p>Trying again keeps your clinic address, backup folder, admin password and saved recovery files. Completed downloads and images can be reused.</p>
-          <p>Keep CARE Desktop open to continue this installation without starting setup over.</p>
+          <p>Keep CARE Clinic open to continue this installation without starting setup over.</p>
         </Callout> : <Callout tone="danger" title="Trying again starts the backup and password steps over">
           <p>The unfinished installation is cleared. Your clinic address and existing backups are kept. Choose the backup folder and admin password again, and save fresh recovery materials.</p>
-          <p>The old Desktop admin codes stop working. Keep your old backup recovery files — you may still need them to open earlier backups.</p>
+          <p>The old CARE Clinic admin codes stop working. Keep your old backup recovery files — you may still need them to open earlier backups.</p>
         </Callout>}
       </div>
       {retryError ? <Callout tone="danger" title={canResume ? "Installation hasn't restarted" : "Setup hasn't restarted"}>{retryError}</Callout> : null}

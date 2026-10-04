@@ -130,7 +130,7 @@ export function BackupsTab() {
       if (revision !== updateLock.revision() || updateLock.isActive()) {
         setFolderProblem({
           title: "Choose the backup folder again",
-          detail: "A CARE Desktop update interrupted this change. Your backup folder has not changed.",
+          detail: "A CARE Clinic update interrupted this change. Your backup folder has not changed.",
         });
         return;
       }
@@ -278,7 +278,7 @@ export function BackupsTab() {
       {localActionProblem ? <BackupNotice title={localActionProblem.title}>{localActionProblem.detail}</BackupNotice>
         : backingUp || automaticRunning ? (
           <BackupNotice title="A backup is running" tone="info" log={false}>
-            Keep CARE Desktop open. The new copy will appear after the backup finishes.
+            Keep CARE Clinic open. The new copy will appear after the backup finishes.
           </BackupNotice>
         ) : backupComplete && run?.state === "ok" && !storage?.stale ? (
           <BackupNotice title="The backup finished" tone="success" log={false}>

@@ -24,7 +24,7 @@ func testLink(index int, address string) lanInterface {
 func testResponder(t *testing.T) *responder {
 	t.Helper()
 	link := testLink(1, "192.0.2.10/24")
-	zone, err := hmdns.NewMDNSService("care", "_https._tcp", "local.", "care.local.", 443, link.ips, []string{"CARE Desktop"})
+	zone, err := hmdns.NewMDNSService("care", "_https._tcp", "local.", "care.local.", 443, link.ips, []string{"CARE Clinic"})
 	if err != nil {
 		t.Fatal(err)
 	}

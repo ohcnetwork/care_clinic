@@ -182,7 +182,7 @@ func TestAdminRecoveryConcurrentUse(t *testing.T) {
 	}
 }
 
-func TestChangeDesktopPasswordLeavesRecoveryAndWebSettings(t *testing.T) {
+func TestChangeClinicAdminPasswordLeavesRecoveryAndWebSettings(t *testing.T) {
 	a, codes := recoveryApp(t)
 	path := filepath.Join(a.installDir(), "backend.env")
 	before, err := os.ReadFile(path)
@@ -197,7 +197,7 @@ func TestChangeDesktopPasswordLeavesRecoveryAndWebSettings(t *testing.T) {
 	}
 	after, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(before, after) {
-		t.Fatal("Desktop password change modified backend configuration")
+		t.Fatal("CARE Clinic password change modified backend configuration")
 	}
 	if err := a.ResetAdminPassword(codes[0], settingsPassword); err != nil {
 		t.Fatal("password change invalidated recovery codes:", err)

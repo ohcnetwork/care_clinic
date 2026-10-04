@@ -9,7 +9,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/plugins"
 )
 
-func TestPluginsDoNotRequireDesktopPassword(t *testing.T) {
+func TestPluginsDoNotRequireClinicAdminPassword(t *testing.T) {
 	a := settingsApp(t)
 	a.cfg.AdminPwHash = ""
 	want := []plugins.Plugin{{

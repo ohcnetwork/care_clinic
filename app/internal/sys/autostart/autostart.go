@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	label   = "ohc.care-desktop"
-	appName = "CARE Desktop"
+	label   = "ohc.care-clinic"
+	appName = "CARE Clinic"
 	runKey  = `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
 )
 
@@ -21,7 +21,7 @@ func macPlistPath() string {
 
 func linuxDesktopPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "autostart", "care-desktop.desktop")
+	return filepath.Join(home, ".config", "autostart", "care-clinic.desktop")
 }
 
 func Enabled() bool {

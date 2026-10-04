@@ -63,7 +63,7 @@ export function getValue(lines: EnvLine[], key: string): string | undefined {
 
 export type EnvChange = { key: string; value: string | undefined };
 
-const ADDED_HEADER = "# --- Added from CARE Desktop settings ---";
+const ADDED_HEADER = "# --- Added from CARE Clinic settings ---";
 
 /**
  * Applies changes in order: an undefined value drops the key, a present key

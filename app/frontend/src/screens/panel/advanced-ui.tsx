@@ -36,8 +36,8 @@ export function advancedProblem(cause: unknown, title: string, message: string):
     message: "Use an unused code from your latest sheet. Codes that have been used or replaced no longer work.",
   };
   if (/admin password does not match/i.test(detail)) return {
-    title: "The Desktop admin password didn't match",
-    message: "Lock Advanced and enter this installation's Desktop admin password again. Your CARE web password may be different.",
+    title: "The CARE Clinic admin password didn't match",
+    message: "Lock Advanced and enter this installation's CARE Clinic admin password again. Your CARE web password may be different.",
   };
   if (/encrypted backup key could not be unlocked/i.test(detail)) return {
     title: "The local backup key couldn't be unlocked",
@@ -47,8 +47,8 @@ export function advancedProblem(cause: unknown, title: string, message: string):
     title: "Finish the earlier restore first",
     message: "Go to Overview and start CARE to recover the unfinished restore before making other changes.",
   };
-  if (/something else is still running|CARE Desktop is closing/i.test(detail)) return {
-    title: "CARE Desktop is busy",
+  if (/something else is still running|CARE Clinic is closing/i.test(detail)) return {
+    title: "CARE Clinic is busy",
     message: "Wait for the current task to finish, then try again.",
   };
   if (/cleanup is incomplete|only for an installed clinic|not set up yet/i.test(detail)) return {
@@ -72,7 +72,7 @@ export function advancedProblem(cause: unknown, title: string, message: string):
     message: "One of the settings isn't in a format CARE can read. Review your changes, or ask the person who supports this computer.",
   };
   if (/protected|managed.*setting|setting.*managed/i.test(detail)) return {
-    title: "That setting is managed by CARE Desktop",
+    title: "That setting is managed by CARE Clinic",
     message: "Leave CARE's connection and security settings unchanged. Use the relevant settings page instead.",
   };
   return { title, message };

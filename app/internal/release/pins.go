@@ -60,7 +60,7 @@ func (p *Pins) envPinMap() []struct {
 		key string
 		dst *string
 	}{
-		{"CARE_DESKTOP_VERSION", &p.AppVersion},
+		{"CARE_CLINIC_VERSION", &p.AppVersion},
 		{"POSTGRES_IMAGE", &p.PostgresImage},
 		{"REDIS_IMAGE", &p.RedisImage},
 		{"MINIO_IMAGE", &p.MinioImage},
@@ -121,7 +121,7 @@ func Load(env []byte) (*Pins, error) {
 		return nil, fmt.Errorf("%s is missing required values: %s", EnvFile, strings.Join(missing, ", "))
 	}
 	if !versionPattern.MatchString(p.AppVersion) {
-		return nil, fmt.Errorf("CARE_DESKTOP_VERSION must be X.Y.Z or X.Y.Z-dev")
+		return nil, fmt.Errorf("CARE_CLINIC_VERSION must be X.Y.Z or X.Y.Z-dev")
 	}
 	for key, version := range map[string]string{
 		"RANCHER_VERSION":       p.RancherVersion,

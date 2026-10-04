@@ -1,8 +1,8 @@
-name: care-desktop
+name: care-clinic
 
 networks:
   default:
-    name: care-desktop
+    name: care-clinic
 
 volumes:
   postgres-data:

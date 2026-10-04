@@ -35,7 +35,7 @@ func (a *App) queueConfirmation(title, message string) (*pendingConfirmation, er
 	a.confirmationMu.Lock()
 	defer a.confirmationMu.Unlock()
 	if a.confirmationClosed {
-		return nil, errors.New("CARE Desktop is closing")
+		return nil, errors.New("CARE Clinic is closing")
 	}
 	if !a.confirmationUIReady {
 		return nil, nil

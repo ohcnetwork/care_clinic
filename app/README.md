@@ -1,9 +1,9 @@
-# `app/` — the CARE Desktop control app (Go / Wails)
+# `app/` — the CARE Clinic control app (Go / Wails)
 
 The Go/Wails application operates the clinic through Docker Compose and native
 system tools. The engine packages under `internal/` never import Wails.
 
-On a new computer, CARE Desktop first asks whether to set up a clinic server or
+On a new computer, CARE Clinic first asks whether to set up a clinic server or
 connect as a client. A **Back** button on the next screen undoes a misclick as
 long as nothing has been installed or connected; after that the selected role
 stays locked until successful uninstall returns to the role choice.
@@ -27,7 +27,7 @@ wails build
 See [Development and release](../docs/development-and-release.md) for preparing
 a fresh checkout, embedded assets, build prerequisites, and platform packaging.
 Running a development app can operate an existing clinic on this computer.
-For publishing installers, follow [Releasing CARE Desktop](../docs/releases.md).
+For publishing installers, follow [Releasing CARE Clinic](../docs/releases.md).
 
 ## Backend documentation
 

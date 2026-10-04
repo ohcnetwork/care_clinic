@@ -178,7 +178,7 @@ func TestRestorePostgresTransactionsAndCorruptPayload(t *testing.T) {
 		data, _ := os.ReadFile(filepath.Join(root, "postgres.log"))
 		t.Fatalf("isolated PostgreSQL fixture did not become ready: %s", data)
 	}
-	j := &restoreJournal{ID: strings.Repeat("b", 24), Project: "care-desktop", Database: `clinic "o'brien`}
+	j := &restoreJournal{ID: strings.Repeat("b", 24), Project: "care-clinic", Database: `clinic "o'brien`}
 	runSQL := func(script string) ([]byte, error) {
 		cmd := exec.Command("sh", "-c", script)
 		cmd.Dir = dataDir

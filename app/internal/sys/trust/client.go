@@ -329,7 +329,7 @@ func runClientStep(goos string, step elevate.Step) error {
 	return elevate.Steps([]elevate.Step{step})
 }
 
-// CARoot is one trusted "CARE Desktop Local CA" root held by this computer.
+// CARoot is one trusted "CARE Clinic Local CA" root held by this computer.
 // Store is the keychain or anchor file it lives in, because each platform
 // removes a root by a different handle; it is empty on Windows, where the
 // fingerprint alone names the certificate.

@@ -45,7 +45,7 @@ func (a *App) keepChosenName(before Config) error {
 	return a.restartAdvertise()
 }
 
-// PurgeResidue removes what an earlier CARE Desktop left behind. The
+// PurgeResidue removes what an earlier CARE Clinic left behind. The
 // destructive confirmation belongs to the interface, which can show the traces
 // in place; confirmed carries that answer. The returned report is the state
 // afterwards, so the caller can say "clean" or "still here" without a second
@@ -65,7 +65,7 @@ func (a *App) PurgeResidue(confirmed bool) (after residue.Report, err error) {
 			return nil
 		}
 		if !confirmed {
-			return errors.New("confirm the removal of the earlier CARE Desktop before it can be removed")
+			return errors.New("confirm the removal of the earlier CARE Clinic before it can be removed")
 		}
 		e := a.engine()
 		e.InstallDir, err = a.residueInstallDir(e)
@@ -83,7 +83,7 @@ func (a *App) PurgeResidue(confirmed bool) (after residue.Report, err error) {
 		if err := a.beginRemoval(); err != nil {
 			return err
 		}
-		a.logln("Removing the earlier CARE Desktop from this computer...")
+		a.logln("Removing the earlier CARE Clinic from this computer...")
 		if err := e.Purge(); err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func (a *App) residueInstallDir(e *clinic.Clinic) (string, error) {
 
 func (a *App) logPurge(after residue.Report) {
 	if after.Clean {
-		a.logln("Everything from the earlier CARE Desktop has been removed.")
+		a.logln("Everything from the earlier CARE Clinic has been removed.")
 		return
 	}
 	for _, t := range after.Traces {

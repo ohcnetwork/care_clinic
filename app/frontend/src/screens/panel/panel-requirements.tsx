@@ -248,7 +248,7 @@ function useChecks() {
       const info = await bridge.RancherDownloadInfo();
       if (updateLock.isActive()) {
         fixing.current = false;
-        setFailure({ message: "Finish the CARE Desktop update, then try the fix again." });
+        setFailure({ message: "Finish the CARE Clinic update, then try the fix again." });
         return;
       }
       setConfirmation({ check, info });
@@ -342,9 +342,9 @@ export function RequirementProgress({ checkId }: { checkId?: CheckId } = {}) {
     : download?.phase === "connecting" ? "Connecting to download…"
       : download?.phase === "downloading" ? "Downloading…"
         : download?.phase === "verifying" ? "Checking the downloaded file…"
-          : download?.phase === "complete" ? "Installing — keep CARE Desktop open."
+          : download?.phase === "complete" ? "Installing — keep CARE Clinic open."
             : download?.phase === "failed" ? "The download didn't finish."
-              : progress ?? "Working — keep CARE Desktop open.";
+              : progress ?? "Working — keep CARE Clinic open.";
   return <>
     {running || previewing ? <div className="panel-fix-progress" role="status">
       <div className="panel-row"><Spinner /><span>{label}</span></div>

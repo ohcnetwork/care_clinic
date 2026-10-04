@@ -172,7 +172,7 @@ export function ClientScreen() {
         log(`read connection after failure: ${errorText(stateError)}`);
         setError({
           title: "The connection didn't finish",
-          message: "CARE couldn't check what was saved. Try again, or reopen CARE Desktop before changing this connection.",
+          message: "CARE couldn't check what was saved. Try again, or reopen CARE Clinic before changing this connection.",
         });
       }
       setPhase(wasSaved ? "saved" : found ? "found" : "entry");
@@ -208,7 +208,7 @@ export function ClientScreen() {
         setFound(null);
         setPhase("entry");
         showRemoval(false);
-        setError({ title: "Disconnected, but the app couldn't be removed", message: "No clinic data was deleted. You can remove CARE Desktop using this computer's normal app settings." });
+        setError({ title: "Disconnected, but the app couldn't be removed", message: "No clinic data was deleted. You can remove CARE Clinic using this computer's normal app settings." });
       } else {
         setRemoveError(friendlyClientError(e));
       }
@@ -237,7 +237,7 @@ export function ClientScreen() {
 
   return (
     <div className="onboarding onboarding-flow on-client">
-      <aside className="on-left" aria-label="CARE Desktop">
+      <aside className="on-left" aria-label="CARE Clinic">
         <OnboardingBrand />
         <div className="on-hero"><h2>Connect this computer to your clinic.</h2></div>
         <OnboardingUpdates controller={update} context="client" />
@@ -318,7 +318,7 @@ export function ClientScreen() {
                 }}><Copy aria-hidden="true" />{copied ? "Copied" : "Copy address"}</Button>
               </div>
               {copyError ? <p className="on-error" role="alert">{copyError}</p> : null}
-              {reachability?.reachable ? <p className="on-small" style={{ marginTop: 16 }}>{justConnected ? `CARE has opened in your browser. Next time, open CARE Desktop and click Open CARE, or type ${host} in your browser.` : "Click Open CARE to start. · Server answering · checked just now"}</p> : null}
+              {reachability?.reachable ? <p className="on-small" style={{ marginTop: 16 }}>{justConnected ? `CARE has opened in your browser. Next time, open CARE Clinic and click Open CARE, or type ${host} in your browser.` : "Click Open CARE to start. · Server answering · checked just now"}</p> : null}
             </section>
           ) : null}
           {error ? (
@@ -342,7 +342,7 @@ export function ClientScreen() {
         <AlertDialogContent className="onboarding onboarding-dialog">
           <AlertDialogTitle>Disconnect this computer?</AlertDialogTitle>
           <AlertDialogDescription>This computer will stop opening CARE from {displayHost(savedAddress)}. No patient or clinic data is deleted, and you can connect again at any time. Your computer may ask for your password.</AlertDialogDescription>
-          {canRemoveApp ? <label className="on-row"><Checkbox checked={removeApp} disabled={locked} onCheckedChange={(v) => setRemoveApp(v === true)} /><span>Also remove the CARE Desktop app from this computer</span></label> : null}
+          {canRemoveApp ? <label className="on-row"><Checkbox checked={removeApp} disabled={locked} onCheckedChange={(v) => setRemoveApp(v === true)} /><span>Also remove the CARE Clinic app from this computer</span></label> : null}
           {removalOptionError ? <p className="on-small">{removalOptionError}</p> : null}
           {removeError ? <Callout title={removeError.title} tone="danger">{removeError.message}<LogButton /></Callout> : null}
           <AlertDialogFooter>

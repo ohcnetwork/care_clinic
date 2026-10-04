@@ -207,10 +207,10 @@ func (a *App) InstallAppUpdate() error {
 		}
 		version := strings.TrimPrefix(strings.TrimSpace(rel.Tag), "v")
 		if !newerVersion(a.pins.AppVersion, version) {
-			return errors.New("this is already the newest published version of CARE Desktop")
+			return errors.New("this is already the newest published version of CARE Clinic")
 		}
 		if developmentUpdateBuild || strings.HasSuffix(a.pins.AppVersion, "-dev") {
-			return errors.New("update location unavailable: development builds cannot replace themselves; install a released copy of CARE Desktop first")
+			return errors.New("update location unavailable: development builds cannot replace themselves; install a released copy of CARE Clinic first")
 		}
 		if _, err := updateTarget(); err != nil {
 			return err
@@ -258,7 +258,7 @@ func latestRelease() (ghRelease, error) {
 		return rel, err
 	}
 	if strings.TrimSpace(rel.Tag) == "" {
-		return rel, errors.New("no published CARE Desktop release was found")
+		return rel, errors.New("no published CARE Clinic release was found")
 	}
 	return rel, nil
 }
@@ -271,7 +271,7 @@ func fetch(url string, timeout time.Duration, fn func(io.Reader) error) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "care-desktop")
+	req.Header.Set("User-Agent", "care-clinic")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("couldn't reach GitHub to check for updates: %w", err)
@@ -337,7 +337,7 @@ func download(url, path string, progress func(int64)) (string, error) {
 			return fmt.Errorf("the download did not finish: %w", err)
 		}
 		if written > maxDownloadBytes {
-			return errors.New("the download is larger than any CARE Desktop installer should be")
+			return errors.New("the download is larger than any CARE Clinic installer should be")
 		}
 		digest = hex.EncodeToString(sum.Sum(nil))
 		return nil
@@ -356,7 +356,7 @@ func downloadVerified(asset ghAsset, want, version string, log func(string), pro
 	if err != nil {
 		return "", err
 	}
-	root := filepath.Join(cache, "CARE Desktop", "updates")
+	root := filepath.Join(cache, "CARE Clinic", "updates")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
 	}
@@ -367,7 +367,7 @@ func downloadVerified(asset ghAsset, want, version string, log func(string), pro
 	path := filepath.Join(dir, asset.Name)
 	var problem string
 	for attempt := 1; attempt <= updateDownloadAttempts; attempt++ {
-		log("Downloading CARE Desktop " + version + " (" + asset.Name + ")...")
+		log("Downloading CARE Clinic " + version + " (" + asset.Name + ")...")
 		sum, err := download(asset.URL, path, progress)
 		switch {
 		case err != nil:
@@ -383,7 +383,7 @@ func downloadVerified(asset ghAsset, want, version string, log func(string), pro
 		}
 	}
 	_ = os.RemoveAll(dir)
-	return "", fmt.Errorf("the CARE Desktop %s update didn't download properly and was deleted without being installed (%s). "+
+	return "", fmt.Errorf("the CARE Clinic %s update didn't download properly and was deleted without being installed (%s). "+
 		"Check this computer's internet connection and choose Update again", version, problem)
 }
 

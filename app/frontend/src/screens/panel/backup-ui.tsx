@@ -59,11 +59,11 @@ export function backupProblem(
   if (context === "recovery") {
     return /different clinic|does not match|doesn't match/.test(text)
       ? { title: "That recovery file doesn't match", detail: "Choose the recovery file saved when this backup's clinic was set up." }
-      : { title: "That recovery file couldn't be used", detail: "Choose the original backup recovery file saved during setup, not the Desktop recovery codes." };
+      : { title: "That recovery file couldn't be used", detail: "Choose the original backup recovery file saved during setup, not the CARE Clinic recovery codes." };
   }
   if (context === "restore") {
     if (/password.*does not match|password.*incorrect|password.*doesn't match/.test(text)) {
-      return { title: "That Desktop admin password doesn't match", detail: "Try again, or use a Desktop recovery code in Advanced to reset it." };
+      return { title: "That CARE Clinic admin password doesn't match", detail: "Try again, or use a CARE Clinic recovery code in Advanced to reset it." };
     }
     if (/recovery file|recovery key/.test(text)) {
       return backupProblem(error, "recovery");

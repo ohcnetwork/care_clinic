@@ -12,7 +12,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
 
-const marker = "# care-desktop"
+const marker = "# care-clinic"
 
 func path() string {
 	if runtime.GOOS != "windows" {

@@ -1,9 +1,9 @@
-# CARE Desktop
+# CARE Clinic
 
 Self-contained, offline [CARE](https://github.com/ohcnetwork/care) for a small clinic.
 One installer on one computer runs the whole EMR — backend, web app, database, file
 storage and automatic daily encrypted backups — and staff connect from other computers
-using CARE Desktop in client mode on the clinic Wi-Fi. The core clinic can run
+using CARE Clinic in client mode on the clinic Wi-Fi. The core clinic can run
 without internet after installation. Updates, externally hosted plugins such
 as CARE Onboarding, and configured online services still need connectivity.
 
@@ -46,14 +46,14 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   connections use the saved certificate pin rather than silently downloading a
   replacement.
 - **Connecting cleans up after the last time** — it removes CARE's leftover
-  address overrides and every other `CARE Desktop Local CA` certificate this
+  address overrides and every other `CARE Clinic Local CA` certificate this
   computer trusts, then installs the current clinic's. No extra confirmation:
   your computer asks for permission once (on a Mac, sometimes twice — once for
   the address, once for the certificate). A computer that used to host a clinic
   can therefore become an ordinary client without a separate cleanup, and the
   certificate being installed is never removed by its own cleanup, so
   reconnecting to the same clinic changes nothing.
-- **Connected screen** — once connected, CARE Desktop keeps a light check on
+- **Connected screen** — once connected, CARE Clinic keeps a light check on
   whether the clinic is answering, so staff can see at a glance that it is up
   before they click through. It only looks; it changes nothing.
 - **Back** — walks through earlier setup steps; from the first step it can undo
@@ -66,13 +66,13 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   Remove access before connecting to another clinic or uninstalling the desktop
   app through the operating system. Trusted certificates that did not come from
   CARE remain and may still permit browser access. Uninstall the setup in CARE
-  Desktop before removing the executable through the operating system.
+  Clinic before removing the executable through the operating system.
 - **Backups** — encrypted backups every 24 hours, with actual configured retention,
   backup-now and one explicit **Restore from a backup file** path for local or
-  imported files. Restoring requires the Desktop admin password, a recovery file
+  imported files. Restoring requires the CARE Clinic admin password, a recovery file
   for encrypted backups, and acknowledgement that clinic records will be replaced.
 - **Advanced** — ten everyday choices grouped into Clinic details, Patients and
-  visits, Billing, Backups and Staff access, plus Desktop password recovery,
+  visits, Billing, Backups and Staff access, plus CARE Clinic password recovery,
   log, rebuild and uninstall. Less-used local options keep their defaults or saved
   values and can be overridden in **Extra settings (for support)**.
   Advanced locks 15 minutes after unlocking, or sooner
@@ -104,7 +104,7 @@ built on the clinic's machine from the upstream commits pinned in `deployments/.
 |---|---|
 | `app/` | The desktop app: Go engine in `internal/`, Wails bindings in `*.go`, React UI in `frontend/` |
 | `deployments/` | The server kit: compose file, Caddyfile, env files, backup script, and public certificate bootstrap route |
-| `.github/workflows/` | CI, and releases started when `CARE_DESKTOP_VERSION` in `deployments/.env` changes on `main` |
+| `.github/workflows/` | CI, and releases started when `CARE_CLINIC_VERSION` in `deployments/.env` changes on `main` |
 
 **Using the app:** [Desktop workflows](docs/desktop-workflows.md) covers setup,
 connection, installation, each control-panel tab and update handoffs.
@@ -133,7 +133,7 @@ verified that the file came from that build.
 
 ### Privacy
 
-CARE Desktop has no telemetry, analytics or crash reporting. Network requests
+CARE Clinic has no telemetry, analytics or crash reporting. Network requests
 are made for setup, configured features and updates, including automatic update
 checks:
 
@@ -146,7 +146,7 @@ checks:
   downloads the WebView2 runtime from Microsoft if the computer lacks it.
 - **Clinic features** the operator turns on, such as SMS sign-in codes and email,
   send data to the provider the operator configured.
-- **Updates** check GitHub release metadata for CARE Desktop. While the clinic
+- **Updates** check GitHub release metadata for CARE Clinic. While the clinic
   is serving, CARE's background update checker can resolve its configured source
   branches and build newer images; those builds fetch dependencies.
 - **Hosted plugins**, including the default CARE Onboarding plugin for new

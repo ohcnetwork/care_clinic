@@ -22,20 +22,20 @@ const match = workflow.match(/          node <<'NODE'\n([\s\S]*?)\n          NOD
 if (!match) throw new Error("Release identity validator is missing");
 const validator = match[1].replace(/^          /gm, "");
 const pins = fs.readFileSync("deployments/.env", "utf8");
-const version = pins.match(/^CARE_DESKTOP_VERSION=(.+)$/m)[1].trim();
+const version = pins.match(/^CARE_CLINIC_VERSION=(.+)$/m)[1].trim();
 const change = (key, value) => pins.replace(new RegExp("^" + key + "=.*$", "m"), key + "=" + value);
 const cases = [
   {name: "manual release"},
-  {name: "version bump", pins: change("CARE_DESKTOP_VERSION", "1.2.3"), version: "1.2.3"},
-  {name: "invalid version", pins: change("CARE_DESKTOP_VERSION", "01.2.3"), fails: true},
+  {name: "version bump", pins: change("CARE_CLINIC_VERSION", "1.2.3"), version: "1.2.3"},
+  {name: "invalid version", pins: change("CARE_CLINIC_VERSION", "01.2.3"), fails: true},
   {name: "branch backend", pins: change("CARE_BE_REF", "develop")},
   {name: "branch frontend", pins: change("CARE_FE_REF", "develop")},
   {name: "empty backend ref", pins: change("CARE_BE_REF", ""), fails: true},
   {name: "backend ref with spaces", pins: change("CARE_BE_REF", "not a ref"), fails: true},
-  {name: "development version", pins: change("CARE_DESKTOP_VERSION", version + "-dev"), fails: true},
-  {name: "missing version", pins: pins.replace(/^CARE_DESKTOP_VERSION=.*\n/m, ""), fails: true},
-  {name: "duplicate version", pins: pins + "\nCARE_DESKTOP_VERSION=" + version + "\n", fails: true},
-  {name: "empty duplicate version", pins: pins + "\nCARE_DESKTOP_VERSION=\n", fails: true},
+  {name: "development version", pins: change("CARE_CLINIC_VERSION", version + "-dev"), fails: true},
+  {name: "missing version", pins: pins.replace(/^CARE_CLINIC_VERSION=.*\n/m, ""), fails: true},
+  {name: "duplicate version", pins: pins + "\nCARE_CLINIC_VERSION=" + version + "\n", fails: true},
+  {name: "empty duplicate version", pins: pins + "\nCARE_CLINIC_VERSION=\n", fails: true},
   {name: "duplicate frontend", pins: pins + "\nCARE_FE_REF=\n", fails: true},
 ];
 for (const test of cases) {
@@ -117,9 +117,9 @@ const scripts = [...workflow.matchAll(/          node <<'NODE'\n([\s\S]*?)\n    
 assert.equal(scripts.length, 2);
 for (const signing of ["false", "true"]) for (const windowsSigning of ["false", "true"]) {
 const files = new Map([
-  ["CARE-Desktop-1.2.3-macos.dmg", "macOS application"],
-  ["CARE-Desktop-1.2.3-windows-amd64-setup.exe", "Windows installer"],
-  ["release-config.env", "CARE_DESKTOP_VERSION=1.2.3\n"],
+  ["CARE-Clinic-1.2.3-macos.dmg", "macOS application"],
+  ["CARE-Clinic-1.2.3-windows-amd64-setup.exe", "Windows installer"],
+  ["release-config.env", "CARE_CLINIC_VERSION=1.2.3\n"],
 ]);
 const key = path => {
   assert.ok(path.startsWith("release-assets/"));

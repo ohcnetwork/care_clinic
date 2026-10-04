@@ -181,7 +181,7 @@ func (a *App) alertStorage(r storage.Report) {
 	_ = wruntime.SendNotification(a.ctx, wruntime.NotificationOptions{
 		ID:    "care-storage",
 		Title: "CARE needs attention",
-		Body:  r.Headline + " Open CARE Desktop to fix it.",
+		Body:  r.Headline + " Open CARE Clinic to fix it.",
 	})
 }
 

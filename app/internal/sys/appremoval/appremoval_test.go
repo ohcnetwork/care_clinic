@@ -7,11 +7,11 @@ func TestBundleOfAcceptsInstalledBundleOnly(t *testing.T) {
 		exe  string
 		want string
 	}{
-		{"/Applications/CARE Desktop.app/Contents/MacOS/care-desktop", "/Applications/CARE Desktop.app"},
-		{"/Users/a/Applications/CARE Desktop.app/Contents/MacOS/care-desktop", "/Users/a/Applications/CARE Desktop.app"},
-		{"/Volumes/CARE Desktop/CARE Desktop.app/Contents/MacOS/care-desktop", ""},
-		{"/private/var/folders/x/AppTranslocation/1/d/CARE Desktop.app/Contents/MacOS/care-desktop", ""},
-		{"/Users/a/go/bin/care-desktop", ""},
+		{"/Applications/CARE Clinic.app/Contents/MacOS/care-clinic", "/Applications/CARE Clinic.app"},
+		{"/Users/a/Applications/CARE Clinic.app/Contents/MacOS/care-clinic", "/Users/a/Applications/CARE Clinic.app"},
+		{"/Volumes/CARE Clinic/CARE Clinic.app/Contents/MacOS/care-clinic", ""},
+		{"/private/var/folders/x/AppTranslocation/1/d/CARE Clinic.app/Contents/MacOS/care-clinic", ""},
+		{"/Users/a/go/bin/care-clinic", ""},
 	}
 	for _, c := range cases {
 		got, err := bundleOf(c.exe)
@@ -28,14 +28,14 @@ func TestBundleOfAcceptsInstalledBundleOnly(t *testing.T) {
 }
 
 func TestOtherPIDsIgnoresOwnProcess(t *testing.T) {
-	own := "\"CARE Desktop.exe\",\"4242\",\"Console\",\"1\",\"80,000 K\"\r\n"
-	both := own + "\"CARE Desktop.exe\",\"77\",\"Console\",\"1\",\"90,000 K\"\r\n"
+	own := "\"CARE Clinic.exe\",\"4242\",\"Console\",\"1\",\"80,000 K\"\r\n"
+	both := own + "\"CARE Clinic.exe\",\"77\",\"Console\",\"1\",\"90,000 K\"\r\n"
 	none := "INFO: No tasks are running which match the specified criteria.\r\n"
 	if otherPIDs(own, 4242) {
 		t.Error("the uninstall process itself was treated as another instance")
 	}
 	if !otherPIDs(both, 4242) {
-		t.Error("a second CARE Desktop process was not detected")
+		t.Error("a second CARE Clinic process was not detected")
 	}
 	if otherPIDs(none, 4242) {
 		t.Error("tasklist's no-match message was treated as a process")

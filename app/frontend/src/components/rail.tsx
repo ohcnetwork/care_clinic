@@ -47,7 +47,7 @@ export const Rail = memo(function Rail({ variant, locked = false, updateCount = 
         />
         <div>
           <div className="flex items-baseline gap-2">
-            <div className="text-base leading-tight font-bold text-white">CARE Desktop</div>
+            <div className="text-base leading-tight font-bold text-white">CARE Clinic</div>
             {version ? (
               <span className="font-mono text-[11px] text-brand-pale/70">{version}</span>
             ) : null}
@@ -135,10 +135,10 @@ function PanelRail({ locked, updateCount }: { locked: boolean; updateCount: numb
   const care = useCare();
   const task = usePanelTask();
   const status = panelStatus(care);
-  return <aside className="care-panel-rail" aria-label="CARE Desktop control panel">
+  return <aside className="care-panel-rail" aria-label="CARE Clinic control panel">
     <div className="care-panel-rail-brand">
       <img src={logoMark} alt="" />
-      <div>CARE Desktop<p>Control panel</p></div>
+      <div>CARE Clinic<p>Control panel</p></div>
     </div>
     <div className="care-panel-rail-sep" />
     <div className="care-panel-rail-kicker">Clinic</div>

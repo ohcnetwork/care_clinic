@@ -4,7 +4,7 @@
 
 ## The problem the backend solves
 
-CARE Desktop runs a clinic's CARE installation on one computer without requiring the operator to administer a server. Staff use a browser to access the clinic on the local network. The desktop application is the installation and operations console, not the medical record server.
+CARE Clinic runs a clinic's CARE installation on one computer without requiring the operator to administer a server. Staff use a browser to access the clinic on the local network. The desktop application is the installation and operations console, not the medical record server.
 
 The first-run Server/Client choice is persisted when the work behind it starts,
 not when the question is asked, and it is not an ordinary role switch.
@@ -40,7 +40,7 @@ email can still require internet access.
 
 ```mermaid
 flowchart LR
-    Operator["Operator"] --> Desktop["CARE Desktop window"]
+    Operator["Operator"] --> Desktop["CARE Clinic window"]
     Desktop --> App["Go App through Wails"]
     App --> Engine["Clinic orchestration"]
     Engine --> Docker["Docker Compose"]
@@ -136,9 +136,9 @@ These locks solve different problems. Protecting the `Config` struct does not ma
 
 ### Durable local state
 
-The local configuration records setup completion, an incomplete-removal checkpoint, the clinic hostname, the backup directory, and the desktop administrator's bcrypt hash. Installed files include the deployment kit, editable environments, keys, and build material.
+The local configuration records setup completion, an incomplete-removal checkpoint, the clinic hostname, the backup directory, and the CARE Clinic administrator's bcrypt hash. Installed files include the deployment kit, editable environments, keys, and build material.
 
-The clinic manager keeps an exported private backup recovery file and a separate printable sheet of Desktop admin recovery codes. Config stores only the public encryption certificate, recovery-code hashes and recovery metadata; there is no backup password or keyring entry. Restore also has its own durable journal and staging resources. `config.json` is not a complete inventory of everything the application owns.
+The clinic manager keeps an exported private backup recovery file and a separate printable sheet of CARE Clinic admin recovery codes. Config stores only the public encryption certificate, recovery-code hashes and recovery metadata; there is no backup password or keyring entry. Restore also has its own durable journal and staging resources. `config.json` is not a complete inventory of everything the application owns.
 
 Plugin changes also use a private durable recovery journal and a pinned backend image until runtime readiness is verified. See [configuration](configuration-and-settings.md) for locations, [restore](backups-and-restore.md) for its journal, and [plugin transactions](plugins.md#save-and-apply) for configuration/image recovery and its database-migration limits.
 

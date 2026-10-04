@@ -30,7 +30,7 @@ export function panelStatus({ system, systemDetail, trouble, busy, busyLabel }: 
   if (system === "unknown") return {
     label: systemDetail ? "Can't check" : "Checking",
     detail: systemDetail
-      ? "CARE Desktop couldn't check the clinic. Check again, or open the log file for support."
+      ? "CARE Clinic couldn't check the clinic. Check again, or open the log file for support."
       : "Checking whether CARE is running on this computer.",
     tone: (systemDetail ? "danger" : "neutral") as PanelTone,
     working: !systemDetail, available: false,

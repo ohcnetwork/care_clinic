@@ -119,7 +119,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       if (version !== loadVersion.current) return;
       setFiles(null);
       setLoadProblem(advancedProblem(cause, "The clinic settings couldn't be read",
-        "Try again when CARE Desktop is idle. No settings have been changed."));
+        "Try again when CARE Clinic is idle. No settings have been changed."));
     } finally {
       if (loadingRequest.current === request) loadingRequest.current = null;
       if (version === loadVersion.current) setLoading(false);
@@ -183,7 +183,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       const id = `custom:${row.uid}`;
       if (!key) out[id] = "Give the setting a name.";
       else if (!ENV_KEY_RE.test(key)) out[id] = "Start with a letter or _. Use only letters, digits and _.";
-      else if (isHiddenKey(key)) out[id] = MANAGED_NOTES[key] ?? "This setting is protected by CARE Desktop.";
+      else if (isHiddenKey(key)) out[id] = MANAGED_NOTES[key] ?? "This setting is protected by CARE Clinic.";
       else if (SETTING_BY_KEY.has(key)) out[id] = `Change “${SETTING_BY_KEY.get(key)!.label}” in its settings group instead.`;
       else if ((names.get(`${row.file}:${key}`) ?? 0) > 1) out[id] = "This setting is listed twice.";
       else if (customDelta.changed.some((changed) => changed.uid === row.uid)) {

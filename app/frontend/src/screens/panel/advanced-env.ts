@@ -64,9 +64,9 @@ export function mergeEnvChanges(text: string, changes: EnvChange[], file: Sectio
   const added = changes.filter(({ key, value }) => !seen.has(key) && value !== undefined);
   if (added.length) {
     if (out && !out.endsWith("\n")) out += newline;
-    if (!out.includes("# --- Added from CARE Desktop settings ---")) {
+    if (!out.includes("# --- Added from CARE Clinic settings ---")) {
       if (out) out += newline;
-      out += `# --- Added from CARE Desktop settings ---${newline}`;
+      out += `# --- Added from CARE Clinic settings ---${newline}`;
     }
     out += added.map(({ key, value }) => `${key}=${quote(value!, file)}${newline}`).join("");
   }

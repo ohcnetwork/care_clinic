@@ -79,7 +79,7 @@ export function StorageTab() {
           <span className={`panel-tile panel-tile-large ${drive.id === "vm" ? "" : "panel-tile-neutral"}`}><Icon aria-hidden="true" /></span>
           <div className="panel-grow">
             <div className="panel-row panel-between">
-              <h2 className="panel-title">{drive.id === "vm" ? "CARE Desktop storage" : "This computer's drive"}</h2>
+              <h2 className="panel-title">{drive.id === "vm" ? "CARE Clinic storage" : "This computer's drive"}</h2>
               {!data ? <span className="panel-small">Space unavailable</span> : drive.id !== "vm" ? <span className="panel-small panel-mono">
                 {diskSize(drive.free)} free of {diskSize(drive.total)}
               </span> : null}

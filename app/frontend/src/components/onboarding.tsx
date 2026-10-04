@@ -18,7 +18,7 @@ export function OnboardingBrand({ wizard = false }: { wizard?: boolean }) {
   return (
     <div className="on-brand">
       <img src={logoMark} alt="" />
-      <div><strong>CARE Desktop</strong>{wizard ? <p>Setting up your clinic</p> : null}</div>
+      <div><strong>CARE Clinic</strong>{wizard ? <p>Setting up your clinic</p> : null}</div>
     </div>
   );
 }

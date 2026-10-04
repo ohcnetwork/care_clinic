@@ -310,7 +310,7 @@ func recoveryHash(code string) string {
 
 func generateAdminRecoveryCodes(clinic string) ([]byte, [6]string, error) {
 	var text strings.Builder
-	fmt.Fprintf(&text, "CARE Desktop admin recovery codes\nClinic: %s\nIssued: %s\n\n", clinic, time.Now().Format(time.RFC3339))
+	fmt.Fprintf(&text, "CARE Clinic admin recovery codes\nClinic: %s\nIssued: %s\n\n", clinic, time.Now().Format(time.RFC3339))
 	text.WriteString("Keep this sheet secure, outside the clinic computer. You may print it.\nEach code works once. Mark a code used after resetting your password.\n\n")
 	var hashes [6]string
 	for i := 0; i < 6; i++ {
@@ -327,7 +327,7 @@ func generateAdminRecoveryCodes(clinic string) ([]byte, [6]string, error) {
 		fmt.Fprintf(&text, "[ ] %s\n", code)
 		hashes[i] = recoveryHash(code)
 	}
-	text.WriteString("\nIn CARE Desktop, open Advanced > Forgot Desktop password?\nEnter one unused code and choose a new Desktop admin password.\nThis does NOT change your CARE web login or unlock backups.\nA replacement set invalidates every code on this sheet.\n")
+	text.WriteString("\nIn CARE Clinic, open Advanced > Forgot CARE Clinic password?\nEnter one unused code and choose a new CARE Clinic admin password.\nThis does NOT change your CARE web login or unlock backups.\nA replacement set invalidates every code on this sheet.\n")
 	return []byte(text.String()), hashes, nil
 }
 
@@ -346,13 +346,13 @@ func (a *App) SaveAdminRecoveryCodes(adminPassword, backupDir string) (bool, err
 		if err != nil {
 			return fmt.Errorf("couldn't locate your Desktop: %w", err)
 		}
-		filename, err := recoveryFilename(cfg.MDNSName, "desktop-admin-codes", "txt")
+		filename, err := recoveryFilename(cfg.MDNSName, "clinic-admin-codes", "txt")
 		if err != nil {
 			return err
 		}
 		path, err := wruntime.SaveFileDialog(a.ctx, wruntime.SaveDialogOptions{
 			DefaultDirectory: directory,
-			Title:            "Save six Desktop admin recovery codes",
+			Title:            "Save six CARE Clinic admin recovery codes",
 			DefaultFilename:  filename,
 		})
 		if err != nil || path == "" {
@@ -435,7 +435,7 @@ func (a *App) ResetAdminPassword(code, newPassword string) error {
 	return a.withServerJob(func() error {
 		cfg := a.loadConfig()
 		if !cfg.SetupDone || cfg.Removing {
-			return errors.New("Desktop password recovery is available only for an installed clinic")
+			return errors.New("CARE Clinic password recovery is available only for an installed clinic")
 		}
 		now := time.Now().Unix()
 		if cfg.RecoveryRetryAfter > now {

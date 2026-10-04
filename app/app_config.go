@@ -11,7 +11,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/mdns"
 )
 
-const appDirName = "care-desktop"
+const appDirName = "care-clinic"
 
 type Config struct {
 	Role                     string    `json:"role"`

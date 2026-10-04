@@ -73,7 +73,7 @@ export function BackupStep({ form, space, folderProblem, recovery, recoveryError
           : folderProblem}</p><div className="on-actions"><Button disabled={busy} onClick={onCheck}>Check again</Button></div></div> : null}
       </section>
       <section className="on-card on-backup-recovery" aria-label="Your backup recovery file">
-        <div className="on-card-title"><h3>Your backup recovery file</h3><p>This small file unlocks your backups if you ever need to restore. When installation starts, CARE also keeps a local copy encrypted with your Desktop admin password. Keep this separate file safe for recovery without this computer or password.</p>
+        <div className="on-card-title"><h3>Your backup recovery file</h3><p>This small file unlocks your backups if you ever need to restore. When installation starts, CARE also keeps a local copy encrypted with your CARE Clinic admin password. Keep this separate file safe for recovery without this computer or password.</p>
           {!folderReady ? <p>Sort the folder out first — the file is made once CARE knows where the backups go.</p> : null}
         </div>
         <div className="on-data-row">
@@ -153,7 +153,7 @@ export function AdminStep({ form, patch, strength, passwordError, folderProblem,
           <span className={cn("on-tile", saved && "on-solid")}>{saved ? <Check /> : <KeyRound />}</span>
           <div className="on-grow"><h3>{saved ? "Recovery codes saved" : "Recovery codes"}</h3>
             {saved ? <p>Six codes, each usable once. Saved to <span className="on-mono">{recovery.codes_path}</span> — print it or keep it somewhere separate.</p>
-              : <p>Forgot your <strong>CARE Desktop</strong> password? Use one of these six codes to reset it. Each code works once. Save them somewhere safe.</p>}
+              : <p>Forgot your <strong>CARE Clinic</strong> password? Use one of these six codes to reset it. Each code works once. Save them somewhere safe.</p>}
           </div>
           {saved ? <><StatusBadge tone="ok"><Check />Saved</StatusBadge><Button disabled={busy} onClick={onPrint}>Open to print</Button><Button disabled={busy || !passwordReady || !!folderProblem} onClick={onSave}>Save a new set</Button></>
             : <div className="on-admin-save">
@@ -196,7 +196,7 @@ export function ReviewStep({ steps, form, backupPath, issues, verified, busy, on
           {row.id !== "space" ? <Button variant="ghost" disabled={busy} aria-label={`Edit ${row.label}`} onClick={() => onEdit(row.id)}>{row.failures.length ? "Fix it" : "Edit"}</Button> : null}
         </section>)}
       </div>
-      {verified && !issues.length ? <Callout tone="ok" title="Everything is ready">Installing takes 5 to 20 minutes. Don't quit CARE Desktop or turn the computer off while it runs.</Callout> : null}
+      {verified && !issues.length ? <Callout tone="ok" title="Everything is ready">Installing takes 5 to 20 minutes. Don't quit CARE Clinic or turn the computer off while it runs.</Callout> : null}
     </>
   );
 }

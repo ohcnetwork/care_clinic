@@ -23,7 +23,7 @@ func settingsApp(t *testing.T) *App {
 		t.Fatal(err)
 	}
 	a := &App{
-		configFile: filepath.Join(root, "care-desktop", "config.json"),
+		configFile: filepath.Join(root, "care-clinic", "config.json"),
 		cfg:        Config{SetupDone: true, AdminPwHash: string(hash)},
 		pins:       &release.Pins{},
 	}
@@ -31,7 +31,7 @@ func settingsApp(t *testing.T) *App {
 		t.Fatal(err)
 	}
 	for name, data := range map[string]string{
-		"docker-compose.yml": "name: care-desktop\n",
+		"docker-compose.yml": "name: care-clinic\n",
 		"backend.env":        "DB_BACKUP_RETENTION_PERIOD=14\nADDITIONAL_PLUGS=[]\n",
 		"frontend.env":       "REACT_CARE_API_URL=https://care.local\n",
 	} {

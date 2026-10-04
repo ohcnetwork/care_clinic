@@ -17,7 +17,7 @@ import (
 func TestRecoveryFilenamesPortableAndUnique(t *testing.T) {
 	seen := make(map[string]bool)
 	for _, kind := range []struct{ name, extension string }{
-		{"backup-recovery", "pem"}, {"desktop-admin-codes", "txt"},
+		{"backup-recovery", "pem"}, {"clinic-admin-codes", "txt"},
 	} {
 		pattern := regexp.MustCompile(`^CARE-clinic-name-` + kind.name + `-\d{8}-\d{6}\.\d{9}Z-[a-f0-9]{12}\.` + kind.extension + `$`)
 		for i := 0; i < 100; i++ {

@@ -130,7 +130,7 @@ func (a *App) shutdown(context.Context) {
 }
 
 const (
-	singleInstanceID = "ohc.care-desktop"
+	singleInstanceID = "ohc.care-clinic"
 
 	quitPromptTimeout = 30 * time.Second
 
@@ -232,52 +232,52 @@ func jobQuitPrompt(label string) quitPrompt {
 	switch label {
 	case "setup":
 		return quitPrompt{"setup", "Quit while setup is running?",
-			"Setup stops where it is. The next time you open CARE Desktop you'll be back " +
+			"Setup stops where it is. The next time you open CARE Clinic you'll be back " +
 				"on the setup screen, which will ask you to remove the unfinished install before " +
 				"setting up again.\n\n" + leftRunning}
 	case jobPrereq:
 		return quitPrompt{"a requirement install", "Quit while this computer is being prepared?",
-			"CARE Desktop is still installing or starting something this computer needs, " +
+			"CARE Clinic is still installing or starting something this computer needs, " +
 				"such as Rancher Desktop. That step stops where it is. The next time you open " +
-				"CARE Desktop the computer check runs again and shows what is left to do.\n\n" +
+				"CARE Clinic the computer check runs again and shows what is left to do.\n\n" +
 				"An installer that already started may keep running in the background for a few minutes."}
 	case "start", "restart":
 		return quitPrompt{"starting CARE", "Quit while CARE is starting?",
 			"CARE is still starting. This can take several minutes while Docker (Rancher Desktop) " +
-				"comes up. Starting stops where it is; open CARE Desktop again to try once more.\n\n" + leftRunning}
+				"comes up. Starting stops where it is; open CARE Clinic again to try once more.\n\n" + leftRunning}
 	case "stop":
 		return quitPrompt{"stopping CARE", "Quit while CARE is stopping?",
-			"CARE is still stopping. Open CARE Desktop again to check that it stopped.\n\n" + leftRunning}
+			"CARE is still stopping. Open CARE Clinic again to check that it stopped.\n\n" + leftRunning}
 	case "restore":
 		return quitPrompt{"a restore", "Quit during a restore?",
 			"A restore is in progress. Quitting now can leave the clinic's data half-replaced. " +
-				"If you quit, open CARE Desktop again and restore the same backup before anyone uses the clinic."}
+				"If you quit, open CARE Clinic again and restore the same backup before anyone uses the clinic."}
 	case "uninstall":
 		return quitPrompt{"removal", "Quit while CARE is being removed?",
 			"CARE is being removed from this computer. Quitting now can leave it partly removed; " +
-				"open CARE Desktop again and remove it once more to finish."}
+				"open CARE Clinic again and remove it once more to finish."}
 	case "app-update":
-		return quitPrompt{"the CARE Desktop update", "Quit during the CARE Desktop update?",
+		return quitPrompt{"the CARE Clinic update", "Quit during the CARE Clinic update?",
 			"The update stops and the version you have keeps working; you can update again later. " +
 				"If macOS is already replacing the app, that finishes on its own."}
 	case "update":
 		return quitPrompt{"the CARE update", "Quit during the CARE update?",
-			"CARE is being updated. Quitting can leave it partly updated; open CARE Desktop again " +
+			"CARE is being updated. Quitting can leave it partly updated; open CARE Clinic again " +
 				"and run the update once more.\n\n" + leftRunning}
 	case "backup-now":
 		return quitPrompt{"a backup", "Quit during a backup?",
 			"The backup in progress won't be finished or usable. Earlier backups are not affected.\n\n" + leftRunning}
 	case "apply-plugins":
 		return quitPrompt{"a plugin change", "Quit while applying plugins?",
-			"Quitting can interrupt plugin loading or recovery. Reopen CARE Desktop and start CARE " +
+			"Quitting can interrupt plugin loading or recovery. Reopen CARE Clinic and start CARE " +
 				"to recover the previous plugin configuration.\n\n" + leftRunning}
 	case "rebuild-all", "rebuild-backend", "rebuild-frontend":
 		return quitPrompt{"a rebuild", "Quit during a rebuild?",
-			"CARE is being rebuilt. Quitting can leave the clinic stopped; open CARE Desktop again " +
+			"CARE is being rebuilt. Quitting can leave the clinic stopped; open CARE Clinic again " +
 				"and run the rebuild once more.\n\n" + leftRunning}
 	}
-	return quitPrompt{"an operation", "Quit while CARE Desktop is working?",
-		"CARE Desktop is in the middle of an operation (see the log). It stops where it is.\n\n" + leftRunning}
+	return quitPrompt{"an operation", "Quit while CARE Clinic is working?",
+		"CARE Clinic is in the middle of an operation (see the log). It stops where it is.\n\n" + leftRunning}
 }
 
 func (a *App) askBeforeQuit() quitChoice {
@@ -285,7 +285,7 @@ func (a *App) askBeforeQuit() quitChoice {
 		return quitLeaveClinicRunning
 	}
 	name := a.loadConfig().MDNSName
-	quit, err := a.askToProceed("Quit CARE Desktop?",
+	quit, err := a.askToProceed("Quit CARE Clinic?",
 		"The clinic keeps running, but "+name+" will stop working for other devices "+
 			"on the clinic's WiFi until this app is open again.\n\nQuit anyway?", "Yes")
 	if err != nil {
@@ -333,7 +333,7 @@ func (a *App) stopForQuit() error {
 	cmd := proc.CommandContext(ctx, "docker", "compose", "stop")
 	cmd.Dir, cmd.Env = run.Dir, run.Env
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("Docker did not finish stopping; CARE Desktop was kept open: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("Docker did not finish stopping; CARE Clinic was kept open: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

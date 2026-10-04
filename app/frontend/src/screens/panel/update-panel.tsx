@@ -18,9 +18,9 @@ function checkedTime(timestamp: number) {
 
 export function UpdatePanel({ appUpdate }: { appUpdate: AppUpdateController }) {
   return <div className="panel-page" aria-label="Updates">
-    <PanelPageHeader title="Updates" subtitle="Keep CARE and CARE Desktop up to date." />
+    <PanelPageHeader title="Updates" subtitle="Keep CARE and CARE Clinic up to date." />
     <CareSoftwareCard />
-    <DesktopApplicationCard controller={appUpdate} />
+    <ClinicApplicationCard controller={appUpdate} />
     <div className="panel-update-foot">
       <p className="panel-small panel-grow">Updates need internet. Your clinic records are kept.</p>
       <PanelLogButton />
@@ -132,7 +132,7 @@ function CareSoftwareCard() {
     {applying ? <div className="panel-update-progress" role="status">
       <h3>Installing the CARE software update…</h3>
       <Progress aria-label="CARE software update" />
-      <p className="panel-small">Keep this computer on and CARE Desktop open. Staff may be signed out briefly.</p>
+      <p className="panel-small">Keep this computer on and CARE Clinic open. Staff may be signed out briefly.</p>
     </div> : pending ? <PanelNotice tone="ok" title="An update is ready">
       {backendUpdate ? "Staff will be signed out briefly while it installs. " : "CARE will reload when the update is applied. "}
       If you choose Later, it will be applied the next time the clinic starts.
@@ -152,7 +152,7 @@ function CareSoftwareCard() {
   </section>;
 }
 
-function DesktopApplicationCard({ controller }: { controller: AppUpdateController }) {
+function ClinicApplicationCard({ controller }: { controller: AppUpdateController }) {
   const { system } = useCare();
   const { update, version, checking, problem, progress, active, disabled, check, install } = controller;
   const action = usePanelTask();
@@ -163,14 +163,14 @@ function DesktopApplicationCard({ controller }: { controller: AppUpdateControlle
   const percent = downloading && downloading.total > 0
     ? Math.max(0, Math.min(100, Math.round(downloading.done / downloading.total * 100))) : undefined;
   const target = update?.version ? ` ${update.version}` : "";
-  const phaseTitle = phase === "downloading" ? `Downloading CARE Desktop${target}…`
+  const phaseTitle = phase === "downloading" ? `Downloading CARE Clinic${target}…`
     : phase === "verifying" ? "Checking the downloaded update…"
-      : phase === "installing" ? `Installing CARE Desktop${target}…`
-        : phase === "restarting" ? "Installed — restarting CARE Desktop…"
+      : phase === "installing" ? `Installing CARE Clinic${target}…`
+        : phase === "restarting" ? "Installed — restarting CARE Clinic…"
           : phase === "installer" ? "The installer has opened"
-            : "Preparing the CARE Desktop update…";
+            : "Preparing the CARE Clinic update…";
   const problemTitle = problem?.kind === "download" ? "The download didn't come through properly"
-    : problem?.kind === "install" ? "CARE Desktop couldn't finish updating"
+    : problem?.kind === "install" ? "CARE Clinic couldn't finish updating"
       : problem?.kind === "unavailable" ? "New version, but not for this computer yet"
         : "Couldn't check for updates";
   const problemDetail = problem?.kind === "offline" ? "Couldn't connect to the update service. Check the internet connection and try again."
@@ -179,11 +179,11 @@ function DesktopApplicationCard({ controller }: { controller: AppUpdateControlle
         : problem?.kind === "unavailable" ? `${problem.version} is available for other systems. Check again another day.`
           : "Updates couldn't be checked right now. Try again. If it keeps failing, share the log file with support.";
 
-  return <section className="panel-card panel-card-pad panel-update-card" aria-label="CARE Desktop application">
+  return <section className="panel-card panel-card-pad panel-update-card" aria-label="CARE Clinic application">
     <div className="panel-update-head">
       <span className="panel-tile"><Monitor aria-hidden="true" /></span>
       <div className="panel-grow">
-        <h2 className="panel-title">CARE Desktop application</h2>
+        <h2 className="panel-title">CARE Clinic application</h2>
         <p className="panel-card-sub">{version ? `Version ${version}` : "Checking the application version…"}
           {checkedAt ? ` · Checked at ${checkedTime(checkedAt)}` : ""}</p>
       </div>
@@ -191,20 +191,20 @@ function DesktopApplicationCard({ controller }: { controller: AppUpdateControlle
         {active ? "Updating" : checking ? "Checking…" : problem ? "Needs attention"
           : update?.available ? `${update.version} available` : update ? "Up to date" : "Not checked yet"}
       </PanelBadge>
-      {!active ? <Button aria-label="Check CARE Desktop updates" disabled={checking || disabled} onClick={() => void check()}>Check now</Button> : null}
+      {!active ? <Button aria-label="Check CARE Clinic updates" disabled={checking || disabled} onClick={() => void check()}>Check now</Button> : null}
     </div>
     {active ? <div className="panel-update-progress" role="status" aria-live="polite">
       <h3>{phaseTitle}</h3>
-      {phase !== "installer" && phase !== "restarting" ? <Progress value={percent} aria-label="CARE Desktop update download" /> : null}
+      {phase !== "installer" && phase !== "restarting" ? <Progress value={percent} aria-label="CARE Clinic update download" /> : null}
       {downloading ? <p className="panel-small">
         {downloading.total > 0 ? `${megabytes(downloading.done) || "0 MB"} of ${megabytes(downloading.total)}`
           : downloading.done > 0 ? `${megabytes(downloading.done)} downloaded` : "Starting download…"}
         {percent !== undefined ? ` · ${percent}%` : ""}
       </p> : null}
-      <p className="panel-small">{phase === "installer" ? "Follow the installer to finish, then reopen CARE Desktop."
-        : phase === "restarting" ? "CARE Desktop is reopening."
-          : "Keep CARE Desktop open. Your computer may ask for permission to replace the app."}</p>
-      {system === "running" ? <p className="panel-small">The clinic keeps running while CARE Desktop updates.</p> : null}
+      <p className="panel-small">{phase === "installer" ? "Follow the installer to finish, then reopen CARE Clinic."
+        : phase === "restarting" ? "CARE Clinic is reopening."
+          : "Keep CARE Clinic open. Your computer may ask for permission to replace the app."}</p>
+      {system === "running" ? <p className="panel-small">The clinic keeps running while CARE Clinic updates.</p> : null}
       {phase === "installer" ? <Button disabled={controller.updating} onClick={controller.dismiss}>Done</Button> : null}
     </div> : problem ? <PanelNotice title={problemTitle} tone={problem.kind === "download" || problem.kind === "install" ? "danger" : "warning"}
       actions={<>
@@ -213,7 +213,7 @@ function DesktopApplicationCard({ controller }: { controller: AppUpdateControlle
         <PanelLogButton />
       </>}>
       {problemDetail}
-    </PanelNotice> : update?.available ? <PanelNotice tone="ok" title={`CARE Desktop ${update.version} is available`}>
+    </PanelNotice> : update?.available ? <PanelNotice tone="ok" title={`CARE Clinic ${update.version} is available`}>
       Downloads and installs the new version. Your computer may ask for permission.
       {system === "running" ? " Your clinic keeps running." : ""}
       <div className="panel-actions">
@@ -222,7 +222,7 @@ function DesktopApplicationCard({ controller }: { controller: AppUpdateControlle
           <ScrollText aria-hidden="true" />What&apos;s new
         </Button> : null}
         <Button variant="primary" disabled={disabled || checking} onClick={() => void install()}>
-          <Download aria-hidden="true" />Update CARE Desktop
+          <Download aria-hidden="true" />Update CARE Clinic
         </Button>
       </div>
     </PanelNotice> : null}

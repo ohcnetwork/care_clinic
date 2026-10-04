@@ -66,7 +66,7 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
         <Button variant="ghost" size="icon" aria-label="Dismiss operation message" onClick={care.clearOperationError}><X aria-hidden="true" /></Button>
       </div> : appUpdate.active && care.tab !== "updates" ? <div className="panel-banner" role="status">
         <ArrowDownToLine aria-hidden="true" />
-        <div className="panel-grow"><strong>CARE Desktop is updating. </strong>
+        <div className="panel-grow"><strong>CARE Clinic is updating. </strong>
           {appUpdate.progress?.phase === "installer" ? "Finish the installer, then acknowledge it in Updates."
             : "Wait until it finishes before making other changes."}</div>
         <Button size="sm" onClick={() => care.setTab("updates")}>View update</Button>
