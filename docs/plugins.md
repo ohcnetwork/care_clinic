@@ -21,7 +21,7 @@ Staff browsers download a frontend plugin's bundle straight from its `url`. If t
 
 ## The catalog: `catalog.yml`
 
-[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. CARE Onboarding is enabled by default for new clinic installations only; booking notifications and Filly are opt-in.
+[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. The catalog currently contains only CARE Onboarding, enabled by default for new clinic installations only. Custom plugins and previously saved plugins remain supported.
 
 ### Structure
 
@@ -63,7 +63,7 @@ The file is a YAML list. Each item is one catalog entry:
 | `plugin.frontend` | One of `backend`/`frontend` | Present when the plugin has a UI part. | |
 | `frontend.slug` | Yes | `PlugConfig.slug`; also the federation remote name and default i18n namespace. | Letters, numbers, `_`, `-`; unique across plugins. |
 | `frontend.url` | Yes | Absolute link to the plugin's `remoteEntry.js`. | `http` or `https` with a host. |
-| `frontend.meta` | No | Extra keys merged into the `PlugConfig.meta` row. What goes here depends on the plugin. For example, Filly reads `meta.config.<KEY>`. | Must not contain `url`; set that in `frontend.url`. |
+| `frontend.meta` | No | Extra keys merged into the `PlugConfig.meta` row. What goes here depends on the plugin. CARE Onboarding uses `meta.config.redirect_after_login`. | Must not contain `url`; set that in `frontend.url`. |
 
 YAML reads an unquoted value that starts with `@` as an error, so always quote `version`. Values are converted to JSON before use, so write them as you want them to appear in `PLUGIN_CONFIGS` or `meta`.
 
@@ -145,10 +145,10 @@ The domain manager's `SavePlugins`, called during setup or inside the apply tran
 
 ```json
 {
-  "care_filly_fe": {
-    "name": "care_filly_fe",
-    "config": { "MEDISPEAK_API_URL": "https://…" },
-    "url": "https://…/remoteEntry.js",
+  "care_onboarding_fe": {
+    "name": "care_onboarding_fe",
+    "config": { "redirect_after_login": true },
+    "url": "https://ohcnetwork.github.io/care_onboarding_fe/assets/remoteEntry.js",
     "managed_by": "care-clinic"
   }
 }

@@ -40,13 +40,13 @@ func TestPluginLiveReadOnlyPreflight(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range catalog {
-		if entry.Plugin.ID == "care_notifications" {
+		if entry.Plugin.ID == "care_onboarding_fe" {
 			if _, err := e.snapshotPluginRows([]plugins.Plugin{entry.Plugin}); err != nil {
 				t.Fatal(err)
 			}
-			t.Logf("Read-only preflight passed for %d live containers; notification candidate registration snapshot is compatible. No configuration or runtime was changed.", len(containers))
+			t.Logf("Read-only preflight passed for %d live containers; onboarding candidate registration snapshot is compatible. No configuration or runtime was changed.", len(containers))
 			return
 		}
 	}
-	t.Fatal("notification catalog entry missing")
+	t.Fatal("onboarding catalog entry missing")
 }

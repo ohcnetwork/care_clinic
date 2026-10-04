@@ -20,31 +20,6 @@ const catalog: PluginCatalogEntry[] = [
     description: "Set up a new clinic's geography, facility, departments, staff, numbering, questionnaires and report templates. Requires internet access.",
     default: true,
   },
-  {
-    plugin: {
-      id: "care_notifications", label: "Booking notifications", catalog: true,
-      backend: {
-        name: "care_notifications",
-        package_name: "git+https://github.com/ohcnetwork/care_booking_notifications_be.git",
-        version: "@main",
-      },
-    },
-    description: "Appointment confirmations, reminders, cancellations and reschedule notices by SMS and web push.",
-  },
-  {
-    plugin: {
-      id: "care_filly", label: "Filly", catalog: true,
-      backend: {
-        name: "care_filly", package_name: "git+https://github.com/ohcnetwork/care_filly.git", version: "@main",
-        configs: { MEDISPEAK_BASE_URL: "", MEDISPEAK_API_KEY: "" },
-      },
-      frontend: {
-        slug: "care_filly_fe", url: "https://ohcnetwork.github.io/care_filly_fe/assets/remoteEntry.js",
-        meta: { config: { MEDISPEAK_API_URL: "" } },
-      },
-    },
-    description: "Voice-driven form filling for clinical notes and questionnaires, powered by Medispeak.",
-  },
 ];
 const custom: CarePlugin = {
   id: "custom_example", label: "Custom example",
@@ -154,8 +129,8 @@ async function assertFits(page: Page) {
 for (const viewport of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) {
   test(`reviewed plugin table and custom editor fit ${viewport.width}x${viewport.height}`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await openPlugins(page, { saved: catalog.map((entry) => entry.plugin) });
-    await expect(root(page).locator(".care-plugin-row")).toHaveCount(3);
+    await openPlugins(page);
+    await expect(root(page).locator(".care-plugin-row")).toHaveCount(1);
     await assertFits(page);
     await capture(page, `plugins-after-${viewport.width}x${viewport.height}`);
     await row(page, "CARE Onboarding").getByRole("button", { name: "Edit CARE Onboarding" }).click();
@@ -290,14 +265,19 @@ test("duplicate IDs, modules, frontend names, and setting names cannot overwrite
 
 test("catalog choices respect custom plugin identities as well as catalog IDs", async ({ page }) => {
   await openPlugins(page, { saved: [{
-    ...custom, id: "custom_id", backend: { ...custom.backend!, name: "care_notifications" },
+    ...custom, id: "custom_id",
     frontend: { ...custom.frontend!, slug: "care_onboarding_fe" },
   }] });
   await addButton(page).click();
   await expect(page.getByRole("option", { name: "CARE Onboarding", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("option", { name: "Booking notifications", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("option", { name: "Filly", exact: true })).toBeVisible();
+  await expect(page.getByRole("option")).toHaveText(["Custom plugin"]);
   await page.keyboard.press("Escape");
+});
+
+test("the catalog offers only onboarding alongside custom plugins", async ({ page }) => {
+  await openPlugins(page, { saved: [] });
+  await addButton(page).click();
+  await expect(page.getByRole("option")).toHaveText(["CARE Onboarding", "Custom plugin"]);
 });
 
 test("failed saves keep every edit across tabs and never start an apply", async ({ page }) => {
@@ -466,11 +446,14 @@ for (const failure of ["rejected", "async"] as const) {
 for (const failure of ["rejected", "async"] as const) {
   test(`${failure} three-plugin batch is discarded on tab change without removing applied plugins`, async ({ page }) => {
     await openPlugins(page, { finishJobs: false });
-    for (const name of ["Booking notifications", "Filly"]) {
-      await addButton(page).click();
-      await page.getByRole("option", { name, exact: true }).click();
+    for (const suffix of ["one", "two", "three"]) {
+      const editor = await addCustom(page);
+      await fillCustom(editor);
+      await editor.getByLabel("Display name", { exact: true }).fill(`Custom ${suffix}`);
+      await editor.getByLabel("Plugin ID", { exact: true }).fill(`custom_${suffix}`);
+      await editor.getByLabel("Python module", { exact: true }).fill(`care_${suffix}`);
+      await editor.getByLabel("Frontend name", { exact: true }).fill(`care_${suffix}_fe`);
     }
-    await fillCustom(await addCustom(page));
     await expect(root(page).getByText("Not applied", { exact: true })).toHaveCount(3);
     if (failure === "rejected") {
       await page.evaluate(() => window.careTest.failNext("ClinicAction", "something else is still running"));
@@ -491,8 +474,7 @@ for (const failure of ["rejected", "async"] as const) {
     expect(await countCalls(page, "SavePlugins")).toBe(1);
     expect(await page.evaluate(() => window.careTest.fixtures.plugins.map((p) => p.id))).toEqual(["care_onboarding_fe"]);
     await addButton(page).click();
-    await expect(page.getByRole("option", { name: "Booking notifications", exact: true })).toBeVisible();
-    await expect(page.getByRole("option", { name: "Filly", exact: true })).toBeVisible();
+    await expect(page.getByRole("option")).toHaveText(["Custom plugin"]);
   });
 }
 
@@ -552,8 +534,7 @@ test("restore-pending state keeps plugin actions disabled without a password byp
 for (const recovered of [true, false]) {
   test(`plugin failure reports ${recovered ? "successful rollback" : "unfinished recovery"} without leaking native details`, async ({ page }) => {
     await openPlugins(page, { finishJobs: false });
-    await addButton(page).click();
-    await page.getByRole("option", { name: "Booking notifications", exact: true }).click();
+    await fillCustom(await addCustom(page));
     await saveButton(page).click();
     await expect(root(page)).toContainText("Applying plugin changes");
     await page.evaluate((recovered) => {
@@ -565,7 +546,7 @@ for (const recovered of [true, false]) {
     await expect(root(page).getByRole("alert")).toContainText(recovered ? "CARE is back online" : "CARE has not been confirmed online");
     await expect(root(page)).not.toContainText("private-token");
     await expect(root(page)).toContainText("Unsaved changes");
-    await expect(row(page, "Booking notifications")).toBeVisible();
+    await expect(row(page, "Custom example")).toBeVisible();
     expect(await page.evaluate(() => window.careTest.fixtures.plugins.map((p) => p.id))).toEqual(["care_onboarding_fe"]);
     if (!recovered) {
       await expect(saveButton(page)).toBeDisabled();
@@ -647,15 +628,15 @@ test("Desktop update handoff still blocks plugin writes after care-done", async 
 
 test("catalog refresh takes authoritative sources while preserving operator settings", () => {
   const stale: CarePlugin = {
-    id: "care_filly", label: "Old display name", catalog: true,
+    id: "care_onboarding_fe", label: "Old display name", catalog: true,
     backend: { name: "old_name", package_name: "old-package", configs: { KEEP: "true" } },
     frontend: { slug: "old_slug", url: "https://old.example/entry.js", meta: { config: { custom: true } } },
   };
   const refreshed = reconcileCatalog(toPluginRow(stale, 1), catalog);
   const saved = serializePlugins([refreshed])[0];
-  expect(saved.backend).toEqual({ ...catalog[2].plugin.backend, configs: { KEEP: "true" } });
-  expect(saved.frontend).toEqual({ ...catalog[2].plugin.frontend, meta: { config: { custom: true } } });
-  expect(saved.label).toBe("Filly");
+  expect(saved.backend).toBeUndefined();
+  expect(saved.frontend).toEqual({ ...catalog[0].plugin.frontend, meta: { config: { custom: true } } });
+  expect(saved.label).toBe("CARE Onboarding");
   const removed = reconcileCatalog(toPluginRow({ ...custom, catalog: true }, 2), catalog);
   expect(removed.catalog).toBe(false);
   expect(serializePlugins([removed])[0]).toEqual(custom);
