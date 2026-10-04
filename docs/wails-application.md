@@ -17,7 +17,7 @@ The desktop UI is not served from the CARE frontend container. It must remain us
 
 `main()` opens the diagnostic log, installs its fatal-error callback, constructs `App`, records version/pin information, and calls `wails.Run`. Only the `App` instance is bound. Exported receiver methods become desktop-callable methods; helper functions and unexported methods do not.
 
-The window title is `CARE Desktop`, with an initial size of 1100 by 700 and a minimum of 720 by 560. On macOS, `HideWindowOnClose` is enabled. The single-instance identifier is `ohc.care-desktop`; a second launch shows and unminimizes the existing window.
+The window title is `CARE Clinic`, with an initial size of 1100 by 700 and a minimum of 720 by 560. On macOS, `HideWindowOnClose` is enabled. The single-instance identifier is `ohc.care-clinic`; a second launch shows and unminimizes the existing window.
 
 ### The initial size has to fit the smallest supported screen
 
@@ -111,7 +111,7 @@ There are three outcomes but only two buttons, because a platform message box ca
 
 | Answer or condition | `quitChoice` | Result |
 | --- | --- | --- |
-| "Quit CARE Desktop?" answered no | `quitStayOpen` | Prevent closing; the desktop remains open. |
+| "Quit CARE Clinic?" answered no | `quitStayOpen` | Prevent closing; the desktop remains open. |
 | Quit yes, "Shut the clinic down as well?" yes | `quitStopClinic` | Attempt a bounded Compose stop, then allow closing if it succeeds. |
 | Quit yes, shut down no | `quitLeaveClinicRunning` | Allow closing; containers keep serving. |
 | No clinic detected, dialog error, or prompt timeout | `quitLeaveClinicRunning` | Allow closing without claiming that containers were stopped. |
@@ -234,7 +234,7 @@ Start and Stop can be requested during a pending restore or plugin rollback; Sta
 
 Environment reads require the admin password and setup; plugin reads require setup but no password. Both allow inspection after an interrupted restore or plugin rollback and respect the shared/exclusive operation gate.
 
-The desktop administrator password is a local authorization mechanism. Advanced
+The CARE Clinic administrator password is a local authorization mechanism. Advanced
 retains it only for its current unlock and locks after a fixed 15 minutes or
 when the tab is left. Protected Go methods check the supplied password again.
 There is no backend 15-minute lease, durable unlocked session or bearer token.
@@ -325,7 +325,7 @@ available after a failed attempt. The confirmation explains that no server
 data is removed. Other CARE roots are removed by the connection that replaces
 them; roots from anything else are preserved and may still allow browser access.
 Successful uninstall returns to role selection unless **Also remove the CARE
-Desktop app** was ticked; see [removing the desktop app](cleanup-and-uninstall.md#removing-the-desktop-app). See [client trust and removal](native-integrations.md#native-client-setup-and-trust-on-first-use).
+Clinic app** was ticked; see [removing the desktop app](cleanup-and-uninstall.md#removing-the-desktop-app). See [client trust and removal](native-integrations.md#native-client-setup-and-trust-on-first-use).
 
 The client's two steps are deliberately separate. `FindClinic` answers "is the
 clinic there, and is it a CARE clinic?" without changing anything, so the
@@ -380,7 +380,7 @@ to warn that the computer will ask for permission.
 | `ChooseRecoveryFile()` | `string` | Native picker and structural validation. Cancellation returns empty; errors propagate. |
 | `SaveAdminRecoveryCodes(adminPassword, backupDir)` | `boolean` | Sync. Exports six printable single-use codes. Requires authentication once installed; successful replacement invalidates all prior codes. |
 | `ChangeAdminPassword(currentPassword, newPassword)` | `void` | Sync. Authenticated Desktop-only password change. |
-| `ResetAdminPassword(code, newPassword)` | `void` | Sync. Rate-limited offline recovery; atomically consumes one code and changes the Desktop password. No CARE web reset. |
+| `ResetAdminPassword(code, newPassword)` | `void` | Sync. Rate-limited offline recovery; atomically consumes one code and changes the CARE Clinic password. No CARE web reset. |
 | `CleanupFailedInstall()` | `void` | Sync. Only for incomplete setup. Keeps the clinic address and existing backups, but resets backup-folder/password/recovery configuration. The UI clears those choices only after cleanup succeeds. New setup needs fresh recovery material; old backup keys may still be needed for earlier archives. |
 | `ClinicAction(action, adminPassword)` | `void` | Job. Allow-listed action dispatch; details below. |
 | `RunUninstall(removeImages, removeBackups, removeRancher, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. The UI waits for both `uninstalled` and successful `care-done` before returning to Start or requesting desktop-app removal. |
@@ -394,18 +394,18 @@ to warn that the computer will ask for permission.
 
 `InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job would ask the user whether to quit during the update. `quitAfterJob` waits for the job lock to be released and quits then.
 
-The shared [CARE Desktop update controller](../app/frontend/src/hooks/use-app-update.ts)
+The shared [CARE Clinic update controller](../app/frontend/src/hooks/use-app-update.ts)
 drives the start/client cards, the pre-install wizard rail, failed-install offer
 and installed server's Updates tab. It is absent while clinic installation runs.
 Successful native completion in an `installer` or `restarting` phase keeps the
-global busy state under **Finish the CARE Desktop update**. For an external
+global busy state under **Finish the CARE Clinic update**. For an external
 installer, OK (start/client/setup) or Done (Updates) becomes available only after
 the matching successful `care-done(0, "app-update")`. That acknowledgement releases
 the handoff; it does not claim installation finished or that the running
 version changed. A `restarting` phase has no acknowledgement and remains locked
 until reopening. Unrelated completion events cannot release either guard.
 It checks automatically and supports manual retries, download progress, and
-update installation without a Desktop admin password, Docker, Git, or a clinic
+update installation without a CARE Clinic admin password, Docker, Git, or a clinic
 connection. The OS may still request permission to replace the application.
 Check failures are shown without blocking role selection. While an update is
 running, conflicting role, client connection, and installation-retry actions
@@ -430,7 +430,7 @@ macOS replaces the bundle in place (`app_selfupdate.go`), so the operator never 
 
 Replacing the bundle while the old binary is still running is safe on macOS: the process keeps its mapped executable, and the frontend is embedded in the binary. When the app runs from a location it can't replace (the mounted disk image or an App Translocation copy), `appremoval.Target` refuses and the update falls back to opening the disk image for a manual drag.
 
-The password policy in [`password.go`](../app/password.go) is 8 through 20 Unicode characters, with at least one uppercase letter, lowercase letter, and digit. Setup, change and recovery enforce it for the Desktop admin password. There is no backup password.
+The password policy in [`password.go`](../app/password.go) is 8 through 20 Unicode characters, with at least one uppercase letter, lowercase letter, and digit. Setup, change and recovery enforce it for the CARE Clinic admin password. There is no backup password.
 
 `ClinicAction` accepts only:
 
@@ -442,7 +442,7 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `rebuild-all` | `RebuildAll()` | Stable clinic and administrator password required. Before the engine call, the app recopies its bundled kit into the install directory and reapplies the domain, the same refresh it does at launch. This is the Advanced tab's **Rebuild everything** button. |
 | `rebuild-backend` | `RebuildBackend()` | Stable clinic and administrator password required. |
 | `rebuild-frontend` | `RebuildFrontend()` | Stable clinic and administrator password required. |
-| `apply-plugins` | `ApplyPlugins()` | Healthy running clinic required; no Desktop admin password. Applies a staged draft with bounded readiness checks and durable configuration/image rollback on failure. |
+| `apply-plugins` | `ApplyPlugins()` | Healthy running clinic required; no CARE Clinic admin password. Applies a staged draft with bounded readiness checks and durable configuration/image rollback on failure. |
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from the separate Storage tab's cleanable drive row. |
 | `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. |
@@ -462,7 +462,7 @@ uses rather than assuming one:
 `stop` is excluded deliberately: reporting that an unreachable clinic is not
 running does not require starting a container engine first.
 
-The API does not require the desktop admin password for every operational control. In particular, ordinary start/stop/restart, backup-now, and backup-directory changes have their lifecycle checks but not `requireAdmin`.
+The API does not require the CARE Clinic admin password for every operational control. In particular, ordinary start/stop/restart, backup-now, and backup-directory changes have their lifecycle checks but not `requireAdmin`.
 
 ### Environment, plugins, and backups
 
@@ -479,8 +479,8 @@ The API does not require the desktop admin password for every operational contro
 | `SetBackupDir(dir)` | `string` | Sync. Stable clinic required. Takes a parent folder, appends `care-db-backups`, preserves the key and conditionally restarts the sidecar. |
 | `ChooseBackupFile()` | `string` | Native dialog. Starts in the backup directory; empty string means cancellation. Dialog errors reject and are logged. |
 | `InspectBackupFile(path)` | `ImportedBackup` | Query. Checks filename/regular-file metadata and matching neighboring archive; does not yet validate dump contents. |
-| `RestoreFromFile(path, recoveryFile, adminPassword)` | `void` | Job. Desktop admin plus stable clinic required; restore using the explicitly selected recovery file. |
-| `RestoreBackup(dbDump, filesArchive, recoveryFile, adminPassword)` | `void` | Job. Desktop admin plus stable clinic required; restore selected names from the configured backup directory using the selected recovery file. |
+| `RestoreFromFile(path, recoveryFile, adminPassword)` | `void` | Job. CARE Clinic admin plus stable clinic required; restore using the explicitly selected recovery file. |
+| `RestoreBackup(dbDump, filesArchive, recoveryFile, adminPassword)` | `void` | Job. CARE Clinic admin plus stable clinic required; restore selected names from the configured backup directory using the selected recovery file. |
 
 File selection is not restore authorization. Full validation and data replacement occur in the later protected restore job. See [backups and restore](backups-and-restore.md).
 
@@ -575,7 +575,7 @@ original text.
 | `setup-failed` | `SetupFailure` | Sent before failed setup completion. Reports whether the current attempt can be retried without cleanup and whether the failed command reported a recent network/download interruption. Only the active setup consumes it; raw command diagnostics stay in the log. |
 | `uninstalled` | `true` | Normal uninstall completed its cleanup and local state removal. |
 | `care-update` | `{backend, frontend}` | A newer CARE commit has finished building and is staged. Raises the panel banner. |
-| `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the shared CARE Desktop update card; the controller and native job state guard conflicting actions. |
+| `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the shared CARE Clinic update card; the controller and native job state guard conflicting actions. |
 | `care-check` | `{running, found, error?}` | Check/build activity. Only a completed, error-free check with `found=false` means up to date. |
 | `client-connect-progress` | `finding`, `connecting`, `checking`, or `opening` | Real boundaries of client connection work. Trust/cleanup is not marked complete before administrator operations finish. |
 | `quit-requested` | `{id, title, message}` | A running-job close request for the registered frontend dialog. Only its current ID can be answered. |

@@ -175,7 +175,7 @@ jobs:
               ditto -c -k --keepParent "${apps[0]}" "ci-artifacts/$TARGET-unsigned.zip"
               ;;
             desktop-windows)
-              app="$BUILD_DIR/CARE Desktop.exe"
+              app="$BUILD_DIR/CARE Clinic.exe"
               test -s "$app"
               installers=("$BUILD_DIR"/*installer.exe)
               test "${#installers[@]}" -eq 1 && test -s "${installers[0]}"
@@ -190,7 +190,7 @@ jobs:
         if: matrix.target == 'desktop-windows'
         shell: pwsh
         run: |
-          $app = Join-Path $env:GITHUB_WORKSPACE "app\build\bin\CARE Desktop.exe"
+          $app = Join-Path $env:GITHUB_WORKSPACE "app\build\bin\CARE Clinic.exe"
           $uninstaller = Join-Path $env:GITHUB_WORKSPACE "ci-app\uninstall.exe"
           Push-Location app/build/windows/installer
           makensis "-DARG_WAILS_AMD64_BINARY=$app" "-DWRITE_UNINSTALLER=$uninstaller" project.nsi
@@ -203,11 +203,11 @@ jobs:
         if: matrix.target == 'desktop-windows'
         shell: pwsh
         run: |
-          $version = (Select-String -Path deployments/.env -Pattern '^CARE_DESKTOP_VERSION=(.+)$').Matches.Groups[1].Value.Trim() -replace '-dev$', ''
-          foreach ($file in @("ci-app/CARE Desktop.exe", "ci-app/uninstall.exe") + (Get-ChildItem ci-artifacts/*.exe).FullName) {
+          $version = (Select-String -Path deployments/.env -Pattern '^CARE_CLINIC_VERSION=(.+)$').Matches.Groups[1].Value.Trim() -replace '-dev$', ''
+          foreach ($file in @("ci-app/CARE Clinic.exe", "ci-app/uninstall.exe") + (Get-ChildItem ci-artifacts/*.exe).FullName) {
             $info = (Get-Item $file).VersionInfo
             "${file}: product='$($info.ProductName)' company='$($info.CompanyName)' version='$($info.ProductVersion)'"
-            if ($info.ProductName -ne 'CARE Desktop' -or $info.CompanyName -ne 'Open Healthcare Network Foundation' -or $info.ProductVersion -ne $version) {
+            if ($info.ProductName -ne 'CARE Clinic' -or $info.CompanyName -ne 'Open Healthcare Network Foundation' -or $info.ProductVersion -ne $version) {
               throw "Version metadata does not match app/wails.json and deployments/.env"
             }
           }

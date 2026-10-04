@@ -122,7 +122,7 @@ export function installTestHost() {
     git: { ok: true, message: "" },
     wsl: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
-    restart: { needed: false, title: "Restart Windows to finish", detail: "Save anything you have open. CARE Desktop opens again afterwards.", label: "Restart now" },
+    restart: { needed: false, title: "Restart Windows to finish", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
     residue: { clean: true, traces: [] },
     recovery: { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "", backup_key_stored: false, backup_key_needs_enrollment: false },
     preflight: { hosts_entry: false, old_certificate: false, unfinished_server_setup: false, engine_leftovers: "" },
@@ -227,7 +227,7 @@ export function installTestHost() {
     version: available ? "0.1.6" : "0.1.5",
     available,
     notes_url: "https://github.com/ohcnetwork/care_desktop/releases",
-    asset: "CARE-Desktop-preview.dmg",
+    asset: "CARE-Clinic-preview.dmg",
     size: 50_000_000,
   };
   let updateRunning = false;
@@ -293,7 +293,7 @@ export function installTestHost() {
   const finishUpdate = (error?: string) => {
     if (error) {
       emit("care-log", `error: ${error}`);
-      emit("care-error", "The CARE Desktop update didn't finish", error);
+      emit("care-error", "The CARE Clinic update didn't finish", error);
     }
     updateRunning = false;
     emit("care-done", error ? 1 : 0, "app-update");
@@ -399,9 +399,9 @@ export function installTestHost() {
     VerifySetupBackupRecovery: async () => { requireServer(); fixtures.recovery.backup_verified = true; fixtures.recovery.backup_problem = ""; return true; },
     SaveAdminRecoveryCodes: async (password: string) => {
       requireServer();
-      if (state.setup_done && password !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (state.setup_done && password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       fixtures.recovery.codes_saved = true;
-      fixtures.recovery.codes_path = "/test-fixtures/recovery/CARE-desktop-admin-codes.txt";
+      fixtures.recovery.codes_path = "/test-fixtures/recovery/CARE-clinic-admin-codes.txt";
       fixtures.recovery.codes_problem = "";
       fixtures.recoveryCodes = sampleCodes(++fixtures.recoveryGeneration);
       fixtures.recoveryFailures = 0;
@@ -450,7 +450,7 @@ export function installTestHost() {
     VerifyAdminPassword: async (password: string) => password === fixtures.adminPassword,
     ExportBackupRecovery: async (password: string, recoveryFile: string) => {
       requireServer();
-      if (!state.setup_done || password !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (!state.setup_done || password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       if (state.restore_pending) throw new Error("a restore is unfinished");
       if (recoveryFile || !fixtures.recovery.backup_key_stored) {
         const source = recoveryFile || fixtures.recovery.backup_path;
@@ -468,19 +468,19 @@ export function installTestHost() {
     },
     RestoreFromFile: async (path: string, recoveryFile: string, password: string) => {
       requireServer();
-      if (password !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       if (path !== fixtures.importedBackup.path) throw new Error("couldn't open that file");
       if (fixtures.importedBackup.encrypted && (!recoveryFile || recoveryFile !== fixtures.recoveryFile)) throw new Error("the recovery file does not match this backup");
       acceptJob("restore");
     },
     ReadEnv: async (section: string, password: string) => {
-      if (password !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       if (section !== "backend" && section !== "frontend") throw new Error("unknown env file");
       return fixtures.env[section];
     },
     WriteEnv: async (section: string, content: string, password: string) => {
       requireServer();
-      if (password !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
       if (section !== "backend" && section !== "frontend") throw new Error("unknown env file");
       fixtures.env[section] = content;
@@ -500,7 +500,7 @@ export function installTestHost() {
     },
     ChangeAdminPassword: async (current: string, next: string) => {
       requireServer();
-      if (current !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (current !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       const problem = await methods.ValidatePassword(next);
       if (problem) throw new Error(problem);
       fixtures.adminPassword = next;
@@ -529,7 +529,7 @@ export function installTestHost() {
     RancherDesktopInstalled: async () => fixtures.rancherInstalled,
     RunUninstall: async (_images: boolean, _backups: boolean, _rancher: boolean, password: string) => {
       requireServer();
-      if (password !== fixtures.adminPassword) throw new Error("the Desktop admin password does not match this installation");
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       acceptJob("uninstall");
     },
     RemoveApp: async () => {
@@ -539,7 +539,7 @@ export function installTestHost() {
       logs.push("Test only: the desktop application would close and be removed.");
     },
     ExitUninstall: async () => { logs.push("Test only: the uninstaller would finish."); },
-    LogPath: async () => "/test-fixtures/logs/care-desktop.log",
+    LogPath: async () => "/test-fixtures/logs/care-clinic.log",
     RetrySetup: async () => {
       requireServer();
       if (state.setup_done || !fixtures.setupStarted) throw new Error("there is no unfinished installation that can be retried in this session");
@@ -566,7 +566,7 @@ export function installTestHost() {
     RestartPlan: async () => ({ ...fixtures.restart }),
     PurgeResidue: async (confirmed: boolean) => {
       requireServer();
-      if (!confirmed) throw new Error("confirm the removal of the earlier CARE Desktop before it can be removed");
+      if (!confirmed) throw new Error("confirm the removal of the earlier CARE Clinic before it can be removed");
       fixtures.residue = { clean: true, traces: [] };
       fixtures.recovery = { ...fixtures.recovery, backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "" };
       return { ...fixtures.residue };
@@ -629,8 +629,8 @@ export function installTestHost() {
       queueMicrotask(() => {
         if (scenario === "failed" || scenario === "download-failed") {
           finishUpdate(scenario === "failed"
-            ? "couldn't replace CARE Desktop, so the current version was kept: exit status 1"
-            : "the CARE Desktop 0.1.6 update didn't download properly and was deleted without being installed (SHA-256 mismatch)");
+            ? "couldn't replace CARE Clinic, so the current version was kept: exit status 1"
+            : "the CARE Clinic 0.1.6 update didn't download properly and was deleted without being installed (SHA-256 mismatch)");
           return;
         }
         const phase: AppUpdateProgress["phase"] =
@@ -651,7 +651,7 @@ export function installTestHost() {
       if (!quitRequest || quitRequest.id !== id) throw new Error("this quit request is no longer active");
       quitRequest = null;
       fixtures.quitAccepted = quit;
-      if (quit) logs.push("Test only: CARE Desktop would close after confirmation.");
+      if (quit) logs.push("Test only: CARE Clinic would close after confirmation.");
     },
     SetConfirmationDialogReady: async (ready: boolean) => {
       if (!ready) confirmation = null;

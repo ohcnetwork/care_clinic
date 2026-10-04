@@ -217,12 +217,12 @@ export function isHiddenKey(key: string): boolean {
   return HIDDEN_KEYS.has(key) || HIDDEN_PREFIXES.some((p) => key.startsWith(p));
 }
 
-/** Keys CARE Desktop owns, and where their configuration belongs. */
+/** Keys CARE Clinic owns, and where their configuration belongs. */
 export const MANAGED_NOTES: Record<string, string> = {
-  DJANGO_SECRET_KEY: "Generated and protected by CARE Desktop.",
-  CSRF_TRUSTED_ORIGINS: "The clinic address is managed by CARE Desktop.",
-  BUCKET_EXTERNAL_ENDPOINT: "The clinic address is managed by CARE Desktop.",
-  REACT_CARE_API_URL: "The clinic address is managed by CARE Desktop.",
+  DJANGO_SECRET_KEY: "Generated and protected by CARE Clinic.",
+  CSRF_TRUSTED_ORIGINS: "The clinic address is managed by CARE Clinic.",
+  BUCKET_EXTERNAL_ENDPOINT: "The clinic address is managed by CARE Clinic.",
+  REACT_CARE_API_URL: "The clinic address is managed by CARE Clinic.",
   ADDITIONAL_PLUGS: "Use the Plugins tab instead.",
 };
 

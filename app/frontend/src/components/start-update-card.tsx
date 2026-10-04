@@ -58,24 +58,24 @@ export function StartUpdateCard({ controller, context = "start" }: {
     eyebrow = "Updating";
     switch (phase) {
       case "downloading":
-        title = `Downloading CARE Desktop ${releaseVersion}\u2026`;
+        title = `Downloading CARE Clinic ${releaseVersion}\u2026`;
         detail = "Keep this window open. You can continue once the update has finished.";
         break;
       case "verifying":
-        title = `Checking CARE Desktop ${releaseVersion}\u2026`;
+        title = `Checking CARE Clinic ${releaseVersion}\u2026`;
         detail = "Keep this window open. You can continue once the update has finished.";
         break;
       case "installing":
-        title = `Installing CARE Desktop ${releaseVersion}\u2026`;
+        title = `Installing CARE Clinic ${releaseVersion}\u2026`;
         detail = "Your computer may ask for permission to replace the app.";
         break;
       case "restarting":
-        title = "Restarting CARE Desktop to finish updating\u2026";
+        title = "Restarting CARE Clinic to finish updating\u2026";
         detail = "You'll be back here in a moment.";
         break;
       case "installer":
         title = "The installer has opened";
-        detail = "Follow it to finish updating, then reopen CARE Desktop.";
+        detail = "Follow it to finish updating, then reopen CARE Clinic.";
         break;
       default:
         title = "Preparing the update\u2026";
@@ -94,7 +94,7 @@ export function StartUpdateCard({ controller, context = "start" }: {
         break;
       case "location":
         title = "Open an installed copy to update";
-        detail = "Install CARE Desktop in a permanent folder first. On macOS, open the copy outside the disk image; on Windows, use the installed Start menu shortcut. Development copies cannot update themselves.";
+        detail = "Install CARE Clinic in a permanent folder first. On macOS, open the copy outside the disk image; on Windows, use the installed Start menu shortcut. Development copies cannot update themselves.";
         showLog = true;
         break;
       case "download":
@@ -119,13 +119,13 @@ export function StartUpdateCard({ controller, context = "start" }: {
     }
   } else if (update?.available) {
     eyebrow = "Update available";
-    title = `CARE Desktop ${releaseVersion}`;
-    detail = context === "setup" ? "Best done before installing. CARE Desktop will close briefly and reopen."
-      : "Updates this installed copy and reopens CARE Desktop. Your computer may ask for permission. Clinic data is kept and a running clinic is not stopped.";
+    title = `CARE Clinic ${releaseVersion}`;
+    detail = context === "setup" ? "Best done before installing. CARE Clinic will close briefly and reopen."
+      : "Updates this installed copy and reopens CARE Clinic. Your computer may ask for permission. Clinic data is kept and a running clinic is not stopped.";
   }
 
   return (
-    <div className="start-updates" aria-label="CARE Desktop updates">
+    <div className="start-updates" aria-label="CARE Clinic updates">
       {title ? (
         <div className={`start-update-card ${tone ? `start-update-${tone}` : ""}`}>
           <div role={problem ? "alert" : "status"} aria-live={problem ? "assertive" : "polite"} aria-atomic="true">

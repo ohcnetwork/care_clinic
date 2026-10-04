@@ -5,7 +5,7 @@
   <zip-file>
     <pe-file path="*.exe"
              max-matches="2"
-             product-name="CARE Desktop"
+             product-name="CARE Clinic"
              company-name="Open Healthcare Network Foundation"
              product-version="${version}">
       <authenticode-sign />

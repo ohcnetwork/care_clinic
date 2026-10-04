@@ -8,9 +8,9 @@
 
 	pki {
 		ca local {
-			name "CARE Desktop"
-			root_cn "CARE Desktop Local CA"
-			intermediate_cn "CARE Desktop Local CA - Intermediate"
+			name "CARE Clinic"
+			root_cn "CARE Clinic Local CA"
+			intermediate_cn "CARE Clinic Local CA - Intermediate"
 		}
 	}
 }

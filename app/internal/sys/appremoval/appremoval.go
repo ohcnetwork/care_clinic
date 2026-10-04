@@ -27,7 +27,7 @@ func Target() (string, error) {
 	case "windows":
 		uninstaller := filepath.Join(filepath.Dir(exe), "uninstall.exe")
 		if !proc.FileExists(uninstaller) {
-			return "", errors.New("this copy of CARE Desktop was not installed with the Windows installer; delete its folder instead")
+			return "", errors.New("this copy of CARE Clinic was not installed with the Windows installer; delete its folder instead")
 		}
 		return uninstaller, nil
 	}
@@ -37,10 +37,10 @@ func Target() (string, error) {
 func bundleOf(exe string) (string, error) {
 	bundle := filepath.Dir(filepath.Dir(filepath.Dir(exe)))
 	if filepath.Ext(bundle) != ".app" || filepath.Base(filepath.Dir(exe)) != "MacOS" {
-		return "", errors.New("CARE Desktop is not running from an app bundle")
+		return "", errors.New("CARE Clinic is not running from an app bundle")
 	}
 	if strings.Contains(bundle, "/AppTranslocation/") || strings.HasPrefix(bundle, "/Volumes/") {
-		return "", errors.New("CARE Desktop is running from the disk image or a temporary copy; drag it to the Trash from the folder it was installed in")
+		return "", errors.New("CARE Clinic is running from the disk image or a temporary copy; drag it to the Trash from the folder it was installed in")
 	}
 	return bundle, nil
 }

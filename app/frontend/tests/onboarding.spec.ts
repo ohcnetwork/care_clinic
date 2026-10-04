@@ -255,7 +255,7 @@ for (const first of ["find", "update"] as const) {
       await page.evaluate(() => window.careTest.release("FindClinic"));
       await expect(page.getByRole("heading", { name: "We found your clinic's server" })).toBeVisible();
     } else {
-      await expect(page.getByText("Downloading CARE Desktop 0.1.6…", { exact: true })).toBeVisible();
+      await expect(page.getByText("Downloading CARE Clinic 0.1.6…", { exact: true })).toBeVisible();
       expect(await calls(page, "FindClinic")).toBe(0);
       expect(await calls(page, "ClientPreflight")).toBe(0);
     }
@@ -271,13 +271,13 @@ for (const role of ["client", "server"] as const) {
       const next = role === "client" ? page.getByRole("button", { name: "Find server", exact: true }) : forward(page);
       await expect(next).toBeEnabled();
       await page.getByRole("button", { name: "Update now", exact: true }).click();
-      await expect(page.getByText("Downloading CARE Desktop 0.1.6…", { exact: true })).toBeVisible();
+      await expect(page.getByText("Downloading CARE Clinic 0.1.6…", { exact: true })).toBeVisible();
       await page.evaluate((value) => {
         window.careTest.progress({ phase: value, done: 0, total: 0 });
         window.careTest.finishUpdate();
       }, phase);
       const guidance = page.getByText(phase === "installer"
-        ? "Follow it to finish updating, then reopen CARE Desktop."
+        ? "Follow it to finish updating, then reopen CARE Clinic."
         : "You'll be back here in a moment.", { exact: true });
       await expect(guidance).toBeVisible();
       await expect(next).toBeDisabled();
@@ -495,7 +495,7 @@ for (const platform of ["darwin", "linux", "windows"]) {
 
 test("space blocks setup before any downloads or configuration writes", async ({ page }) => {
   await page.goto("/tests/fixtures/index.html?scenario=setup-space");
-  await expect(page.getByText("CARE Desktop needs at least 30 GB for the clinic software and records.")).toBeVisible();
+  await expect(page.getByText("CARE Clinic needs at least 30 GB for the clinic software and records.")).toBeVisible();
   const summary = page.locator(".on-space-summary");
   await expect(summary).toContainText("Space needed30 GB");
   await expect(summary).toContainText("Available space12 GB");
@@ -524,7 +524,7 @@ test("space distinguishes the separate settings drive from the 30 GB data drive"
     };
   });
   await page.getByRole("button", { name: "Start setup" }).click();
-  await expect(page.getByText("CARE Desktop needs at least 30 GB for the clinic software and records.")).toBeVisible();
+  await expect(page.getByText("CARE Clinic needs at least 30 GB for the clinic software and records.")).toBeVisible();
   await expect(page.locator(".on-space-summary")).toContainText("Settings drive needs1.0 GB");
   await expect(page.locator(".on-space-summary")).toContainText("Available on settings drive100 MB");
   await expect(page.locator(".on-space-summary")).toHaveCSS("color", "rgb(153, 27, 27)");
@@ -807,7 +807,7 @@ for (const clean of [true, false]) {
       await expect(page.getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
       await expect(page.getByText("The check found no leftovers. Your backups have been kept.")).toHaveCount(0);
     }
-    await expect(page.getByText("CARE Desktop hit a problem")).toHaveCount(0);
+    await expect(page.getByText("CARE Clinic hit a problem")).toHaveCount(0);
   });
 }
 
@@ -1048,7 +1048,7 @@ for (const first of ["save", "update"] as const) {
       await page.evaluate(() => window.careTest.release("SaveSetupBackupRecovery"));
       await expect(page.getByText("Recovery file saved", { exact: true })).toBeVisible();
     } else {
-      await expect(page.getByText("Downloading CARE Desktop 0.1.6…", { exact: true })).toBeVisible();
+      await expect(page.getByText("Downloading CARE Clinic 0.1.6…", { exact: true })).toBeVisible();
       expect(await calls(page, "SaveSetupBackupRecovery")).toBe(0);
     }
     await expect(forward(page)).toBeDisabled();

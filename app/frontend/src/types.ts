@@ -69,7 +69,7 @@ export type SetupRecoveryStatus = {
   codes_problem: string;
 };
 
-/** One thing an earlier CARE Desktop left on this computer. */
+/** One thing an earlier CARE Clinic left on this computer. */
 export type ResidueTrace = { id: string; label: string; detail: string };
 
 /** What ScanResidue found. `clean` is what the wizard gates on. */

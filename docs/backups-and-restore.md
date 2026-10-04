@@ -46,7 +46,7 @@ A clinic has two different kinds of clinical data:
 
 The storage implementation is now **Silo**, but its Compose service is still
 named `minio`, and its normal data volume is still
-`care-desktop_minio-data`. Backup and recovery intentionally use those existing
+`care-clinic_minio-data`. Backup and recovery intentionally use those existing
 names. They are not instructions to rename a service or migrate a volume.
 
 | Term | Meaning in this implementation |
@@ -122,7 +122,7 @@ by filesystem modification time.
 
 The suffix `.enc` identifies encrypted backup content. The separate
 `CARE-<clinic>-backup-recovery-<UTC timestamp>-<random suffix>.pem` file is a
-private key, not a backup. Recovery PEM exports and Desktop admin code sheets
+private key, not a backup. Recovery PEM exports and CARE Clinic admin code sheets
 use a portable UTC timestamp (including nanoseconds) plus a random suffix in
 their suggested filenames, so repeated saves have distinct names. CARE never
 overwrites an existing recovery file, even if a native dialog approves it.
@@ -134,7 +134,7 @@ continuing. Cancellation or a failed save leaves the previous key active.
 Replacement is locked once installation starts.
 
 For an installed clinic, **Backups > Re-download backup key** requires the
-current Desktop admin password. Once enrolled, it decrypts the encrypted local
+current CARE Clinic admin password. Once enrolled, it decrypts the encrypted local
 copy even if the original PEM has been deleted or disconnected. Existing
 installations without this copy need one successful export from their original
 saved PEM, or **Select another saved copy**. The dialog explains that this
@@ -210,7 +210,7 @@ image must also supply the PostgreSQL and shell utilities the script uses,
 including `tar`, `find`, and `flock`; the Dockerfile explicitly adds only
 OpenSSL.
 
-## 3. Backup recovery file and Desktop admin recovery
+## 3. Backup recovery file and CARE Clinic admin recovery
 
 ### These are not interchangeable
 
@@ -218,8 +218,8 @@ OpenSSL.
 | --- | --- | --- |
 | `keys/backup-cert.pem` | Public certificate for unattended encryption; also copied into the backup folder as an ownership marker. | The private recovery file. This is not the clinic's HTTPS certificate. |
 | `CARE-<clinic>-backup-recovery-<timestamp>-<suffix>.pem` | Private key exported to a location chosen by the clinic manager. Select it to restore encrypted backups. | Backup data, Desktop authorisation, or another clinic's key. |
-| Desktop admin password | Authorises protected Desktop operations and unlocks an enrolled encrypted local key copy. | Direct OpenSSL backup decryption without the private key, or the independently stored CARE web login. |
-| Six Desktop admin recovery codes | Each unused code can reset the Desktop password offline. | Backup decryption or CARE web password recovery. |
+| CARE Clinic admin password | Authorises protected Desktop operations and unlocks an enrolled encrypted local key copy. | Direct OpenSSL backup decryption without the private key, or the independently stored CARE web login. |
+| Six CARE Clinic admin recovery codes | Each unused code can reset the CARE Clinic password offline. | Backup decryption or CARE web password recovery. |
 | Database password | Authenticates PostgreSQL commands. | Any recovery material. |
 
 ### Setup and custody
@@ -239,7 +239,7 @@ local copy before installation begins.
 
 `app_backup_key.go` uses the existing `golang.org/x/crypto` dependency:
 Argon2id (64 MiB memory, three passes, two lanes) derives a 256-bit wrapping
-key from the Desktop password and a fresh 16-byte random salt. AES-256-GCM
+key from the CARE Clinic password and a fresh 16-byte random salt. AES-256-GCM
 uses a fresh 12-byte random nonce. Authenticated associated data binds the
 versioned envelope to the clinic address and SHA-256 digest of its public
 certificate. Fixed versioned parameters and bounded envelope sizes avoid
@@ -256,7 +256,7 @@ forensically erased.
 
 This is a convenience/security tradeoff, not protection against a compromised
 computer. A stolen config enables offline password guessing (the existing
-bcrypt hash can also assist guessing); choose a strong unique Desktop
+bcrypt hash can also assist guessing); choose a strong unique CARE Clinic
 password, use OS full-disk encryption, and protect the user account. Malware
 running as that user can observe passwords or decrypted keys. Local
 administrators can bypass file permissions. Older copies/snapshots of config
@@ -267,7 +267,7 @@ same private key using a fresh salt/nonce and atomically saves both its new
 envelope and new password hash. A key-unlock or persistence failure leaves
 the old password and envelope unchanged.
 
-**Forgot Desktop password?**, using a recovery code, cannot decrypt the
+**Forgot CARE Clinic password?**, using a recovery code, cannot decrypt the
 old-password envelope. The UI warns before resetting; reset preserves that
 ciphertext but marks password-only export as needing re-enrollment from a
 surviving PEM. The code consumption, password hash and enrollment flag are
@@ -287,7 +287,7 @@ own saved confirmation; a cancelled or failed operation does not mark a step don
 
 **Anyone with the recovery file and the backups can decrypt patient data.**
 Keep them separate. An enrolled local copy can replace a lost PEM only while
-the matching Desktop password and settings remain available. Losing the
+the matching CARE Clinic password and settings remain available. Losing the
 computer/settings, uninstalling, or resetting a forgotten password may remove
 that route. Keep an independent off-device PEM even after enrollment. The
 recovery file contains no patient-data backup. Uninstall removes the local
@@ -304,14 +304,14 @@ Exports are exclusive-create files with requested mode `0600`, synced before
 success. Existing exports are never overwritten. Keys directories use `0700`.
 POSIX modes are not equivalent to Windows ACL guarantees.
 
-### Offline Desktop password recovery
+### Offline CARE Clinic password recovery
 
 Setup also exports a printable text sheet of exactly six random 128-bit codes,
 including clinic name, issue time and usage instructions. The application
 stores only SHA-256 hashes of the normalised codes; spaces, hyphens and case
 do not affect entry. Plaintext codes are never returned through the UI bridge.
 
-Advanced provides **Forgot Desktop password?**, **Change Desktop password** and
+Advanced provides **Forgot CARE Clinic password?**, **Change CARE Clinic password** and
 **Replace recovery codes**. A reset atomically changes the bcrypt password hash
 and clears the used code hash. Other codes remain usable. Failed writes leave
 both unchanged in memory. Five invalid attempts start a persisted cooldown;
@@ -554,12 +554,12 @@ request acceptance alone cannot mark a backup successful.
 There is one visible **Restore from a backup file** route for local and imported
 files. It calls `ChooseBackupFile`, then `InspectBackupFile`, and presents the
 database-only or database-plus-files scope. Before `RestoreFromFile` it
-re-inspects the selected metadata, checks the Desktop password, requires the
+re-inspects the selected metadata, checks the CARE Clinic password, requires the
 selected recovery file for encryption and requires explicit replacement
 acknowledgement. The protected native job performs the deeper checks described
 below; the UI does not replace them.
 
-Cancel and Forgot Desktop password remain usable before native submission,
+Cancel and Forgot CARE Clinic password remain usable before native submission,
 including while a read-only picker or preflight result is pending. Cancellation
 invalidates that operation, clears the password and acknowledgement, and keeps
 the last accepted file selection. A late picker cannot replace it or reopen the
@@ -674,7 +674,7 @@ independent running service:
 | `Dir`, `BackupDir` | Installation and backup folders. The journal and connection settings are installation-local. |
 | `Image`, `BackendImage` | Backup-tools image and CARE backend image. The backend image supplies Python for archive validation and is needed for staged migrations. |
 | `Host` | Clinic hostname used in the completion message; not the PostgreSQL host. |
-| `Project` | Docker project/network/resource prefix; the clinic wiring uses `care-desktop`. |
+| `Project` | Docker project/network/resource prefix; the clinic wiring uses `care-clinic`. |
 | `Log` | Optional log callback. |
 | `EnsureImage` | Callback to ensure the backup image, used by key setup and prepared recovery. |
 | `EnsureRestoreImages` | Callback ensuring the images needed for staged restore. |
@@ -707,7 +707,7 @@ hexadecimal characters. For a synthetic ID such as
 | Staging Docker volume | `<project>_restore_<id>_stage` |
 | Previous-files Docker volume | `<project>_restore_<id>_previous` |
 | Helper container | `<project>-restore-<id>-<step>` |
-| Restore label | Exported `RestoreLabel` constant: `org.care-desktop.restore=<id>` |
+| Restore label | Exported `RestoreLabel` constant: `org.care-clinic.restore=<id>` |
 | Project label | `com.docker.compose.project=<project>` |
 | PostgreSQL ownership/application tag | `<project>:restore:<id>` |
 
@@ -1260,7 +1260,7 @@ This is the complete Go-file inventory owned by this guide.
 | --- | --- |
 | [`app/internal/backup/store.go`](../app/internal/backup/store.go) | `Store` dependency fields, runner attachment through `New`, optional logging, and the Compose command helper. |
 | [`app/internal/backup/crypto.go`](../app/internal/backup/crypto.go) | Recovery-file generation/validation, public certificate installation, location checks, certificate ownership, and owned-entry backup deletion. |
-| [`app/app_recovery.go`](../app/app_recovery.go) | Native recovery exports, setup verification, single-use Desktop recovery codes, password changes, and offline reset throttling. |
+| [`app/app_recovery.go`](../app/app_recovery.go) | Native recovery exports, setup verification, single-use CARE Clinic recovery codes, password changes, and offline reset throttling. |
 | [`app/app_backup_key.go`](../app/app_backup_key.go) | Versioned Argon2id/AES-GCM local key encryption, certificate/clinic binding, and setup enrollment. |
 | [`app/internal/backup/restore.go`](../app/internal/backup/restore.go) | `Backup` list shape, filename recognition/pairing, configured/external source validation, key selection, staging orchestration, cutover orchestration, activation, and finalization call. |
 | [`app/internal/backup/restore_data.go`](../app/internal/backup/restore_data.go) | Database readiness/settings/identity helpers, SQL load/swap/rollback/cleanup scripts, file snapshot/replacement helpers, and Python archive validation. |

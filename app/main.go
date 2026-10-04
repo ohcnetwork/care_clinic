@@ -71,7 +71,7 @@ func main() {
 	}
 
 	err = wails.Run(&options.App{
-		Title:            "CARE Desktop",
+		Title:            "CARE Clinic",
 		Width:            windowWidth,
 		Height:           windowHeight,
 		MinWidth:         windowMinWidth,
@@ -101,7 +101,7 @@ func main() {
 	}
 	if app.removeTarget != "" {
 		if err := appremoval.Remove(app.removeTarget); err != nil {
-			alert("CARE Desktop was not removed", fmt.Errorf("the clinic setup was removed, but the app could not be: %w", err))
+			alert("CARE Clinic was not removed", fmt.Errorf("the clinic setup was removed, but the app could not be: %w", err))
 		}
 	}
 }
@@ -112,7 +112,7 @@ func exit(code int) {
 }
 
 func fatal(err error) {
-	const title = "CARE Desktop can't start"
+	const title = "CARE Clinic can't start"
 	appLog.Writef("FATAL %s: %s", title, err)
 	show(title, err)
 	os.Exit(1)

@@ -13,7 +13,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error("CARE Desktop crashed:", error, info.componentStack);
+    console.error("CARE Clinic crashed:", error, info.componentStack);
   }
 
   render(): ReactNode {
@@ -23,9 +23,9 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="flex h-full items-center justify-center bg-background p-10">
         <div className="max-w-[560px] rounded-2xl border border-line bg-card p-[26px] shadow-card">
-          <div className="text-[17px] font-bold text-ink">CARE Desktop hit a problem</div>
+          <div className="text-[17px] font-bold text-ink">CARE Clinic hit a problem</div>
           <p className="mt-1.5 text-[13px] text-muted-foreground">
-            CARE Desktop could not continue. Read the message below before retrying.
+            CARE Clinic could not continue. Read the message below before retrying.
           </p>
           <pre className="mt-4 max-h-[220px] overflow-auto rounded-lg bg-[#0b1f17] px-4 py-3.5 font-mono text-[12.5px] leading-[1.6] break-words whitespace-pre-wrap text-[#d7f7e6]">
             {error.stack?.includes(error.message)

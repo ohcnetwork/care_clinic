@@ -192,11 +192,11 @@ Function un.onInit
     ${If} $0 == 0
         Return
     ${ElseIf} $0 == 3
-        MessageBox MB_OK|MB_ICONEXCLAMATION "CARE Desktop is still open. Quit it, then run the uninstaller again." /SD IDOK
+        MessageBox MB_OK|MB_ICONEXCLAMATION "CARE Clinic is still open. Quit it, then run the uninstaller again." /SD IDOK
     ${ElseIf} $0 == 4
-        MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "The uninstaller is running as a different Windows account, so it cannot check the clinic setup of the account that uses CARE Desktop.$\r$\n$\r$\nIf that account runs a clinic server or is connected to a clinic, choose No, sign in to it, and uninstall from CARE Desktop first.$\r$\n$\r$\nRemove the app anyway?" /SD IDYES IDYES removeAnyway
+        MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "The uninstaller is running as a different Windows account, so it cannot check the clinic setup of the account that uses CARE Clinic.$\r$\n$\r$\nIf that account runs a clinic server or is connected to a clinic, choose No, sign in to it, and uninstall from CARE Clinic first.$\r$\n$\r$\nRemove the app anyway?" /SD IDYES IDYES removeAnyway
     ${Else}
-        MessageBox MB_OK|MB_ICONEXCLAMATION "CARE Desktop was not removed because this computer still has a clinic setup or a clinic connection. Run the uninstaller again when you are ready to remove it." /SD IDOK
+        MessageBox MB_OK|MB_ICONEXCLAMATION "CARE Clinic was not removed because this computer still has a clinic setup or a clinic connection. Run the uninstaller again when you are ready to remove it." /SD IDOK
     ${EndIf}
     Abort
   removeAnyway:

@@ -135,7 +135,7 @@ func TestSelectRemovableNeverRemovesThePinnedRoot(t *testing.T) {
 }
 
 func TestHexLinesIgnoresEverythingThatIsNotAFingerprint(t *testing.T) {
-	got := hexLines("A1B2C3\n\nnot a hash\n a1 b2 c3 \nCN=CARE Desktop Local CA\n")
+	got := hexLines("A1B2C3\n\nnot a hash\n a1 b2 c3 \nCN=CARE Clinic Local CA\n")
 	if !slices.Equal(got, []string{"A1B2C3"}) {
 		t.Fatalf("hexLines = %v", got)
 	}

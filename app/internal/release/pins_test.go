@@ -39,7 +39,7 @@ func TestLoadValidatesVersions(t *testing.T) {
 	}
 	for _, version := range []string{"0.0", "v0.1.0", "0.1.0-release", "01.1.0"} {
 		t.Run(version, func(t *testing.T) {
-			invalid := strings.Replace(data, "CARE_DESKTOP_VERSION="+pins.AppVersion, "CARE_DESKTOP_VERSION="+version, 1)
+			invalid := strings.Replace(data, "CARE_CLINIC_VERSION="+pins.AppVersion, "CARE_CLINIC_VERSION="+version, 1)
 			if _, err := Load([]byte(invalid)); err == nil {
 				t.Fatal("invalid version was accepted")
 			}

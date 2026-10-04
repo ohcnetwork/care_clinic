@@ -472,7 +472,7 @@ func TestNewAppKeepsFreshAndClientInstallsOutOfServerFlow(t *testing.T) {
 	t.Setenv("PATH", os.Getenv("PATH"))
 	t.Setenv("SHELL", filepath.Join(root, "no-login-shell"))
 	files := fstest.MapFS{
-		"install/.env": {Data: []byte(`CARE_DESKTOP_VERSION=0.0.0-dev
+		"install/.env": {Data: []byte(`CARE_CLINIC_VERSION=0.0.0-dev
 POSTGRES_IMAGE=postgres:test
 REDIS_IMAGE=redis:test
 MINIO_IMAGE=minio:test

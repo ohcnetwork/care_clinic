@@ -27,7 +27,7 @@ func Check() Plan {
 		Needed: true,
 		Title:  "Restart to finish setting up Docker",
 		Detail: "Windows needs to restart before Docker can run - it has to turn on WSL 2, " +
-			"which only takes effect after a restart. CARE Desktop will open again by itself " +
+			"which only takes effect after a restart. CARE Clinic will open again by itself " +
 			"and pick up where you left off.",
 		Label: "Restart now",
 	}
@@ -50,5 +50,5 @@ func Now() error {
 		return fmt.Errorf("restarting isn't supported on %s", runtime.GOOS)
 	}
 	return proc.Command("shutdown", "/r", "/t", "5", "/c",
-		"CARE Desktop is restarting this computer to finish setting up Docker.").Run()
+		"CARE Clinic is restarting this computer to finish setting up Docker.").Run()
 }

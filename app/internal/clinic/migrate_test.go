@@ -210,7 +210,7 @@ func TestStagedMigrationOverridesDatabaseWithoutCredentialArguments(t *testing.T
 	}
 	calls := trace()
 	for _, want := range []string{
-		"compose run --rm --no-deps", "--entrypoint python", "-e POSTGRES_DB -e DATABASE_URL", "org.care-desktop.restore=" + id,
+		"compose run --rm --no-deps", "--entrypoint python", "-e POSTGRES_DB -e DATABASE_URL", "org.care-clinic.restore=" + id,
 	} {
 		if !strings.Contains(calls, want) {
 			t.Fatalf("staged migration omitted %q: %s", want, calls)

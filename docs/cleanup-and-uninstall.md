@@ -81,7 +81,7 @@ and either the install directory has files or the settings hold more than the
 role and chosen name. A computer that only picked Server or Client is not set up.
 
 **In the app (macOS and Windows).** The uninstall panel and the client
-**Disconnect** dialog show **Also remove the CARE Desktop app from this computer**
+**Disconnect** dialog show **Also remove the CARE Clinic app from this computer**
 when `CanRemoveApp()` is true. After the cleanup succeeds, `RemoveApp()` waits for
 the job to finish, quits, and then:
 
@@ -105,14 +105,14 @@ and waits for its exit code:
 
 | Mode | Started as | What the app does |
 | --- | --- | --- |
-| Interactive | `CARE Desktop.exe --uninstall` | Exits 0 at once if nothing is set up. Otherwise opens the uninstall screen: admin password and the normal uninstall options on a server, **Disconnect** on a client, **Remove everything** for an unfinished setup. It exits 0 once the setup is gone, or 1 on **Keep CARE Desktop** or closing the window. |
-| Silent (`/S`) | `CARE Desktop.exe --uninstall-check` | Never shows a window. Exits 0 if nothing is set up, otherwise 1, so a silent uninstall cannot delete clinic data. |
+| Interactive | `CARE Clinic.exe --uninstall` | Exits 0 at once if nothing is set up. Otherwise opens the uninstall screen: admin password and the normal uninstall options on a server, **Disconnect** on a client, **Remove everything** for an unfinished setup. It exits 0 once the setup is gone, or 1 on **Keep CARE Clinic** or closing the window. |
+| Silent (`/S`) | `CARE Clinic.exe --uninstall-check` | Never shows a window. Exits 0 if nothing is set up, otherwise 1, so a silent uninstall cannot delete clinic data. |
 
 | Exit code | Uninstaller result |
 | --- | --- |
 | 0 | Removes the app. |
 | 1 | Stops and says the computer still has a clinic setup or connection. |
-| 3 | Stops: another CARE Desktop process was still running after 10 seconds. |
+| 3 | Stops: another CARE Clinic process was still running after 10 seconds. |
 | 4 | The uninstaller runs as a different Windows account from the signed-in one (an administrator approved it), so the app cannot see that account's setup. Asks before removing anyway; a silent uninstall removes it. |
 
 If the app executable is missing or cannot start, the uninstaller removes the
@@ -213,21 +213,21 @@ A successful removal cannot be inferred from just an absent container.
 
 | Resource | How the code recognizes it | Why ownership matters |
 | --- | --- | --- |
-| Compose project | Constant project name `care-desktop`; resource label `com.docker.compose.project=care-desktop`. | The label applies across directories on the selected Docker engine/context. It is not a per-install-directory namespace. |
+| Compose project | Constant project name `care-clinic`; resource label `com.docker.compose.project=care-clinic`. | The label applies across directories on the selected Docker engine/context. It is not a per-install-directory namespace. |
 | Containers | Docker lists all containers, including stopped ones, with that project label. | Orphans and stopped containers can keep volumes attached even after an ordinary stop. |
 | Volumes | Docker volume inventory filtered by the project label. | These contain live database, object-storage, Redis, and Caddy state, not merely caches. |
 | Networks | Docker network inventory filtered by the project label. | An unused-looking project network still counts as old installation state. |
 | Known images | Exact repository/tag strings derived from the current release pins. | A matching tag is not proof of exclusive ownership; another project may use it. Older or differently named images are not exhaustively discovered. |
 | Docker build cache | Docker builder's eligible unused cache, not a clinic-labeled inventory. | Removing it affects build performance for other projects using that builder. |
-| Installed kit | App-selected absolute directory ending in `care-desktop/install`, with additional deletion guards. | Contains runtime files, source checkouts, keys, and potentially restore working material. It is not interchangeable with a repository checkout. |
+| Installed kit | App-selected absolute directory ending in `care-clinic/install`, with additional deletion guards. | Contains runtime files, source checkouts, keys, and potentially restore working material. It is not interchangeable with a repository checkout. |
 | Local backup certificate | `keys/backup-cert.pem` in the installed kit. | Public encryption material only; it cannot decrypt backups. |
 | Exported backup certificate | `backup-cert.pem` in the effective backup directory. | Public ownership marker for recognizing this clinic's backup directory. |
 | Backup files | The backup package's validated inventory in the configured backup location. | Selecting backup removal must not mean recursively deleting arbitrary neighboring files. |
 | Saved configuration | App-provided config path, when it represents installation state rather than only a selected wizard name. | Keeps enough state, including `Removing`, to prevent an unsafe fresh start after partial deletion. |
-| User-exported recovery materials | Private backup recovery file and printable Desktop recovery-code sheet in user-chosen locations. | Never deleted by uninstall. The matching private file is required for retained backups; Desktop codes become invalid when config is removed. |
-| Hosts mapping | CARE's owned hosts-file marker, `# care-desktop`. | Native cleanup must avoid unrelated host mappings. |
-| Trusted certificate | CARE certificate fingerprints and the stable `CARE Desktop Local CA` identity. | Reinstalling generates new certificates; cleanup must also recognize an older trusted CARE root. |
-| Windows network changes | Firewall rules with owned `CARE Desktop ` display-name prefix, recognized by `netfix`. | Shared network profiles are not owned cleanup artifacts; removal does not restore them to Public. |
+| User-exported recovery materials | Private backup recovery file and printable CARE Clinic recovery-code sheet in user-chosen locations. | Never deleted by uninstall. The matching private file is required for retained backups; Desktop codes become invalid when config is removed. |
+| Hosts mapping | CARE's owned hosts-file marker, `# care-clinic`. | Native cleanup must avoid unrelated host mappings. |
+| Trusted certificate | CARE certificate fingerprints and the stable `CARE Clinic Local CA` identity. | Reinstalling generates new certificates; cleanup must also recognize an older trusted CARE root. |
+| Windows network changes | Firewall rules with owned `CARE Clinic ` display-name prefix, recognized by `netfix`. | Shared network profiles are not owned cleanup artifacts; removal does not restore them to Public. |
 | Start-at-login entry | Platform `autostart` integration. | Engine normal uninstall and engine purge handle this at different layers. |
 | Diagnostic logs | The App logger's folder. | Normal uninstall keeps diagnostics; residue purge explicitly removes that folder after other verification. |
 
@@ -235,11 +235,11 @@ The Compose file declares five named volumes:
 
 | Compose key | Normal Docker name | Data lost when removed |
 | --- | --- | --- |
-| `postgres-data` | `care-desktop_postgres-data` | The live PostgreSQL database. |
-| `redis-data` | `care-desktop_redis-data` | Redis persistence. |
-| `minio-data` | `care-desktop_minio-data` | Uploaded objects and storage-server state. The Silo replacement intentionally retains this identity. |
-| `caddy-data` | `care-desktop_caddy-data` | Caddy state, including the local certificate authority. |
-| `caddy-config` | `care-desktop_caddy-config` | Caddy configuration state. |
+| `postgres-data` | `care-clinic_postgres-data` | The live PostgreSQL database. |
+| `redis-data` | `care-clinic_redis-data` | Redis persistence. |
+| `minio-data` | `care-clinic_minio-data` | Uploaded objects and storage-server state. The Silo replacement intentionally retains this identity. |
+| `caddy-data` | `care-clinic_caddy-data` | Caddy state, including the local certificate authority. |
+| `caddy-config` | `care-clinic_caddy-config` | Caddy configuration state. |
 
 These expected names help explain the deployment. Actual teardown selects
 **all resources carrying the project label**, not only a hard-coded list of
@@ -492,7 +492,7 @@ The Caddy-root read is best-effort and can return an empty string. Native
 cleanup still needs to recognize old CARE roots, which is why a stable CA
 Common Name matters when the original volume or certificate is already gone.
 
-Windows network removal drops rules with the owned `CARE Desktop ` prefix
+Windows network removal drops rules with the owned `CARE Clinic ` prefix
 and verifies their absence. It does not return network profiles to Public:
 the previous category is not recorded, and profiles are shared machine state.
 On non-Windows systems this network-repair integration is not a general
@@ -726,11 +726,11 @@ guards before it can remove an installed directory:
    found, the directory is kept and an error explains that a source checkout
    must not be deleted automatically.
 2. After `filepath.Clean`, the path must be absolute, its final component must
-   equal `install`, and its parent component must equal `care-desktop`.
+   equal `install`, and its parent component must equal `care-clinic`.
    Component comparisons are case-insensitive.
 
 For illustration, an App-controlled path ending in
-`care-desktop/install` has the required shape; a folder merely selected by an
+`care-clinic/install` has the required shape; a folder merely selected by an
 operator as a generic working directory does not.
 
 These checks are intentionally conservative but should not be overstated:
@@ -920,7 +920,7 @@ guards and preservation rules continue to apply on every attempt.
 ### A current missing-kit caveat
 
 Normal engine Uninstall's missing-compose error suggests reopening CARE
-Desktop to restore the installed files. The App also correctly suppresses
+Clinic to restore the installed files. The App also correctly suppresses
 ordinary kit refresh while `Removing=true`. Therefore **reopening alone is
 not guaranteed to repair that particular removal-in-progress state**.
 

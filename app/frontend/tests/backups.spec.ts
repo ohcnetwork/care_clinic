@@ -9,7 +9,7 @@ const samplePassword = "ClinicTest123";
 const root = (page: Page) => page.locator(".care-backups");
 const dialog = (page: Page) => page.getByRole("alertdialog");
 const replace = (page: Page) => dialog(page).getByRole("button", { name: "Replace current data", exact: true });
-const password = (page: Page) => dialog(page).getByLabel("CARE Desktop admin password", { exact: true });
+const password = (page: Page) => dialog(page).getByLabel("CARE Clinic admin password", { exact: true });
 const acknowledge = (page: Page) => dialog(page).getByRole("checkbox", { name: "I understand today's data will be replaced" });
 const callCount = (page: Page, method: string) => page.evaluate((name) =>
   window.careTest.calls.filter((call) => call.method === name).length, method);
@@ -176,7 +176,7 @@ async function updateHandoff(page: Page, phase: "installer" | "restarting" = "in
 async function acknowledgeUpdate(page: Page) {
   const navigation = page.getByRole("navigation", { name: "Clinic sections" });
   await navigation.getByRole("button", { name: "Updates", exact: true }).click();
-  await page.getByRole("region", { name: "CARE Desktop application", exact: true })
+  await page.getByRole("region", { name: "CARE Clinic application", exact: true })
     .getByRole("button", { name: "Done", exact: true }).click();
   await navigation.getByRole("button", { name: "Backups", exact: true }).click();
 }
@@ -423,7 +423,7 @@ for (const phase of ["installer", "restarting"] as const) {
     if (phase === "restarting") {
       await page.getByRole("navigation", { name: "Clinic sections" })
         .getByRole("button", { name: "Updates", exact: true }).click();
-      await expect(page.getByRole("region", { name: "CARE Desktop application", exact: true })).toContainText("CARE Desktop is reopening.");
+      await expect(page.getByRole("region", { name: "CARE Clinic application", exact: true })).toContainText("CARE Clinic is reopening.");
       await expect(page.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
       return;
     }
@@ -469,12 +469,12 @@ test("live update lock blocks restore submission while Cancel and recovery navig
     document.querySelector<HTMLFormElement>(".care-restore-dialog form")!.requestSubmit();
   });
   await expect(replace(page)).toBeDisabled();
-  await expect(dialog(page)).toContainText("Finish the CARE Desktop update first");
+  await expect(dialog(page)).toContainText("Finish the CARE Clinic update first");
   await expect(dialog(page).getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
   expect(await callCount(page, "InspectBackupFile")).toBe(inspections);
   expect(await callCount(page, "VerifyAdminPassword")).toBe(0);
   expect(await callCount(page, "RestoreFromFile")).toBe(0);
-  await dialog(page).getByRole("button", { name: "Forgot Desktop password?", exact: true }).click();
+  await dialog(page).getByRole("button", { name: "Forgot CARE Clinic password?", exact: true }).click();
   await expect(dialog(page)).toBeHidden();
   await expect(page.getByRole("heading", { name: "Advanced", exact: true })).toBeVisible();
   await updateHandoff(page);
@@ -615,7 +615,7 @@ test("wrong passwords stay in the confirmation without starting a restore", asyn
   await fillRestore(page);
   await password(page).fill("WrongPreview123");
   await replace(page).click();
-  await expect(dialog(page).getByRole("alert")).toContainText("That Desktop admin password doesn't match");
+  await expect(dialog(page).getByRole("alert")).toContainText("That CARE Clinic admin password doesn't match");
   await expect(password(page)).toHaveValue("WrongPreview123");
   await expect(acknowledge(page)).toBeChecked();
   expect(await callCount(page, "RestoreFromFile")).toBe(0);

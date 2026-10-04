@@ -11,13 +11,13 @@ that Desktop may sync to OneDrive, and shows free space without an estimated
 number of days or years of backups. Other platforms retain their existing
 folder and setup behavior.
 
-This guide explains how CARE Desktop interacts with the computer running the
+This guide explains how CARE Clinic interacts with the computer running the
 clinic: child processes, files, logs, administrator approval, local name
 resolution, certificates, LAN discovery, Windows networking, prerequisite tools,
 login startup, and restart detection. It also explains what the health checks
 actually prove.
 
-**CARE Desktop is the native Wails application.** First run persists a Server
+**CARE Clinic is the native Wails application.** First run persists a Server
 or Client role, without an ordinary role-switching control. Server mode
 installs and manages the clinic; Client mode connects to an existing clinic and
 performs native certificate setup without Docker, Git, or mDNS advertising.
@@ -60,7 +60,7 @@ or network-interface filtering.
 
 ```mermaid
 flowchart TD
-    UI["CARE Desktop embedded management UI"] --> App["Wails Go application bridge"]
+    UI["CARE Clinic embedded management UI"] --> App["Wails Go application bridge"]
     App --> Clinic["Clinic orchestration"]
     App --> Ready["prereq and health"]
     App --> Native["sys packages"]
@@ -254,9 +254,9 @@ method shape Wails expects from its logger.
 
 | Platform | Default folder |
 | --- | --- |
-| macOS | `~/Library/Logs/care-desktop` |
-| Windows | `%LOCALAPPDATA%\care-desktop\logs`; if unset, `~/AppData/Local/care-desktop/logs` |
-| Linux/default branch | `$XDG_STATE_HOME/care-desktop`; if unset, `~/.local/state/care-desktop` |
+| macOS | `~/Library/Logs/care-clinic` |
+| Windows | `%LOCALAPPDATA%\care-clinic\logs`; if unset, `~/AppData/Local/care-clinic/logs` |
+| Linux/default branch | `$XDG_STATE_HOME/care-clinic`; if unset, `~/.local/state/care-clinic` |
 
 CARE records launcher invocations, failures and Docker readiness in its main log,
 but discards inherited launcher stdout/stderr. Use Rancher Desktop's
@@ -498,10 +498,10 @@ post-removal verification or incomplete-cleanup reporting.
 The owned line has the form:
 
 ```text
-127.0.0.1 <clinic-label>.local # care-desktop
+127.0.0.1 <clinic-label>.local # care-clinic
 ```
 
-The fixed marker is `# care-desktop`. It is the cleanup handle, including after
+The fixed marker is `# care-clinic`. It is the cleanup handle, including after
 a clinic-name change. The host in examples such as `care.local` is illustrative;
 these helpers receive the configured host rather than establishing a universal
 default name.
@@ -523,7 +523,7 @@ step that saves `hosts.care-backup`, writes the new file, and flushes the DNS
 cache. There are two filters:
 
 - `withoutMarker` (uninstall, purge, remove old installation) drops every line
-  carrying `# care-desktop`, whatever name it maps, and leaves unmarked lines
+  carrying `# care-clinic`, whatever name it maps, and leaves unmarked lines
   alone.
 - `withoutHost` removes one exact hostname from any line, whoever added it, and
   keeps other names on that line.
@@ -578,7 +578,7 @@ Sources: [app_update.go](../app/app_update.go),
 [app_update_helpers.go](../app/app_update_helpers.go), and
 [project.nsi](../app/build/windows/installer/project.nsi).
 
-**Update CARE Desktop** updates the installed desktop, not the clinic server.
+**Update CARE Clinic** updates the installed desktop, not the clinic server.
 It does not run `docker compose stop/down`, remove clinic files, change backup
 keys, reinstall WebView2, or invoke the application uninstaller. Normal shutdown
 does stop this desktop's mDNS advertiser; clinic containers stay running and
@@ -586,7 +586,7 @@ advertising resumes when the app reopens. Clinic-name discovery can therefore
 be briefly unavailable during the restart.
 
 1. Fetch the release and its checksum, download into a private uniquely named
-   `CARE Desktop/updates/update-*` directory in the OS user cache, verify SHA-256,
+   `CARE Clinic/updates/update-*` directory in the OS user cache, verify SHA-256,
    and retry a damaged download once. Unsafe asset filenames and malformed
    checksums are rejected. Checksum failure deletes the download.
 2. Resolve the actual installed target, not a hard-coded Applications/Program
@@ -648,8 +648,8 @@ The configured identities are:
 
 | Identity or path | Meaning |
 | --- | --- |
-| `CARE Desktop Local CA` | Root Common Name, also `trust.CommonName`. |
-| `CARE Desktop Local CA - Intermediate` | Intermediate Common Name in the Caddyfile. |
+| `CARE Clinic Local CA` | Root Common Name, also `trust.CommonName`. |
+| `CARE Clinic Local CA - Intermediate` | Intermediate Common Name in the Caddyfile. |
 | `/data/caddy/pki/authorities/local/root.crt` | Public root certificate read by `caddyRootPEM`. |
 | Caddy `/data` | Backed by the Compose `caddy-data` volume; contains Caddy state, including private PKI material. |
 
@@ -670,7 +670,7 @@ does not require deleting that directory.
 
 ### Native client setup and trust on first use
 
-On a staff computer, install CARE Desktop, select **Client** at first run, and
+On a staff computer, install CARE Clinic, select **Client** at first run, and
 enter the clinic's `.local` address shown on the server. The saved role is not a
 routine toggle between hosting and connecting. Clients do not provision Docker
 or Git, run the server stack, or advertise a clinic over mDNS; their operating
@@ -691,7 +691,7 @@ trust-on-first-use download happens once rather than twice.
 
 **Connect** (`ConnectClient`) is the step that changes the computer. It removes
 every hosts-file line that maps the clinic name (for example `care.local`) and
-every line carrying CARE's own `# care-desktop` marker, whatever name that line
+every line carrying CARE's own `# care-clinic` marker, whatever name that line
 maps. A leftover entry such as `127.0.0.1 care.local` from an earlier server
 setup on this computer would send the client to itself instead of the clinic
 found through mDNS, and a leftover entry for the *previous* clinic's name would
@@ -758,7 +758,7 @@ trust-settings right once for the whole sequence rather than once per command.
 A computer with nothing to repair sees no administrator prompt at all.
 
 In the same step, `trust.ApplyClientTrust` removes every other trusted root
-whose Subject Common Name is `CARE Desktop Local CA` and whose SHA-1
+whose Subject Common Name is `CARE Clinic Local CA` and whose SHA-1
 fingerprint differs from the one being pinned — an earlier server installation
 on this computer, or a clinic this computer has left. Selection is by
 fingerprint, never by name, so the certificate being installed cannot be deleted
@@ -831,7 +831,7 @@ different clinic.
 
 Successful cleanup clears the saved role and returns to the Server/Client
 choice. Server uninstall does the same after all required cleanup succeeds.
-It does not uninstall the CARE Desktop executable. To leave the clinic permanently,
+It does not uninstall the CARE Clinic executable. To leave the clinic permanently,
 uninstall the setup first, then remove the executable using the operating system.
 
 ### Root extraction is deliberately non-fatal
@@ -918,7 +918,7 @@ digest without separators. This is an identifier accepted by platform removal
 tools, not an operator comparison step. It returns an empty string for invalid
 certificate data.
 
-The constant `CARE Desktop Local CA` is a cleanup compatibility identifier:
+The constant `CARE Clinic Local CA` is a cleanup compatibility identifier:
 fresh installations can produce different certificates and fingerprints while
 retaining the same Common Name. Changing it without a migration can strand
 older trusted roots. A matching Common Name is an ownership convention, not
@@ -956,8 +956,8 @@ fingerprint plus the store it lives in:
 
 | Platform | What is enumerated | How it is removed |
 | --- | --- | --- |
-| macOS | `security find-certificate -a -Z -c "CARE Desktop Local CA"` in the login and System keychains. | `security delete-certificate -t -Z <fingerprint> <keychain>`. Login-keychain deletions run as the signed-in user, for the same reason installation does; System-keychain deletions join the elevated batch. |
-| Windows | `Get-ChildItem Cert:\LocalMachine\Root` filtered on an exact `CN=CARE Desktop Local CA` subject, returning thumbprints. | `Remove-Item Cert:\LocalMachine\Root\<thumbprint>`, one per certificate. **Not** `certutil -delstore Root <CommonName>`: deleting by name in the same step as the installation would take the new clinic's root with it. |
+| macOS | `security find-certificate -a -Z -c "CARE Clinic Local CA"` in the login and System keychains. | `security delete-certificate -t -Z <fingerprint> <keychain>`. Login-keychain deletions run as the signed-in user, for the same reason installation does; System-keychain deletions join the elevated batch. |
+| Windows | `Get-ChildItem Cert:\LocalMachine\Root` filtered on an exact `CN=CARE Clinic Local CA` subject, returning thumbprints. | `Remove-Item Cert:\LocalMachine\Root\<thumbprint>`, one per certificate. **Not** `certutil -delstore Root <CommonName>`: deleting by name in the same step as the installation would take the new clinic's root with it. |
 | Linux | Every `.crt` in `/usr/local/share/ca-certificates` and `/etc/pki/ca-trust/source/anchors` that parses as a single CARE CA root. Files that are not CARE roots are skipped, not inspected further. | The shared anchor-removal script, which deletes the files and runs whichever of `update-ca-certificates` and `update-ca-trust` exists. |
 
 `keep` is filtered out of every list before anything is scheduled, comparing
@@ -999,7 +999,7 @@ The advertised HTTPS service remains unchanged:
 | Instance | `<label>._https._tcp.local.` |
 | Hostname | `<label>.local.` |
 | Port | `443` |
-| TXT information | Exactly one field, `CARE Desktop` |
+| TXT information | Exactly one field, `CARE Clinic` |
 | Advertised addresses | Only the usable IPv4 addresses of the receiving/sending interface |
 
 `Label` trims surrounding whitespace/dots, lowercases, removes a final `.local`,
@@ -1164,7 +1164,7 @@ hide, close, quit, and second-instance behavior.
 
 ### Client independence and network limits
 
-Name advertising runs only on the CARE server. CARE Desktop clients use their
+Name advertising runs only on the CARE server. CARE Clinic clients use their
 operating system's resolver; they do not advertise mDNS or install a hosts-file
 override as normal onboarding. A successful check on the server does not prove
 that an access point forwards multicast to every client. Guest-network isolation,
@@ -1258,14 +1258,14 @@ If profiles are acceptable, it reads matching firewall rules from `ActiveStore`
 as JSON. Malformed JSON or failed inspection produces an incomplete status, not
 a reassuring default.
 
-The ownership prefix is `CARE Desktop `, with a trailing space. Readiness needs
+The ownership prefix is `CARE Clinic `, with a trailing space. Readiness needs
 exactly one rule for each of:
 
 | Display name | Protocol | Local port | Required scope |
 | --- | --- | --- | --- |
-| `CARE Desktop mDNS` | UDP, or protocol number 17 | 5353 | Enabled, inbound, allow, Private and Domain |
-| `CARE Desktop HTTPS` | TCP, or protocol number 6 | 443 | Enabled, inbound, allow, Private and Domain |
-| `CARE Desktop HTTP` | TCP, or protocol number 6 | 80 | Enabled, inbound, allow, Private and Domain |
+| `CARE Clinic mDNS` | UDP, or protocol number 17 | 5353 | Enabled, inbound, allow, Private and Domain |
+| `CARE Clinic HTTPS` | TCP, or protocol number 6 | 443 | Enabled, inbound, allow, Private and Domain |
+| `CARE Clinic HTTP` | TCP, or protocol number 6 | 80 | Enabled, inbound, allow, Private and Domain |
 
 HTTP matters because public certificate bootstrap is available before HTTPS trust is
 installed. Current code requires all three rules, not just HTTPS and mDNS.
@@ -1315,7 +1315,7 @@ flowchart TD
 
 ### Removing owned rules
 
-`Undo` removes persistent rules whose display names begin with `CARE Desktop `.
+`Undo` removes persistent rules whose display names begin with `CARE Clinic `.
 Its scope is broader than fixing the three exact current names so older or
 incomplete CARE rules can also be removed. It does **not** restore profiles to
 Public: the profile is shared machine/network state, not a per-application
@@ -1547,7 +1547,7 @@ answered. Rancher Desktop treats a run as a first run only when it finds no
 profile at all, so a profile that sets anything suppresses the wizard; with one
 in place it also never offers, downloads, or starts Kubernetes. The profile is
 therefore written before installing, before every `startRancher`, and once when
-a server starts CARE Desktop, so it is in place even when the operator installed
+a server starts CARE Clinic, so it is in place even when the operator installed
 Rancher Desktop themselves rather than through CARE:
 
 | Setting | Why CARE needs it |
@@ -1556,7 +1556,7 @@ Rancher Desktop themselves rather than through CARE:
 | `containerEngine.name: moby` | Supplies dockerd and the `docker` CLI the engine calls. The containerd/nerdctl engine would fail every Compose command. |
 | `kubernetes.enabled: false` | k3s would consume roughly 1.5GB of RAM the clinic never uses. |
 | `application.autoStart: true` | Rancher Desktop starts at login, so the clinic comes back after a reboot without anyone opening it. |
-| `application.startInBackground: true` | Rancher Desktop starts without its window; the operator only ever sees CARE Desktop. |
+| `application.startInBackground: true` | Rancher Desktop starts without its window; the operator only ever sees CARE Clinic. |
 | `application.pathManagementStrategy: rcfiles` | Lets Rancher Desktop put `~/.rd/bin` on the shell PATH, matching what `AugmentedPath` already prepends. Ignored on Windows. |
 
 | Platform | Profile location |
@@ -1581,7 +1581,7 @@ Preferences` or `HKLM` still takes precedence over this user profile. Because of
 that, an installation that had already run would ignore the profile, so
 `applyRancherProfileNow` additionally attempts `rdctl set` for the same values
 (`rancherSettings`). It runs on every profile write - after installing, before
-each start, and once each time a server starts CARE Desktop - so existing
+each start, and once each time a server starts CARE Clinic - so existing
 installations pick up later additions. That attempt is
 best-effort: `rdctl` may be absent, or the values may be locked by an
 administrator. A profile write failure is logged as a warning and does not stop
@@ -1625,7 +1625,7 @@ eight-minute Docker-readiness limit. A live Rancher process gets that full limit
 to finish starting; Linux Docker keeps its normal readiness checks without
 Rancher process monitoring.
 
-**Rancher Desktop administrator setup (macOS)**
+**Rancher CARE Clinic administrator setup (macOS)**
 
 With `adminAccess`, Rancher Desktop needs root-owned pieces before it can forward
 ports 80 and 443. When any is missing it shows its own explanation dialog and a
@@ -1640,7 +1640,7 @@ each `OpenDocker`:
 | `/opt/rancher-desktop` | A root-owned copy of the bundle's `lima/socket_vmnet` tree. Rancher compares it file by file. |
 | `/private/etc/sudoers.d/zzzzz-rancher-desktop-lima` | Lets Rancher run `socket_vmnet` without a password. `rancherSudoers` reproduces Rancher Desktop 1.24's `sudoersFile` layout, with one bridged entry per interface from `system_profiler SPNetworkDataType`, and it is checked with `visudo -cf` before install. Rancher compares the text exactly, so if a later Rancher release changes the layout, Rancher asks for the password itself again and `TestRancherSudoersMatchesRancherLayout` is the place to update. A new network adapter also changes the text; CARE rewrites it on the next start. |
 | `/var/run/docker.sock` → `~/.rd/docker.sock` | macOS empties `/var/run` at every boot. Without the link Rancher asks for the password after each reboot. |
-| `/Library/LaunchDaemons/org.ohcnetwork.care-desktop.docker-socket.plist` | Recreates that link at boot, before Rancher starts at login. It is left in place on uninstall, since it serves Rancher Desktop rather than the clinic. |
+| `/Library/LaunchDaemons/org.ohcnetwork.care-clinic.docker-socket.plist` | Recreates that link at boot, before Rancher starts at login. It is left in place on uninstall, since it serves Rancher Desktop rather than the clinic. |
 | Stale `/private/var/run/socket_vmnet.*` sockets and pidfiles | Deleted, not created. A socket left by a stopped daemon lets Lima dial it before the new daemon listens, and the VM fails with `connection refused`. Only files whose pidfile names no running process are removed; see [Stale Rancher network sockets](cleanup-and-uninstall.md#stale-rancher-network-sockets-macos). |
 
 **Linux Docker**
@@ -1933,9 +1933,9 @@ that choice is not overridden later because setup only completes once.
 
 | Platform | Owned registration | Enabled/disabled behavior |
 | --- | --- | --- |
-| macOS | `~/Library/LaunchAgents/ohc.care-desktop.plist` with label `ohc.care-desktop` | Writes `ProgramArguments` for the current executable and `--autostart`, with `RunAtLoad`. Disabling removes the file. There is no `launchctl` load/unload or `KeepAlive` operation here. |
-| Windows | Value `CARE Desktop` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | Uses `reg add` with a quoted executable path and `--autostart`; disabling uses `reg delete`. It does not delete the whole Run key. |
-| Linux | `~/.config/autostart/care-desktop.desktop` | Writes a desktop entry with a quoted executable path, `--autostart`, and `X-GNOME-Autostart-enabled=true`; disabling removes the file. This path does not honor `XDG_CONFIG_HOME`. |
+| macOS | `~/Library/LaunchAgents/ohc.care-clinic.plist` with label `ohc.care-clinic` | Writes `ProgramArguments` for the current executable and `--autostart`, with `RunAtLoad`. Disabling removes the file. There is no `launchctl` load/unload or `KeepAlive` operation here. |
+| Windows | Value `CARE Clinic` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | Uses `reg add` with a quoted executable path and `--autostart`; disabling uses `reg delete`. It does not delete the whole Run key. |
+| Linux | `~/.config/autostart/care-clinic.desktop` | Writes a desktop entry with a quoted executable path, `--autostart`, and `X-GNOME-Autostart-enabled=true`; disabling removes the file. This path does not honor `XDG_CONFIG_HOME`. |
 
 The Unix registration directories are created with `0755` and files with `0644`.
 Writes are not atomic. `Set` obtains `os.Executable` before dispatching even for
@@ -1953,7 +1953,7 @@ The second-instance boundary matters. [main.go](../app/main.go) configures
 Wails' single-instance lock; [app_lifecycle.go](../app/app_lifecycle.go) responds
 to a second launch by unminimizing/showing the existing application when its
 context exists. It does not inspect that launch's arguments. An autostart launch
-while CARE Desktop is already running can therefore reveal the existing
+while CARE Clinic is already running can therefore reveal the existing
 window rather than start another independent backend. The bridge's
 `WasAutostartLaunched` reports the original process arguments, not a replacement
 set from that second launch. Detailed window/start behavior belongs to
@@ -2019,11 +2019,11 @@ one package's boolean into another's guarantee.
 | Child process | Its immediate caller; ordinary `Runner` methods wait, but provide no application-wide cancellation tree. |
 | Atomic staging file | One `atomicfile.Write` call; attempt cleanup on every return. |
 | Diagnostic log folder | `applog`; purge removes the whole folder and then attempts to recreate logging. |
-| Hosts marker `# care-desktop` | CARE-managed hosts lines across clinic names; preserve unmarked lines. |
+| Hosts marker `# care-clinic` | CARE-managed hosts lines across clinic names; preserve unmarked lines. |
 | Root Common Name and known anchors | CARE trust integration on this computer; do not infer that browser-specific or remote trust is gone. |
 | Temporary root PEM | The extraction/preparation operation; preserve it until its consumer has finished, then attempt removal. |
 | mDNS responder | Application lifetime; renew after detected address changes/probe failures and stop on shutdown. |
-| `CARE Desktop ` firewall prefix | CARE-owned rule namespace. Repair exact current names; removal can sweep the prefix. |
+| `CARE Clinic ` firewall prefix | CARE-owned rule namespace. Repair exact current names; removal can sweep the prefix. |
 | Windows network category | Shared profile state, not an owned rule; no previous-category rollback is recorded. |
 | Autostart plist/value/desktop file | One per-user CARE registration; removing it is not the same as stopping a running application. |
 | Downloaded installer | Provisioning operation; remove media after use without confusing it with the installed tool. |

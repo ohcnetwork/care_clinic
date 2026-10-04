@@ -80,8 +80,8 @@ and a small runner value, rather than a framework or a container registry.
 | --- | --- |
 | `InstallDir` | The unpacked runtime kit and local source/build workspace, not this repository's checkout. |
 | `MDNSName` | The saved clinic name. An empty engine value defaults to `care`. `Host()` normalizes the label and appends `.local`; `Label()` exposes the configured name or default. |
-| `AdminPassword` | Used by administrator creation when nonempty. It is not the desktop administrator hash. |
-| `BackupCertificate` | Public encryption certificate prepared by the Desktop recovery setup. The private recovery file is exported separately, never installed. |
+| `AdminPassword` | Used by administrator creation when nonempty. It is not the CARE Clinic administrator hash. |
+| `BackupCertificate` | Public encryption certificate prepared by the CARE Clinic recovery setup. The private recovery file is exported separately, never installed. |
 | `BackupDir` | Effective backup destination. Empty uses `care-db-backups` inside Windows' Desktop known folder, including redirection; other platforms keep `<user home>/Desktop/care-db-backups`. Explicit destinations are preserved. |
 | `Pins` | A non-nil, validated `release.Pins` supplied by the App. The engine dereferences it; it is not an optional discovery mechanism. |
 | `Log` | A nil-safe callback. The App can forward the same line to its persistent log and the desktop. |
@@ -134,7 +134,7 @@ Do not confuse these locations:
 2. **The embedded install kit**, staged as `app/install/` when building the
    desktop application. The executable carries it in `installFS`, alongside a
    separate embedded filesystem for the desktop control panel.
-3. **The installed kit**, in the App-selected `care-desktop/install` directory.
+3. **The installed kit**, in the App-selected `care-clinic/install` directory.
    Docker bind mounts, environment edits, generated keys, and downloaded CARE
    sources refer to this runtime copy.
 
@@ -207,7 +207,7 @@ in [native integrations](native-integrations.md).
 
 | Environment supplied by the engine | Source |
 | --- | --- |
-| `COMPOSE_PROJECT_NAME` | Always `care-desktop`. |
+| `COMPOSE_PROJECT_NAME` | Always `care-clinic`. |
 | `COMPOSE_FILE` | `InstallDir/docker-compose.yml`. |
 | `BACKEND_IMAGE`, `FRONTEND_IMAGE`, `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE`, `CADDY_WAF_IMAGE`, `BACKUP_IMAGE` | The injected release pins, not arbitrary caller-selected tags. |
 | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Trimmed `BUCKET_KEY` and `BUCKET_SECRET` from installed `backend.env`. |
@@ -714,8 +714,8 @@ Caddy's container writes `SecRuleEngine <mode>` into
 still contains Coraza in all modes. WAF coverage in this configuration is the
 API route, not every asset or object download.
 
-The CA names include `CARE Desktop Local CA` for the root and
-`CARE Desktop Local CA - Intermediate` for the intermediate. These are also
+The CA names include `CARE Clinic Local CA` for the root and
+`CARE Clinic Local CA - Intermediate` for the intermediate. These are also
 native cleanup identifiers, not arbitrary display text to rename casually.
 
 ### Why Start force-recreates Caddy
@@ -736,7 +736,7 @@ connections.
 ## 7. Deployment inventory and dependency graph
 
 [`docker-compose.yml`](../deployments/docker-compose.yml) declares the
-`care-desktop` project and a default network explicitly named `care-desktop`.
+`care-clinic` project and a default network explicitly named `care-clinic`.
 All services join that network. Only Caddy publishes host ports. All nine
 services use `restart: unless-stopped`, and all share the `x-logging` anchor:
 the `json-file` driver capped at three 10 MB files per container. Without the
@@ -782,11 +782,11 @@ That invariant is implemented by `Clinic.Start` and `RebuildBackend`.
 
 | Named volume | Normal Compose name | Why it survives Stop |
 | --- | --- | --- |
-| `postgres-data` | `care-desktop_postgres-data` | Holds the live relational database. |
-| `redis-data` | `care-desktop_redis-data` | Holds Redis persistence. |
-| `minio-data` | `care-desktop_minio-data` | Holds uploaded objects and storage-server data; also mounted read-only by backup. |
-| `caddy-data` | `care-desktop_caddy-data` | Holds Caddy state, including the clinic CA. |
-| `caddy-config` | `care-desktop_caddy-config` | Holds Caddy configuration state. |
+| `postgres-data` | `care-clinic_postgres-data` | Holds the live relational database. |
+| `redis-data` | `care-clinic_redis-data` | Holds Redis persistence. |
+| `minio-data` | `care-clinic_minio-data` | Holds uploaded objects and storage-server data; also mounted read-only by backup. |
+| `caddy-data` | `care-clinic_caddy-data` | Holds Caddy state, including the clinic CA. |
+| `caddy-config` | `care-clinic_caddy-config` | Holds Caddy configuration state. |
 
 These are Docker volumes, not subdirectories of the repository or ordinary
 exported backups. Deleting them during uninstall is destructive even when the
@@ -805,7 +805,7 @@ engine's default `Desktop/care-db-backups` location.
 | [`caddy.Dockerfile`](../deployments/caddy.Dockerfile) | Compile Caddy with the pinned Coraza module and copy it into the runtime base. |
 | [`minio/entrypoint.sh`](../deployments/minio/entrypoint.sh) | Run Silo, wait for readiness, establish buckets and facility download policy, and forward shutdown signals. |
 
-Client onboarding is native CARE Desktop functionality, described in
+Client onboarding is native CARE Clinic functionality, described in
 [native integrations](native-integrations.md#native-client-setup-and-trust-on-first-use).
 The public root bootstrap is not the CA's private key. Existing unused setup
 files need not be deleted from installed kits: current routes and mounts no
@@ -935,7 +935,7 @@ as potentially sensitive; passing a password outside the argument list is
 not a guarantee that every dependency's diagnostic output is secret-free.
 
 The App generally supplies this password for first setup, not every normal
-Start. The local desktop administrator hash and CARE's database user are
+Start. The local CARE Clinic administrator hash and CARE's database user are
 separate; this code does not synchronize later password changes.
 
 ### Pending restores and the staged migration callback
@@ -989,11 +989,11 @@ backend:
    other URL options, but replace the database path and remove conflicting
    `dbname` and `database` query options.
 5. Set PostgreSQL's application identity to
-   `care-desktop:restore:<restoreID>`.
+   `care-clinic:restore:<restoreID>`.
 6. Run a one-off backend container with `--rm --no-deps`, entrypoint `python`,
    and the migration command. Its name is
-   `care-desktop-restore-<restoreID>-migrate`, and its restore label is
-   `org.care-desktop.restore=<restoreID>`.
+   `care-clinic-restore-<restoreID>-migrate`, and its restore label is
+   `org.care-clinic.restore=<restoreID>`.
 
 `POSTGRES_DB`, `DATABASE_URL`, and `PGAPPNAME` are conveyed through the child
 environment and `-e` variable names. Database credentials are not embedded in

@@ -1,14 +1,14 @@
 # Cannot open CARE from a computer that previously hosted a clinic
 
 Use this guide when a Windows, macOS, or Linux computer **previously ran CARE
-Desktop as a server**, but now needs to connect to a different CARE server.
+Clinic as a server**, but now needs to connect to a different CARE server.
 Other devices may open the clinic normally while this computer times out.
 
 This is a recovery procedure for an earlier installation, not a setup
 requirement for every client. The saved Server/Client role is not an ordinary
 switch: do not delete configuration or clinic data merely to change it.
 
-For an ordinary CARE Desktop client leaving a clinic, use **Disconnect**, not the server-uninstall procedures below. It removes only that
+For an ordinary CARE Clinic client leaving a clinic, use **Disconnect**, not the server-uninstall procedures below. It removes only that
 client's saved connection and certificate it installed, preserving all server data.
 Successful uninstall clears the role so Server or Client can be selected again.
 On a supported installed copy, Disconnect can also offer removal of the desktop
@@ -22,17 +22,17 @@ See [client removal](native-integrations.md#removing-client-access).
 During local server setup, CARE can add a line such as:
 
 ```text
-127.0.0.1 care.local # care-desktop
+127.0.0.1 care.local # care-clinic
 ```
 
 That makes this computer resolve `care.local` to **itself**, rather than discover
 the real server on the clinic network. The entry can remain even when Docker is
-not running or CARE Desktop has been deleted. Reinstalling a certificate or
+not running or CARE Clinic has been deleted. Reinstalling a certificate or
 rebuilding the frontend will not fix that address override.
 
 ## The fix: connect as a client
 
-CARE Desktop's client setup removes this override automatically. On the affected
+CARE Clinic's client setup removes this override automatically. On the affected
 computer, choose **Connect to an existing server on the local network**, enter
 the clinic name shown on the server, and choose **Find clinic**. Confirm the
 found clinic with **Connect**. Discovery does not save a role or change trust;
@@ -47,7 +47,7 @@ entered, whoever added it, *and* every line CARE itself added, whatever name
 that line maps — so an entry left over from a clinic this computer used to host
 under a different name goes too. It saves the old file as `hosts.care-backup`
 and clears the DNS cache. In the same approval it removes every other
-`CARE Desktop Local CA` certificate this computer trusts and installs the
+`CARE Clinic Local CA` certificate this computer trusts and installs the
 current clinic's, so you are asked for administrator approval once. If there is
 nothing to repair, you won't see a prompt at all. The check runs again every
 time you click **Connect** or **Open CARE**, so an entry that comes back later
@@ -83,7 +83,7 @@ it from the setup screen first; that is the same cleanup described below.
 ## A different cause of the same message
 
 "We couldn't find the clinic" can also appear on a healthy network with no hosts
-entry at all. Before CARE Desktop 0.1.5, client connections resolved the clinic
+entry at all. Before CARE Clinic 0.1.5, client connections resolved the clinic
 address over both IPv4 and IPv6. A `.local` name has no IPv6 record, and macOS
 waits five seconds before abandoning that half of the lookup — slightly longer
 than the connection's own five-second limit. The attempt was therefore abandoned
@@ -96,9 +96,9 @@ Get "http://care.local/root.crt?ok=1": dial tcp: lookup care.local: i/o timeout
 
 Current versions look up IPv4 only and connect in well under a second. The
 distinguishing symptom is that the clinic is reachable by other means from the
-same computer while CARE Desktop reports it as missing: opening
+same computer while CARE Clinic reports it as missing: opening
 `http://<clinic>.local/root.crt` in a browser works, and the failure takes
-almost exactly five seconds every time. If you see this, update CARE Desktop on
+almost exactly five seconds every time. If you see this, update CARE Clinic on
 the **client** computer; the server needs no change. See [the IPv4 rule for
 clients](native-integrations.md#clients-resolve-the-clinic-over-ipv4-only).
 
@@ -115,11 +115,11 @@ recovery file outside the installation.
 
 | Current state | Supported path |
 | --- | --- |
-| Installed server | Advanced, unlock with the Desktop password, then Remove CARE from this computer. Review the backup/image choices. |
+| Installed server | Advanced, unlock with the CARE Clinic password, then Remove CARE from this computer. Review the backup/image choices. |
 | Unfinished setup | The setup or failed-install screen's explicit cleanup path. Existing backups are kept, but partial live resources are removed. |
 | Saved client connection | Disconnect. It does not remove server records. |
 
-If the executable was deleted, restore a compatible official CARE Desktop copy
+If the executable was deleted, restore a compatible official CARE Clinic copy
 under the same OS account and use the appropriate flow. Launching the real app
 can start an installed clinic or advertise its name, so treat this as maintenance
 work, not a read-only inspection. If the app cannot start, preserve its settings,
@@ -128,7 +128,7 @@ Do not delete `config.json` merely to make the role choice reappear.
 
 ### After cleanup
 
-Because full cleanup removes CARE certificates, use CARE Desktop's native
+Because full cleanup removes CARE certificates, use CARE Clinic's native
 client setup to trust the **current server's** certificate. Enter the `.local`
 address shown on that server, approve the operating-system prompt if requested,
 and let CARE verify HTTPS automatically. Use a trusted clinic network: the

@@ -607,7 +607,7 @@ test("a running restore locks mounted plugin drafts without losing their setting
   await page.locator(".care-backups").getByRole("button", { name: "Choose file", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
   await dialog.getByRole("button", { name: "Choose recovery file", exact: true }).click();
-  await dialog.getByLabel("CARE Desktop admin password", { exact: true }).fill("ClinicTest123");
+  await dialog.getByLabel("CARE Clinic admin password", { exact: true }).fill("ClinicTest123");
   await dialog.getByRole("checkbox", { name: "I understand today's data will be replaced" }).check();
   await dialog.getByRole("button", { name: "Replace current data", exact: true }).click();
   await expect(settings).toBeDisabled();

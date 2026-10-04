@@ -1,4 +1,4 @@
-name: Release CARE Desktop
+name: Release CARE Clinic
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: care-desktop-release
+  group: care-clinic-release
   cancel-in-progress: false
 
 defaults:
@@ -25,7 +25,7 @@ jobs:
     outputs:
       release: ${{ steps.decide.outputs.release }}
     steps:
-      - name: Compare CARE_DESKTOP_VERSION with the previous commit
+      - name: Compare CARE_CLINIC_VERSION with the previous commit
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,7 +39,7 @@ jobs:
           version_at() {
             gh api "repos/$GITHUB_REPOSITORY/contents/deployments/.env?ref=$1" \
               -H "Accept: application/vnd.github.raw" 2>/dev/null \
-              | sed -n 's/^CARE_DESKTOP_VERSION=//p' | tr -d '\r' | xargs
+              | sed -n 's/^CARE_CLINIC_VERSION=//p' | tr -d '\r' | xargs
           }
           now=$(version_at "$GITHUB_SHA")
           before=""
@@ -47,10 +47,10 @@ jobs:
             before=$(version_at "$BEFORE")
           fi
           if [ -n "$now" ] && [ "$now" != "$before" ]; then
-            echo "CARE_DESKTOP_VERSION changed from ${before:-(none)} to $now; releasing."
+            echo "CARE_CLINIC_VERSION changed from ${before:-(none)} to $now; releasing."
             echo "release=true" >> "$GITHUB_OUTPUT"
           else
-            echo "CARE_DESKTOP_VERSION is unchanged ($now); nothing to release."
+            echo "CARE_CLINIC_VERSION is unchanged ($now); nothing to release."
             echo "release=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -82,9 +82,9 @@ jobs:
             if (matches.length !== 1) throw new Error(`Expected one ${key} in deployments/.env`);
             return matches[0][1].trim();
           };
-          const version = value("CARE_DESKTOP_VERSION");
+          const version = value("CARE_CLINIC_VERSION");
           if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version)) {
-            throw new Error("Releases require CARE_DESKTOP_VERSION=X.Y.Z (no -dev suffix)");
+            throw new Error("Releases require CARE_CLINIC_VERSION=X.Y.Z (no -dev suffix)");
           }
           for (const key of ["CARE_BE_REF", "CARE_FE_REF"]) {
             if (!/^[\w.\-/]+$/.test(value(key))) {
@@ -101,7 +101,7 @@ jobs:
           existing=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
             --jq ".[] | select(.tag_name == \"v$VERSION\") | .html_url")
           if [ -n "$existing" ]; then
-            echo "::error::Version $VERSION already has a release: $existing. Bump CARE_DESKTOP_VERSION; published assets are never replaced."
+            echo "::error::Version $VERSION already has a release: $existing. Bump CARE_CLINIC_VERSION; published assets are never replaced."
             exit 1
           fi
       - name: Read SignPath configuration
@@ -233,7 +233,7 @@ jobs:
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: "3600"
           output-artifact-directory: signed-app
-      - run: test -s "signed-app/CARE Desktop.exe" && test -s signed-app/uninstall.exe
+      - run: test -s "signed-app/CARE Clinic.exe" && test -s signed-app/uninstall.exe
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: desktop-windows-app-signed
@@ -266,7 +266,7 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          $app = Join-Path $env:GITHUB_WORKSPACE "signed-app\CARE Desktop.exe"
+          $app = Join-Path $env:GITHUB_WORKSPACE "signed-app\CARE Clinic.exe"
           $uninstaller = Join-Path $env:GITHUB_WORKSPACE "signed-app\uninstall.exe"
           foreach ($file in @($app, $uninstaller)) {
             $signature = Get-AuthenticodeSignature $file
@@ -283,10 +283,10 @@ jobs:
           $built = Get-ChildItem app/build/bin/*installer.exe
           if ($built.Count -ne 1) { throw "Expected one installer, found $($built.Count)" }
           $info = $built.VersionInfo
-          if ($info.ProductName -ne 'CARE Desktop' -or $info.CompanyName -ne 'Open Healthcare Network Foundation' -or $info.ProductVersion -ne $env:VERSION) {
+          if ($info.ProductName -ne 'CARE Clinic' -or $info.CompanyName -ne 'Open Healthcare Network Foundation' -or $info.ProductVersion -ne $env:VERSION) {
             throw "Installer metadata: product='$($info.ProductName)' company='$($info.CompanyName)' version='$($info.ProductVersion)'"
           }
-          Copy-Item $built.FullName "installer/CARE-Desktop-$env:VERSION-windows-amd64-setup.exe"
+          Copy-Item $built.FullName "installer/CARE-Clinic-$env:VERSION-windows-amd64-setup.exe"
       - id: upload
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -317,7 +317,7 @@ jobs:
           wait-for-completion: true
           wait-for-completion-timeout-in-seconds: "3600"
           output-artifact-directory: signed-installer
-      - run: test -s "signed-installer/CARE-Desktop-${{ needs.prepare.outputs.version }}-windows-amd64-setup.exe"
+      - run: test -s "signed-installer/CARE-Clinic-${{ needs.prepare.outputs.version }}-windows-amd64-setup.exe"
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: desktop-windows-installer-signed
@@ -393,7 +393,7 @@ jobs:
         run: |
           mkdir -p incoming/app release-assets staging
           ditto -x -k incoming/macos/desktop-macos-unsigned.zip incoming/app
-          app=incoming/app/care-desktop.app
+          app=incoming/app/care-clinic.app
           test -d "$app"
           actual=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
           test "$actual" = "$VERSION"
@@ -435,10 +435,10 @@ jobs:
           else
             echo "::warning::MACOS_CERT_P12 is absent; macOS retains its ad-hoc signature only."
           fi
-          ditto "$app" "staging/CARE Desktop.app"
+          ditto "$app" "staging/CARE Clinic.app"
           ln -s /Applications staging/Applications
-          dmg="release-assets/CARE-Desktop-$VERSION-macos.dmg"
-          hdiutil create -volname "CARE Desktop" -srcfolder staging -ov -format UDZO \
+          dmg="release-assets/CARE-Clinic-$VERSION-macos.dmg"
+          hdiutil create -volname "CARE Clinic" -srcfolder staging -ov -format UDZO \
             "$dmg"
           if [ "$SIGN_MACOS" = "true" ]; then
             codesign --force --timestamp \
@@ -450,7 +450,7 @@ jobs:
           fi
           installers=(incoming/windows/*.exe)
           test "${#installers[@]}" -eq 1 && test -s "${installers[0]}"
-          cp "${installers[0]}" "release-assets/CARE-Desktop-$VERSION-windows-amd64-setup.exe"
+          cp "${installers[0]}" "release-assets/CARE-Clinic-$VERSION-windows-amd64-setup.exe"
           cp deployments/.env release-assets/release-config.env
       - name: Remove macOS signing credentials
         if: always() && env.SIGN_MACOS == 'true'
@@ -507,8 +507,8 @@ jobs:
       - name: Verify complete asset set
         working-directory: release-assets
         run: |
-          test -s "CARE-Desktop-$VERSION-macos.dmg"
-          test -s "CARE-Desktop-$VERSION-windows-amd64-setup.exe"
+          test -s "CARE-Clinic-$VERSION-macos.dmg"
+          test -s "CARE-Clinic-$VERSION-windows-amd64-setup.exe"
           test -s release-config.env
           test -s release-manifest.json
           test "$(find . -maxdepth 1 -type f | wc -l)" -eq 5
@@ -534,7 +534,7 @@ jobs:
             windows_note="Windows downloads are unsigned and may be blocked by SmartScreen."
           fi
           cat > release-notes.md <<EOF
-          ## CARE Desktop $VERSION
+          ## CARE Clinic $VERSION
 
           **Preview release.** $windows_note
           See release-manifest.json for each platform's actual signing status.
@@ -553,8 +553,8 @@ jobs:
           before it runs and asks for a new copy, and macOS will not open a damaged disk
           image. To check a file by hand, compare its SHA-256 with its line in SHA256SUMS:
 
-              Windows (PowerShell): Get-FileHash CARE-Desktop-$VERSION-windows-amd64-setup.exe
-              macOS (Terminal):     shasum -a 256 CARE-Desktop-$VERSION-macos.dmg
+              Windows (PowerShell): Get-FileHash CARE-Clinic-$VERSION-windows-amd64-setup.exe
+              macOS (Terminal):     shasum -a 256 CARE-Clinic-$VERSION-macos.dmg
 
           If they differ, delete the file and download it again.
 
@@ -563,5 +563,5 @@ jobs:
           Preserve the clinic CA and take a verified backup before upgrading an existing clinic.
           EOF
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
-            --draft --prerelease --title "CARE Desktop $VERSION (preview)" \
+            --draft --prerelease --title "CARE Clinic $VERSION (preview)" \
             --notes-file release-notes.md release-assets/*

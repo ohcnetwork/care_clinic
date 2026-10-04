@@ -27,9 +27,9 @@ func TestFindClinicRejectsTheSameAddressesAsConnect(t *testing.T) {
 
 func TestFindClinicChangesNothingOnThisComputer(t *testing.T) {
 	a := roleApp(t)
-	// care-desktop-not-a-clinic.local cannot be in any hosts file, so this
+	// care-clinic-not-a-clinic.local cannot be in any hosts file, so this
 	// reaches the network and fails without touching the system.
-	if _, err := a.FindClinic("care-desktop-not-a-clinic"); err == nil {
+	if _, err := a.FindClinic("care-clinic-not-a-clinic"); err == nil {
 		t.Fatal("a clinic answered at a name that cannot exist")
 	}
 	if _, err := os.Stat(a.configPath()); !os.IsNotExist(err) {
@@ -38,7 +38,7 @@ func TestFindClinicChangesNothingOnThisComputer(t *testing.T) {
 	if a.loadConfig() != (Config{}) {
 		t.Fatalf("looking for a clinic changed settings: %+v", a.loadConfig())
 	}
-	if a.clinicRoot("https://care-desktop-not-a-clinic.local") != "" {
+	if a.clinicRoot("https://care-clinic-not-a-clinic.local") != "" {
 		t.Fatal("a failed search remembered a certificate")
 	}
 }
@@ -59,7 +59,7 @@ func TestRememberedRootIsReusedForTheSameClinicOnly(t *testing.T) {
 // A name no computer can claim proves the bypass is only attempted when the
 // hosts file actually redirects the clinic.
 func TestClinicDialAddressIsEmptyWithoutAHostsEntry(t *testing.T) {
-	at, err := clinicDialAddress("care-desktop-not-a-clinic.local")
+	at, err := clinicDialAddress("care-clinic-not-a-clinic.local")
 	if err != nil || at != "" {
 		t.Fatalf("clinicDialAddress = %q, %v", at, err)
 	}
@@ -71,7 +71,7 @@ func TestClientReachableNeedsASavedClinicAndNeverErrorsOnSilence(t *testing.T) {
 		t.Fatal("a computer with no clinic reported on one")
 	}
 	// A name no computer can claim: nothing answers, which is a state, not a fault.
-	cfg := Config{Role: roleClient, ClientURL: "https://care-desktop-not-a-clinic.local"}
+	cfg := Config{Role: roleClient, ClientURL: "https://care-clinic-not-a-clinic.local"}
 	if err := a.saveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestClientReachableNeedsASavedClinicAndNeverErrorsOnSilence(t *testing.T) {
 // every poll into "something else is still running".
 func TestClientReachableDoesNotWaitForARunningJob(t *testing.T) {
 	a := roleApp(t)
-	if err := a.saveConfig(Config{Role: roleClient, ClientURL: "https://care-desktop-not-a-clinic.local"}); err != nil {
+	if err := a.saveConfig(Config{Role: roleClient, ClientURL: "https://care-clinic-not-a-clinic.local"}); err != nil {
 		t.Fatal(err)
 	}
 	a.jobMu.Lock()

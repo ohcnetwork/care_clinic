@@ -126,7 +126,7 @@ func TestReadRulesDistinguishesMalformedAndFailedReads(t *testing.T) {
 func TestEnsureRuleRepairsOnlyTheRequiredOwnedRule(t *testing.T) {
 	script := ensureRule("HTTPS", "TCP", 443)
 	for _, required := range []string{
-		"$_.DisplayName -eq 'CARE Desktop HTTPS'",
+		"$_.DisplayName -eq 'CARE Clinic HTTPS'",
 		"$_.Enabled -eq 'True'",
 		"$_.Direction -eq 'Inbound'",
 		"$_.Action -eq 'Allow'",
@@ -135,7 +135,7 @@ func TestEnsureRuleRepairsOnlyTheRequiredOwnedRule(t *testing.T) {
 		"@($port.LocalPort).Count -eq 1",
 		"($port.LocalPort -join ',') -eq '443'",
 		"$rules.Count -ne 1 -or $valid.Count -ne 1",
-		"Where-Object { $_.DisplayName -eq 'CARE Desktop HTTPS' } | Remove-NetFirewallRule",
+		"Where-Object { $_.DisplayName -eq 'CARE Clinic HTTPS' } | Remove-NetFirewallRule",
 		"-Enabled True -Direction Inbound -Protocol TCP -LocalPort 443 -Action Allow -Profile Private,Domain",
 	} {
 		if !strings.Contains(script, required) {
@@ -200,7 +200,7 @@ func TestRulePresenceCountsAnyLeftoverAndPropagatesUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"$ErrorActionPreference = 'Stop'", "-PolicyStore ActiveStore", "$_.DisplayName -like 'CARE Desktop *'"} {
+	for _, required := range []string{"$ErrorActionPreference = 'Stop'", "-PolicyStore ActiveStore", "$_.DisplayName -like 'CARE Clinic *'"} {
 		if !strings.Contains(string(scripts), required) {
 			t.Fatalf("presence query is missing %q: %s", required, scripts)
 		}
@@ -254,7 +254,7 @@ func TestUndoRequiresVerifiedRemovalOfEveryOwnedRule(t *testing.T) {
 				t.Fatalf("elevated %d steps, want 1", len(*steps))
 			}
 			removal := (*steps)[0].PS
-			for _, required := range []string{"-PolicyStore PersistentStore", "CARE Desktop *", "Remove-NetFirewallRule"} {
+			for _, required := range []string{"-PolicyStore PersistentStore", "CARE Clinic *", "Remove-NetFirewallRule"} {
 				if !strings.Contains(removal, required) {
 					t.Fatalf("removal is missing %q: %s", required, removal)
 				}

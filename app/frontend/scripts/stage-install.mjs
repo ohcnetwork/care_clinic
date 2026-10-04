@@ -13,9 +13,9 @@ const here = dirname(fileURLToPath(import.meta.url)); // app/frontend/scripts
 const source = join(here, "..", "..", "..", "deployments");
 const install = join(here, "..", "..", "install"); // app/install
 
-const versions = [...readFileSync(join(source, ".env"), "utf8").matchAll(/^CARE_DESKTOP_VERSION=([^\r\n]*)$/gm)];
+const versions = [...readFileSync(join(source, ".env"), "utf8").matchAll(/^CARE_CLINIC_VERSION=([^\r\n]*)$/gm)];
 if (versions.length !== 1 || !/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-dev)?$/.test(versions[0][1].trim())) {
-  throw new Error("deployments/.env must contain one CARE_DESKTOP_VERSION=X.Y.Z or X.Y.Z-dev");
+  throw new Error("deployments/.env must contain one CARE_CLINIC_VERSION=X.Y.Z or X.Y.Z-dev");
 }
 const version = versions[0][1].trim().replace(/-dev$/, "");
 const metadataPath = join(here, "..", "..", "wails.json");

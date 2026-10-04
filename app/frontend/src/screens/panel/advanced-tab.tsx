@@ -92,7 +92,7 @@ function AdvancedContent() {
       </PanelPageHeader>
     </div>
     {adminPassword === null ? <>
-      {expired ? <AdvancedNotice title="Advanced has locked" tone="neutral">Enter the Desktop password again. Unsaved settings and sensitive fields have been cleared.</AdvancedNotice> : null}
+      {expired ? <AdvancedNotice title="Advanced has locked" tone="neutral">Enter the CARE Clinic password again. Unsaved settings and sensitive fields have been cleared.</AdvancedNotice> : null}
       <AdminGate onUnlock={unlock} />
     </> : <>
       {!groupId ? <AdminRecoverySettings adminPassword={adminPassword} onPasswordChanged={unlock} /> : null}
@@ -142,7 +142,7 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
   const unlock = async () => {
     if (pending.current || busy || lock.isLocked()) return;
     if (!password) {
-      setProblem({ title: "Enter the Desktop admin password", message: "This is the password created for CARE Desktop, not necessarily your CARE web password." });
+      setProblem({ title: "Enter the CARE Clinic admin password", message: "This is the password created for CARE Clinic, not necessarily your CARE web password." });
       return;
     }
     pending.current = true;
@@ -155,20 +155,20 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
       setPassword("");
       if (lock.isLocked()) return;
       if (matches) onUnlock(submitted);
-      else setProblem({ title: "That's not the Desktop admin password", message: "Try again, or use an unused recovery code from your latest sheet." });
+      else setProblem({ title: "That's not the CARE Clinic admin password", message: "Try again, or use an unused recovery code from your latest sheet." });
     } catch (cause) {
       if (!live.current) return;
       setPassword("");
-      setProblem(advancedProblem(cause, "The password couldn't be checked", "Try again when CARE Desktop is ready. Advanced stays locked."));
+      setProblem(advancedProblem(cause, "The password couldn't be checked", "Try again when CARE Clinic is ready. Advanced stays locked."));
     } finally {
       pending.current = false;
       if (live.current) setChecking(false);
     }
   };
   if (recovering) return <section className="advanced-card advanced-gate-recovery">
-    <h2>Reset the Desktop admin password</h2>
+    <h2>Reset the CARE Clinic admin password</h2>
     <AdminPasswordForm onCancel={() => { setRecovering(false); setProblem(null); }} onSuccess={(next) => {
-      toast("Desktop password reset. Mark that recovery code used. Your CARE web login is unchanged. Re-enroll a surviving backup PEM in Backups before using password-only key downloads.");
+      toast("CARE Clinic password reset. Mark that recovery code used. Your CARE web login is unchanged. Re-enroll a surviving backup PEM in Backups before using password-only key downloads.");
       onUnlock(next);
     }} />
   </section>;
@@ -177,8 +177,8 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
     <h2 id="advanced-gate-title">Enter the admin password</h2>
     <p>These settings can change, rebuild or remove the clinic.</p>
     <form noValidate onSubmit={(event) => { event.preventDefault(); void unlock(); }}>
-      <AdvancedSecretInput label="Desktop admin password" value={password} onChange={(next) => { setPassword(next); setProblem(null); }}
-        placeholder="Desktop admin password" disabled={blocked || checking} invalid={!!problem} autoFocus />
+      <AdvancedSecretInput label="CARE Clinic admin password" value={password} onChange={(next) => { setPassword(next); setProblem(null); }}
+        placeholder="CARE Clinic admin password" disabled={blocked || checking} invalid={!!problem} autoFocus />
       <AdvancedError problem={problem} />
       <Button type="submit" variant="primary" size="block" className="advanced-gate-submit" disabled={blocked || checking}>
         {checking ? <Spinner /> : null}{checking ? "Checking…" : "Unlock"}
@@ -186,7 +186,7 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
     </form>
     <Button type="button" variant="ghost" className="advanced-forgot" disabled={blocked || checking}
       onClick={() => { if (!lock.isLocked() && !busy && !pending.current) { setPassword(""); setProblem(null); setRecovering(true); } }}>
-      {problem ? "Use a recovery code instead" : "Forgot Desktop password?"}
+      {problem ? "Use a recovery code instead" : "Forgot CARE Clinic password?"}
     </Button>
   </section>;
 }
@@ -212,7 +212,7 @@ function RebuildControl({ adminPassword }: { adminPassword: string }) {
       if (accepted === true) setOpen(false);
       else setProblem({ title: "The rebuild didn't start", message: "Wait for any other task to finish, then try again. Open the log file if it still won't start." });
     } catch (cause) {
-      setProblem(advancedProblem(cause, "The rebuild didn't start", "Try again when CARE Desktop is ready."));
+      setProblem(advancedProblem(cause, "The rebuild didn't start", "Try again when CARE Clinic is ready."));
     } finally {
       pending.current = false;
       setWorking(false);
@@ -362,7 +362,7 @@ export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
             </label> : null}
             {capabilities?.app ? <label className="advanced-check">
               <Checkbox checked={removeApp} disabled={working || blocked} onCheckedChange={(checked) => setRemoveApp(checked === true)} />
-              <span>Also remove the CARE Desktop app</span>
+              <span>Also remove the CARE Clinic app</span>
             </label> : null}
           </div>
           {!removeBackups ? <p className="advanced-field-hint">Keep your separately saved backup recovery file. You will need it to restore encrypted backups.</p> : null}
@@ -393,7 +393,7 @@ function LogRow() {
       <span className="advanced-icon"><ScrollText aria-hidden="true" /></span>
       <div className="advanced-grow">
         <h2 className="advanced-card-title">Log file</h2>
-        <p className="advanced-card-description">Technical details of what CARE Desktop does — share it when asking for help.</p>
+        <p className="advanced-card-description">Technical details of what CARE Clinic does — share it when asking for help.</p>
       </div>
       <AdvancedLogButton label="Open log folder" />
     </div>

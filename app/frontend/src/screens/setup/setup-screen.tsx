@@ -43,7 +43,7 @@ export function SetupScreen({ form, patch }: { form: SetupForm; patch: (values: 
     title="Room for the clinic" subtitle="Preparing this computer for CARE." note={status === "starting" ? "Preparing setup…" : "Try again before continuing."}
     back={() => { setLocalBusy(true); void clearRole().finally(() => setLocalBusy(false)); }} update={update}>
     {status === "starting" ? <div className="on-card on-pad on-row" role="status"><Spinner />Preparing setup…</div>
-      : <Callout tone="danger" title="Couldn't start setup">CARE Desktop couldn't prepare setup on this computer. Try again. If it keeps happening, share the log file.
+      : <Callout tone="danger" title="Couldn't start setup">CARE Clinic couldn't prepare setup on this computer. Try again. If it keeps happening, share the log file.
         <div className="on-actions"><Button disabled={localBusy} onClick={() => { pending.current = null; setStatus("starting"); setAttempt((n) => n + 1); }}>Try again</Button><LogButton /></div>
       </Callout>}
   </SetupLayout>;
@@ -472,7 +472,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     network: ["Setting this network to Private", "The second of the two Windows changes. Staff computers, phones and tablets open CARE from here."],
     address: ["Choosing the clinic address", "Staff type this into their browser to open CARE. Short and easy to say out loud works best."],
     backup: ["Setting up backups", "CARE makes an encrypted backup automatically, once every 24 hours. Choose where the backups go, then save the file that unlocks them."],
-    admin: ["Creating the admin password", "This password protects CARE Desktop on this computer and is the first sign-in for CARE itself."],
+    admin: ["Creating the admin password", "This password protects CARE Clinic on this computer and is the first sign-in for CARE itself."],
     review: ["Review before installing", "Here's what CARE will set up."],
     install: ["Installing CARE", ""],
   };

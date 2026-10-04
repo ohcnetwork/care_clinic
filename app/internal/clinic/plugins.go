@@ -8,7 +8,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/plugins"
 )
 
-const frontendPluginsEnv = "CARE_DESKTOP_FRONTEND_PLUGINS"
+const frontendPluginsEnv = "CARE_CLINIC_FRONTEND_PLUGINS"
 
 const frontendPluginsScript = `import json, os
 from django.db import transaction

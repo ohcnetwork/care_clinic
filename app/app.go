@@ -156,7 +156,7 @@ func boundMethod() string {
 			}
 		}
 		if !more {
-			return "CARE Desktop"
+			return "CARE Clinic"
 		}
 	}
 }

@@ -183,7 +183,7 @@ export function RestoreBackupFile({ disabled }: { disabled: boolean }) {
       const verified = await bridge.VerifyAdminPassword(adminPassword);
       if (!currentPreflight()) return;
       if (!verified) {
-        setDialogProblem(backupProblem("the Desktop admin password does not match", "restore"));
+        setDialogProblem(backupProblem("the CARE Clinic admin password does not match", "restore"));
         passwordInput.current?.focus();
         return;
       }
@@ -207,7 +207,7 @@ export function RestoreBackupFile({ disabled }: { disabled: boolean }) {
         setOutcome("idle");
         setDialogProblem(backupProblem(error, "restore"));
         // Native methods record their detailed failures; never log credentials.
-        log("The restore request was not accepted. Check the backup, recovery file and Desktop password.");
+        log("The restore request was not accepted. Check the backup, recovery file and CARE Clinic password.");
       }
     } finally {
       if (version === operationVersion.current) {
@@ -262,7 +262,7 @@ export function RestoreBackupFile({ disabled }: { disabled: boolean }) {
 
       {restoring ? (
         <BackupNotice title="Restoring the selected backup…" tone="info" log={false}>
-          CARE is checking and restoring the backup. Keep CARE Desktop open and don't turn this computer off.
+          CARE is checking and restoring the backup. Keep CARE Clinic open and don't turn this computer off.
         </BackupNotice>
       ) : outcome === "complete" && !restorePending ? (
         <BackupNotice title="The backup was restored" tone="success" log={false}>
@@ -315,12 +315,12 @@ export function RestoreBackupFile({ disabled }: { disabled: boolean }) {
                       {choosing === "recovery" ? "Checking…" : "Choose recovery file"}
                     </Button>
                   </div>
-                  <p>Keep it safe and don't share it. Use the file from this backup's clinic, not Desktop recovery codes. Without it, encrypted backups cannot be unlocked.</p>
+                  <p>Keep it safe and don't share it. Use the file from this backup's clinic, not CARE Clinic recovery codes. Without it, encrypted backups cannot be unlocked.</p>
                 </div>
               ) : null}
 
               <div className="care-restore-field">
-                <label htmlFor="care-restore-password">CARE Desktop admin password</label>
+                <label htmlFor="care-restore-password">CARE Clinic admin password</label>
                 <div className="care-restore-input">
                   <LockKeyhole aria-hidden="true" />
                   <input
@@ -333,7 +333,7 @@ export function RestoreBackupFile({ disabled }: { disabled: boolean }) {
                     aria-describedby="care-restore-password-hint"
                     disabled={waiting}
                     onChange={(event) => setAdminPassword(event.target.value)}
-                    placeholder="Your CARE Desktop admin password"
+                    placeholder="Your CARE Clinic admin password"
                   />
                   <Button
                     type="button" variant="ghost" size="sm" disabled={waiting}
@@ -345,11 +345,11 @@ export function RestoreBackupFile({ disabled }: { disabled: boolean }) {
                   </Button>
                 </div>
                 <div id="care-restore-password-hint" className="care-restore-password-hint">
-                  <span>For this CARE Desktop installation, not the CARE web login.</span>
+                  <span>For this CARE Clinic installation, not the CARE web login.</span>
                   <Button
                     type="button" variant="ghost" size="bare" disabled={requested.current}
                     onClick={() => { close(false); setTab("advanced"); }}
-                  >Forgot Desktop password?</Button>
+                  >Forgot CARE Clinic password?</Button>
                 </div>
               </div>
 
@@ -363,7 +363,7 @@ export function RestoreBackupFile({ disabled }: { disabled: boolean }) {
             </div>
 
             {updateLock.active && !requested.current ? (
-              <BackupNotice title="Finish the CARE Desktop update first" tone="info" log={false}>
+              <BackupNotice title="Finish the CARE Clinic update first" tone="info" log={false}>
                 Your backup selection is kept. Finish the update in Updates before restoring.
               </BackupNotice>
             ) : restorePending ? (

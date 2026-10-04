@@ -63,7 +63,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
     <>
       {page === "space" ? (
         <div className="on-card on-pad">
-          <div className="on-card-head"><span className={`on-tile on-large${ready ? "" : " on-bad"}`}><HardDrive aria-hidden="true" /></span><div className="on-grow"><h2>Free space on this computer</h2><p>CARE Desktop needs at least {diskSize(disk?.need && !settingsDrive ? disk.need : INSTALL_MIN_FREE)} for the clinic software and records.</p></div><StatusBadge tone={ready ? "ok" : checking ? "" : "bad"}>{checking ? "Checking" : ready ? "Enough space" : check.error ? "Couldn't check" : "Free up space"}</StatusBadge></div>
+          <div className="on-card-head"><span className={`on-tile on-large${ready ? "" : " on-bad"}`}><HardDrive aria-hidden="true" /></span><div className="on-grow"><h2>Free space on this computer</h2><p>CARE Clinic needs at least {diskSize(disk?.need && !settingsDrive ? disk.need : INSTALL_MIN_FREE)} for the clinic software and records.</p></div><StatusBadge tone={ready ? "ok" : checking ? "" : "bad"}>{checking ? "Checking" : ready ? "Enough space" : check.error ? "Couldn't check" : "Free up space"}</StatusBadge></div>
           <div className="on-check-work">
             {disk?.need ? <>
               <dl className={`on-space-summary${ready ? " on-space-sufficient" : checking ? "" : " on-space-insufficient"}`}>
@@ -122,7 +122,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
               {footer()}
             </div>
           </Callout> : null}
-          {tool ? <Callout tone="info" title="Your computer may ask for permission">Look for a small window asking for a password, fingerprint or PIN. It can open behind this one. Keep CARE Desktop open.</Callout> : null}
+          {tool ? <Callout tone="info" title="Your computer may ask for permission">Look for a small window asking for a password, fingerprint or PIN. It can open behind this one. Keep CARE Clinic open.</Callout> : null}
           {sizeError ? <Callout tone="danger" title={sizeError.title ?? "Couldn't check the download"}>{sizeError.message}<div className="on-actions"><Button disabled={busy} onClick={() => setSizeAttempt((n) => n + 1)}>Try again</Button><LogButton /></div></Callout> : null}
         </>
       ) : page === "cleanup" ? (

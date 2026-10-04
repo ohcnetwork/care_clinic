@@ -44,7 +44,7 @@ func TestWailsStagesMissingInstallBeforeGoBuild(t *testing.T) {
 		}
 	}
 	write("app/frontend/scripts/stage-install.mjs", string(script))
-	write("app/wails.json", `{"name":"care-desktop","info":{"productVersion":"9.9.9","productName":"CARE Desktop"}}`)
+	write("app/wails.json", `{"name":"care-clinic","info":{"productVersion":"9.9.9","productName":"CARE Clinic"}}`)
 	write("deployments/minio/entrypoint.sh", "storage entrypoint")
 	write("app/main.go", `package main
 import ("embed"; "fmt")
@@ -67,7 +67,7 @@ func main() {
 		{"development", "2.3.4-dev"},
 	} {
 		t.Run(tc.state, func(t *testing.T) {
-			manifest := "CARE_DESKTOP_VERSION=" + tc.version + "\n"
+			manifest := "CARE_CLINIC_VERSION=" + tc.version + "\n"
 			write("deployments/.env", manifest)
 			install := filepath.Join(root, "app", "install")
 			switch tc.state {
@@ -101,7 +101,7 @@ func main() {
 			if err := json.Unmarshal(metadata, &info); err != nil {
 				t.Fatal(err)
 			}
-			if info.Info.ProductVersion != strings.TrimSuffix(tc.version, "-dev") || info.Name != "care-desktop" || info.Info.ProductName != "CARE Desktop" {
+			if info.Info.ProductVersion != strings.TrimSuffix(tc.version, "-dev") || info.Name != "care-clinic" || info.Info.ProductName != "CARE Clinic" {
 				t.Fatalf("installer metadata was not derived from .env: %s", metadata)
 			}
 			cmd = proc.Command("go", "run", "main.go")
@@ -127,9 +127,9 @@ func main() {
 	}
 	for _, value := range []string{
 		"",
-		"CARE_DESKTOP_VERSION=invalid\n",
-		"CARE_DESKTOP_VERSION=01.2.3\n",
-		"CARE_DESKTOP_VERSION=1.2.3\nCARE_DESKTOP_VERSION=2.0.0\n",
+		"CARE_CLINIC_VERSION=invalid\n",
+		"CARE_CLINIC_VERSION=01.2.3\n",
+		"CARE_CLINIC_VERSION=1.2.3\nCARE_CLINIC_VERSION=2.0.0\n",
 	} {
 		t.Run("invalid-version-"+strings.TrimSpace(value), func(t *testing.T) {
 			write("deployments/.env", value)
@@ -139,7 +139,7 @@ func main() {
 				t.Fatalf("invalid release version was accepted: %s", output)
 			}
 			data, err := os.ReadFile(filepath.Join(root, "app", "install", ".env"))
-			if err != nil || string(data) != "CARE_DESKTOP_VERSION=2.3.4-dev\n" {
+			if err != nil || string(data) != "CARE_CLINIC_VERSION=2.3.4-dev\n" {
 				t.Fatalf("invalid version changed the staged kit: %q, %v", data, err)
 			}
 		})

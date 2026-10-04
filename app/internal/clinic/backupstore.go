@@ -4,7 +4,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/backup"
 )
 
-const composeProject = "care-desktop"
+const composeProject = "care-clinic"
 
 func (e *Clinic) Backups() *backup.Store {
 	s := &backup.Store{

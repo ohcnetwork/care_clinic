@@ -1,4 +1,4 @@
-# Using CARE Desktop
+# Using CARE Clinic
 
 [Documentation index](README.md)
 
@@ -15,7 +15,7 @@ language for failures; **Open log** provides diagnostic detail for support.
 
 The Start screen offers **Start setup** and **Connect to an existing server on
 the local network**. Viewing this screen saves no role and performs no cleanup.
-Checking for a CARE Desktop update also does not select a role.
+Checking for a CARE Clinic update also does not select a role.
 
 | Choice | When it is saved | What Back can do |
 | --- | --- | --- |
@@ -41,7 +41,7 @@ screen's time estimate is not a deadline or measured installation progress.
    a plain-language description of what each program does.
    A failed check keeps an explanation, a fix where available, and **Check again**.
    The free-space screen shows both the space needed and the amount available:
-   green when sufficient, red when space needs freeing. CARE Desktop needs at least
+   green when sufficient, red when space needs freeing. CARE Clinic needs at least
    **30 GB** on the clinic data drive (`storage.InstallMinFree`); a separate settings
    drive also needs **1 GB**. If that separate drive is too full, its own measurements
    are shown instead. An unavailable measurement never enables Continue.
@@ -57,7 +57,7 @@ screen's time estimate is not a deadline or measured installation progress.
    Cancellation is not a successful save or verification. Selecting an incorrect
    or unreadable PEM clears the previous verification; the row no longer shows
    Checked and Continue stays disabled until the correct file is checked.
-4. **Admin password.** Choose the Desktop password and save the sheet of six
+4. **Admin password.** Choose the CARE Clinic password and save the sheet of six
    single-use recovery codes. The password must contain 8 through 20 Unicode
    characters, including an uppercase letter, lowercase letter and digit.
    A reminder asks the administrator to save the password in a password manager
@@ -92,20 +92,20 @@ save-dialog and capacity presentation.
 | Material | Purpose |
 | --- | --- |
 | Backup recovery file, ending in `.pem` | Decrypt the clinic's encrypted backups. It is a private key, not a backup or password. |
-| Desktop recovery-code sheet | Reset a forgotten Desktop password offline. Each code is usable once. It cannot decrypt backups or reset CARE web credentials. |
+| CARE Clinic recovery-code sheet | Reset a forgotten CARE Clinic password offline. Each code is usable once. It cannot decrypt backups or reset CARE web credentials. |
 
 Keep secure copies outside CARE's installation, settings, logs and backup
 folder, preferably away from this computer. CARE validates locations and file
 contents, but cannot prove that a selected drive is physically offsite.
 At installation, CARE also encrypts a local copy of the verified backup key
-using the Desktop admin password. This does not replace an off-device recovery
+using the CARE Clinic admin password. This does not replace an off-device recovery
 file: losing this computer, or resetting a forgotten password with recovery
 codes, can make that encrypted local copy unavailable.
 Replacing a lost pre-install backup key requires an explicit new export and
 verification. Keep old keys for any older backups. Replacing the recovery-code
 sheet invalidates the old codes.
 
-See [backup recovery and custody](backups-and-restore.md#3-backup-recovery-file-and-desktop-admin-recovery)
+See [backup recovery and custody](backups-and-restore.md#3-backup-recovery-file-and-care-clinic-admin-recovery)
 for the native checks and limitations.
 
 ## During installation
@@ -128,8 +128,8 @@ guidance and logs instead of entering the panel.
 
 Initial installation needs internet to download source and image dependencies.
 Recognized connection failures show **The download was interrupted**, ask the
-operator to reconnect, and do not suggest updating CARE Desktop as the remedy.
-Keep CARE Desktop open and choose **Try again** to retry the same unfinished
+operator to reconnect, and do not suggest updating CARE Clinic as the remedy.
+Keep CARE Clinic open and choose **Try again** to retry the same unfinished
 installation. The clinic address, backup folder, admin password and saved
 recovery files are kept; completed source downloads and images can be reused.
 Preparation that already succeeded is not repeated after a startup failure.
@@ -198,9 +198,9 @@ and [earlier-installation recovery](client-recovery.md).
 | Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary and actionable problems. |
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
-| Updates | Separate CARE backend/frontend updates and CARE Desktop application updates. |
-| Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No Desktop password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
-| Advanced | Ten everyday clinic settings, support-only extra overrides, Desktop password/recovery management, diagnostic log, rebuild and uninstall. |
+| Updates | Separate CARE backend/frontend updates and CARE Clinic application updates. |
+| Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No CARE Clinic password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
+| Advanced | Ten everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
 
 **Connect phone or tablet** displays a real QR code for
 `http://<clinic>.local/setup`. Phones and tablets still need to follow their
@@ -210,12 +210,12 @@ proof that trust was installed.
 When two or fewer admin recovery codes remain, a persistent banner appears at
 the top of every control-panel tab. It shows the unused count, turns red at zero,
 and returns after restarting the app. **Save new recovery codes** asks for the
-current Desktop admin password before opening the save dialog for six new codes.
+current CARE Clinic admin password before opening the save dialog for six new codes.
 Saving a new set invalidates every previous code. Cancelling or failing to save
 does not clear the reminder. Successful replacement in either the banner or
 Advanced clears it; using a recovery code updates the count immediately.
 
-Storage highlights the **currently used** amount under **CARE Desktop storage**,
+Storage highlights the **currently used** amount under **CARE Clinic storage**,
 with Rancher Desktop's total capacity shown separately rather than as usage.
 This is usage inside the shared Rancher Desktop disk, including supporting
 software and potentially other apps; it is not an exact CARE-only measurement
@@ -232,7 +232,7 @@ at a fixed nightly clock time. The displayed retention comes from the installed
 settings; zero means keep backups indefinitely. Start CARE before taking a
 manual backup.
 
-**Re-download backup key** asks for the current Desktop admin password and saves
+**Re-download backup key** asks for the current CARE Clinic admin password and saves
 another copy of the original recovery file. After installation or explicit
 enrollment, CARE can unlock its encrypted local copy without asking you to find
 the original file. For an older installation without a usable encrypted copy,
@@ -246,7 +246,7 @@ Cancelling the save leaves enrollment unchanged. If export succeeds but local
 enrollment cannot be saved, CARE reports that distinction: keep the exported
 PEM and retry enrollment.
 
-Changing the Desktop admin password re-encrypts an enrolled, usable local key
+Changing the CARE Clinic admin password re-encrypts an enrolled, usable local key
 with the new password; a failure leaves both unchanged. A forgotten-password
 reset using recovery codes cannot unlock the
 previously encrypted key; CARE preserves that encrypted data and requires an
@@ -257,7 +257,7 @@ external recovery file remains, CARE cannot reconstruct the private key.
 Use **Restore from a backup file** for a file in the current backup folder or
 one copied from elsewhere. The dialog identifies the selected database dump and
 any matching uploaded-files archive. Select the matching recovery file when
-encrypted, enter the Desktop password and explicitly acknowledge replacement.
+encrypted, enter the CARE Clinic password and explicitly acknowledge replacement.
 A database-only restore leaves uploaded files as they are.
 
 Cancel is available during file selection and read-only preflight. It clears
@@ -282,7 +282,7 @@ it sooner. Locking clears the retained password and unsaved or sensitive form
 state; it does not undo already saved settings or cancel an accepted native job.
 
 This is a frontend timer, not a backend session or token. Protected Go methods
-verify the supplied Desktop password for each operation. The Desktop password
+verify the supplied CARE Clinic password for each operation. The CARE Clinic password
 and recovery codes do not change the CARE web login after initial setup.
 
 ### Updates and running work
@@ -291,13 +291,13 @@ CARE updates stage backend/frontend builds from the configured branch. A failed
 check remains a retryable failure, not "Up to date". Installing a staged CARE
 update can interrupt service.
 
-A CARE Desktop update downloads a verified application installer or replaces
+A CARE Clinic update downloads a verified application installer or replaces
 the app bundle. Conflicting actions stay locked while it runs:
 
 | Desktop update state | How to proceed |
 | --- | --- |
 | Checking, available, or failed check | Continue ordinary work, retry the check, or explicitly start the update. |
-| Downloading, verifying or installing | Keep CARE Desktop open and wait. |
+| Downloading, verifying or installing | Keep CARE Clinic open and wait. |
 | External installer opened | Follow the installer. After the native handoff completes, **OK** on start/client/setup or **Done** in Updates acknowledges the handoff and releases the interface lock. |
 | Reopening | Wait for the application to reopen. There is no OK/Done action that releases this state. |
 | Failed download or installation | Read the short failure message and retry when ready. |
@@ -314,7 +314,7 @@ means the job succeeded. Already launched installers and processes are not
 automatically stopped. Closing an idle desktop and stopping the clinic are
 separate choices; macOS can also hide the window without exiting the process.
 
-Server removal belongs in Advanced and requires the Desktop password and
+Server removal belongs in Advanced and requires the CARE Clinic password and
 explicit deletion choices. Completion is acknowledged only after both native
 cleanup success and the corresponding job completion. Partial failures keep the
 removal flow available. Removing the desktop executable is a separate optional

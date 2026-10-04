@@ -12,7 +12,7 @@ import { usePanelUpdateLock } from "./panel-update-lock";
 
 function exportProblem(cause: unknown): string {
   const detail = errorText(cause);
-  if (/admin password does not match/i.test(detail)) return "The Desktop admin password didn't match. Enter it again; your CARE web password may be different.";
+  if (/admin password does not match/i.test(detail)) return "The CARE Clinic admin password didn't match. Enter it again; your CARE web password may be different.";
   if (/existing backup recovery file is unavailable/i.test(detail)) return "No usable local key is enrolled, and the original PEM is missing or unreadable. Connect its drive or select another saved copy. CARE cannot reconstruct a key lost before enrollment.";
   if (/encrypted backup key could not be unlocked/i.test(detail)) return "The encrypted local key couldn't be unlocked or verified. Select a surviving recovery PEM to re-enroll it. Your backup key has not changed.";
   if (/PEM was exported, but its encrypted local copy/i.test(detail)) return "The PEM was exported, but its encrypted local copy could not be saved. Keep that exported file safe and retry enrollment; password-only downloads are not yet confirmed.";
@@ -20,7 +20,7 @@ function exportProblem(cause: unknown): string {
   if (/does not match|different clinic/i.test(detail)) return "That recovery file doesn't match this clinic. Select a saved copy of this clinic's original key.";
   if (/keep recovery materials outside/i.test(detail)) return "Choose a secure location outside CARE's installation, settings, logs and backup folder.";
   if (/choose a new filename|file exists/i.test(detail)) return "CARE won't overwrite an existing file. Choose a new filename or location.";
-  if (/something else is still running|closing/i.test(detail)) return "CARE Desktop is busy. Wait for the current task to finish and try again.";
+  if (/something else is still running|closing/i.test(detail)) return "CARE Clinic is busy. Wait for the current task to finish and try again.";
   if (/restore is unfinished/i.test(detail)) return "Finish the earlier restore first. Open Overview and start CARE before exporting the key.";
   if (/server role|not set up|cleanup is incomplete/i.test(detail)) return "This clinic isn't ready. Finish setup or cleanup before exporting its backup key.";
   return "The recovery file couldn't be saved or checked. Check the file and drive permissions, then try again. Your backup key has not changed.";
@@ -132,7 +132,7 @@ export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
       <span className="care-backups-icon"><FileKey aria-hidden="true" /></span>
       <div className="care-backups-grow">
         <h2>Backup recovery key</h2>
-        <p>Re-download your key with your Desktop admin password. Older installations need a surviving PEM for one-time encrypted enrollment.</p>
+        <p>Re-download your key with your CARE Clinic admin password. Older installations need a surviving PEM for one-time encrypted enrollment.</p>
       </div>
       <Button disabled={disabled || working || updateLock.active} onClick={() => void show()}>Re-download backup key</Button>
     </section>
@@ -142,11 +142,11 @@ export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
         onEscapeKeyDown={(event) => { if (pending.current) event.preventDefault(); }}>
         <AlertDialogTitle>Re-download backup key</AlertDialogTitle>
         <AlertDialogDescription>
-          CARE unlocks its encrypted local copy using your Desktop admin password, without replacing the key.
+          CARE unlocks its encrypted local copy using your CARE Clinic admin password, without replacing the key.
           Keep an off-device PEM: a lost computer or forgotten-password reset can make the local copy unusable.
         </AlertDialogDescription>
         <form className="advanced-dialog-body" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-          <AdvancedSecretInput label="CARE Desktop admin password" value={password} onChange={setPassword}
+          <AdvancedSecretInput label="CARE Clinic admin password" value={password} onChange={setPassword}
             disabled={disabled || working || updateLock.active} autoComplete="current-password" autoFocus />
           <div className="advanced-field">
             <Button type="button" disabled={disabled || working || updateLock.active} onClick={() => void chooseSource()}>Select another saved copy</Button>

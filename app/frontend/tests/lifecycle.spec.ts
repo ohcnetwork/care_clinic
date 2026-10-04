@@ -55,7 +55,7 @@ test.describe("permission confirmations", () => {
         await page.setViewportSize(size);
         await panel(page);
         await page.getByRole("button", { name: "Advanced", exact: true }).click();
-        await page.getByLabel("Desktop admin password", { exact: true }).fill("ClinicTest123");
+        await page.getByLabel("CARE Clinic admin password", { exact: true }).fill("ClinicTest123");
         await page.getByRole("button", { name: "Unlock", exact: true }).click();
         await expect(page.getByRole("button", { name: "Lock Advanced settings", exact: true })).toBeVisible();
         await permission(page, prompt.title, prompt.message);
@@ -282,7 +282,7 @@ for (const first of ["uninstalled", "care-done"] as const) {
   test(`removal returns to Start only after both events, with ${first} first`, async ({ page }) => {
     await panel(page);
     await page.getByRole("button", { name: "Advanced", exact: true }).click();
-    await page.getByLabel("Desktop admin password", { exact: true }).fill("ClinicTest123");
+    await page.getByLabel("CARE Clinic admin password", { exact: true }).fill("ClinicTest123");
     await page.getByRole("button", { name: "Unlock", exact: true }).click();
     await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
     await page.evaluate(() => { window.careTest.fixtures.finishJobs = false; });
@@ -327,7 +327,7 @@ async function installDemo(page: Page, fail = false) {
   await expect(page.getByRole("heading", { name: "Installing CARE", exact: true })).toBeVisible();
 }
 
-test("the safe full demo reaches Overview and retains the chosen Desktop password", async ({ page }) => {
+test("the safe full demo reaches Overview and retains the chosen CARE Clinic password", async ({ page }) => {
   await installDemo(page);
   await expect(page.locator(".care-panel")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
@@ -335,7 +335,7 @@ test("the safe full demo reaches Overview and retains the chosen Desktop passwor
   expect(await calls(page, "BeginServerSetup")).toHaveLength(1);
   expect(await calls(page, "RunSetup")).toHaveLength(1);
   await page.getByRole("button", { name: "Advanced", exact: true }).click();
-  await page.getByLabel("Desktop admin password", { exact: true }).fill("TestChosen789");
+  await page.getByLabel("CARE Clinic admin password", { exact: true }).fill("TestChosen789");
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Clinic settings", exact: true })).toBeVisible();
 });
@@ -364,9 +364,9 @@ test("Desktop installer handoff guards mutations across the entire panel", async
   await expect(page.getByRole("button", { name: "Back up now", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Change folder", exact: true })).toBeDisabled();
   await page.getByRole("button", { name: "Advanced", exact: true }).click();
-  await expect(page.getByLabel("Desktop admin password", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("CARE Clinic admin password", { exact: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.emit("care-done", 0, "status"));
-  await expect(page.getByLabel("Desktop admin password", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("CARE Clinic admin password", { exact: true })).toBeDisabled();
   expect(await calls(page, "WriteEnv")).toHaveLength(0);
   expect(await calls(page, "RunUninstall")).toHaveLength(0);
   expect(await calls(page, "SetBackupDir")).toHaveLength(0);
@@ -396,16 +396,16 @@ test("failed optional app removal leaves Start usable and explains what remains"
     window.careTest.failNext("RemoveApp", "private removal diagnostic");
   });
   await page.getByRole("button", { name: "Advanced", exact: true }).click();
-  await page.getByLabel("Desktop admin password", { exact: true }).fill("ClinicTest123");
+  await page.getByLabel("CARE Clinic admin password", { exact: true }).fill("ClinicTest123");
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
   await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
-  await dialog(page).getByRole("checkbox", { name: /Also remove the CARE Desktop app/ }).check();
+  await dialog(page).getByRole("checkbox", { name: /Also remove the CARE Clinic app/ }).check();
   await dialog(page).getByLabel("Type DELETE to confirm", { exact: true }).fill("DELETE");
   await dialog(page).getByRole("button", { name: "Delete everything", exact: true }).click();
   await page.evaluate(() => window.careTest.finishJob("uninstall"));
   await expect(page.getByRole("button", { name: "Start setup", exact: true })).toBeEnabled();
   const error = page.locator("[data-sonner-toast][data-type=error]");
-  await expect(error).toContainText("The clinic was removed, but CARE Desktop couldn't remove itself");
+  await expect(error).toContainText("The clinic was removed, but CARE Clinic couldn't remove itself");
   await expect(error).not.toContainText("private removal");
   expect(await page.evaluate(() => window.careTest.fixtures.appRemoved)).toBe(false);
   expect(await calls(page, "RemoveApp")).toHaveLength(1);

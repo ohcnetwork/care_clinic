@@ -11,7 +11,7 @@ type Rule = { match: RegExp; error: FriendlyError };
 
 const sameNetworkTips = [
   "Make sure this computer is on the same Wi-Fi or network as the clinic's main computer.",
-  "Check that the clinic's main computer is switched on and CARE Desktop is running on it.",
+  "Check that the clinic's main computer is switched on and CARE Clinic is running on it.",
   "Check the address for spelling mistakes.",
 ];
 
@@ -58,7 +58,7 @@ const rules: Rule[] = [
     error: {
       title: "That address doesn't look right",
       message: "Type only the clinic's name, for example care, with nothing else before or after it.",
-      tips: ["You can find the address on the clinic's main computer, in CARE Desktop."],
+      tips: ["You can find the address on the clinic's main computer, in CARE Clinic."],
     },
   },
   {
@@ -143,10 +143,10 @@ const rules: Rule[] = [
     },
   },
   {
-    match: /^(something else is still running|CARE Desktop is closing)/i,
+    match: /^(something else is still running|CARE Clinic is closing)/i,
     error: {
       title: "Please wait a moment",
-      message: "CARE Desktop is still finishing another task. Try again in a few seconds.",
+      message: "CARE Clinic is still finishing another task. Try again in a few seconds.",
     },
   },
 ];

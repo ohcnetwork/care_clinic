@@ -63,7 +63,7 @@ func (a *App) runLockedJob(fn func() error, markSetup bool, label string) error 
 			if err == nil {
 				a.setupAttempt = nil
 				if aerr := autostart.Set(true); aerr != nil {
-					a.logln("note: couldn't set CARE Desktop to open at login (" + aerr.Error() +
+					a.logln("note: couldn't set CARE Clinic to open at login (" + aerr.Error() +
 						") - turn on \"Start at login\" yourself")
 				}
 				a.emit("setup-done", true)
@@ -88,7 +88,7 @@ func (a *App) lockJob() error {
 	}
 	if a.closing {
 		a.jobMu.Unlock()
-		return errors.New("CARE Desktop is closing")
+		return errors.New("CARE Clinic is closing")
 	}
 	return nil
 }
@@ -127,7 +127,7 @@ func (a *App) withReadJob(fn func() error) error {
 	}
 	defer a.jobMu.RUnlock()
 	if a.closing {
-		return a.logged(errors.New("CARE Desktop is closing"))
+		return a.logged(errors.New("CARE Clinic is closing"))
 	}
 	return a.logged(fn())
 }
@@ -171,7 +171,7 @@ func (a *App) requireAdmin(password string) error {
 		return err
 	}
 	if !a.loadConfig().SetupDone || !a.VerifyAdminPassword(password) {
-		return errors.New("the Desktop admin password does not match this installation")
+		return errors.New("the CARE Clinic admin password does not match this installation")
 	}
 	return nil
 }
@@ -218,7 +218,7 @@ func failureTitle(label string) string {
 	case "free-space":
 		return "Cleanup didn't finish"
 	case "app-update":
-		return "The CARE Desktop update didn't finish"
+		return "The CARE Clinic update didn't finish"
 	case "network-name":
 		return "The clinic address is already in use"
 	}
@@ -345,7 +345,7 @@ func (a *App) RunSetup(mdnsName, adminPassword, backupDir string) (err error) {
 			return errors.New("this computer already has a clinic set up")
 		}
 		if cfg.BackupCertificate == "" || !cfg.BackupRecoveryVerified || cfg.adminRecoveryCount() != 6 {
-			return errors.New("save and verify the backup recovery file and save your six Desktop admin recovery codes before installing")
+			return errors.New("save and verify the backup recovery file and save your six CARE Clinic admin recovery codes before installing")
 		}
 		if err := a.recoveryLocation(cfg.BackupRecoveryPath, backupDir); err != nil {
 			return err

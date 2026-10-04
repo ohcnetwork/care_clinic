@@ -118,7 +118,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   const [inFlight, setInFlight] = useState(0);
 
   /**
-   * Leftovers from an earlier CARE Desktop. This is a hard blocker rather than a
+   * Leftovers from an earlier CARE Clinic. This is a hard blocker rather than a
    * warning: an old data volume still carrying the label gets re-attached by
    * compose, so the "new" clinic comes up holding the previous one's patients.
    *
@@ -377,7 +377,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
       list.push({
         id: "residue",
         title: "A clean computer",
-        detail: "Nothing left from an earlier CARE Desktop",
+        detail: "Nothing left from an earlier CARE Clinic",
         ...residue,
       });
     }
