@@ -61,10 +61,12 @@ func (a *App) CheckCareUpdate() (err error) {
 
 func (a *App) DismissCareUpdate() (err error) {
 	defer a.logError(&err)
-	if err := a.requireSetup(); err != nil {
-		return err
-	}
-	return a.engine().DeclineUpdate()
+	return a.withJob(func() error {
+		if err := a.requireStableClinic(); err != nil {
+			return err
+		}
+		return a.engine().DeclineUpdate()
+	})
 }
 
 func (a *App) checkCareUpdate() {
@@ -93,7 +95,11 @@ func (a *App) isClosing() bool {
 
 func (a *App) updatesAllowed() bool {
 	cfg := a.loadConfig()
-	return !a.isClosing() && cfg.Role == roleServer && cfg.SetupDone && !cfg.Removing
+	if a.isClosing() || cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing {
+		return false
+	}
+	pending, err := a.engine().PendingPluginRecovery()
+	return err == nil && !pending
 }
 
 func (a *App) updatesAbandoned() bool {

@@ -83,6 +83,12 @@ func (a *App) refreshInstallDir() {
 		if cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing {
 			return nil
 		}
+		if pending, err := a.engine().PendingPluginRecovery(); err != nil {
+			return err
+		} else if pending {
+			a.logln("An unfinished plugin rollback was found; start CARE to recover it. Installed configuration was left unchanged.")
+			return nil
+		}
 		pending, err := a.engine().Backups().PendingRestore()
 		if err != nil {
 			return err
@@ -261,7 +267,11 @@ func jobQuitPrompt(label string) quitPrompt {
 	case "backup-now":
 		return quitPrompt{"a backup", "Quit during a backup?",
 			"The backup in progress won't be finished or usable. Earlier backups are not affected.\n\n" + leftRunning}
-	case "rebuild-all", "rebuild-backend", "rebuild-frontend", "apply-plugins":
+	case "apply-plugins":
+		return quitPrompt{"a plugin change", "Quit while applying plugins?",
+			"Quitting can interrupt plugin loading or recovery. Reopen CARE Desktop and start CARE " +
+				"to recover the previous plugin configuration.\n\n" + leftRunning}
+	case "rebuild-all", "rebuild-backend", "rebuild-frontend":
 		return quitPrompt{"a rebuild", "Quit during a rebuild?",
 			"CARE is being rebuilt. Quitting can leave the clinic stopped; open CARE Desktop again " +
 				"and run the rebuild once more.\n\n" + leftRunning}

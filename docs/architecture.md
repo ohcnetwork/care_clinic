@@ -106,7 +106,7 @@ decides. Actual OS privilege prompts still belong to the native integrations.
 | `backup` | Which backups and keys exist, and how can data be safely restored? |
 | `compose` | Which images need building, and from which exact inputs? |
 | `health` | Is the clinic HTTP endpoint responding, and is the HTTPS port usable? |
-| `plugins` | What plugin configuration is stored in `backend.env`? |
+| `plugins` | Which plugin configuration is active, and which validated draft is staged for application? |
 | `prereq` | Are Docker and Git usable, and how can the user obtain or start them? Supplies the Docker engine through Rancher Desktop on macOS/Windows and native Docker Engine on Linux. |
 | `release` | Which version, sources, and image references does this executable ship? |
 | `residue` | What resources from an earlier installation remain? |
@@ -140,7 +140,7 @@ The local configuration records setup completion, an incomplete-removal checkpoi
 
 The clinic manager keeps an exported private backup recovery file and a separate printable sheet of Desktop admin recovery codes. Config stores only the public encryption certificate, recovery-code hashes and recovery metadata; there is no backup password or keyring entry. Restore also has its own durable journal and staging resources. `config.json` is not a complete inventory of everything the application owns.
 
-See [configuration](configuration-and-settings.md) for locations and [restore](backups-and-restore.md) for its journal.
+Plugin changes also use a private durable recovery journal and a pinned backend image until runtime readiness is verified. See [configuration](configuration-and-settings.md) for locations, [restore](backups-and-restore.md) for its journal, and [plugin transactions](plugins.md#save-and-apply) for configuration/image recovery and its database-migration limits.
 
 ### External state
 
@@ -165,7 +165,7 @@ stateDiagram-v2
 
 `Removing` is persisted before destructive work. While it is set, normal startup and configuration mutation are rejected; the application must finish cleanup rather than accidentally create a new empty clinic over a partial removal.
 
-A pending restore is an additional condition, not another meaning of `SetupDone`. Start is the recovery entry point; most other mutations require no pending restore. Read-only environment/plugin inspection may still be used after the restore job has ended with an unfinished journal.
+A pending restore or plugin rollback is an additional condition, not another meaning of `SetupDone`. Start is the recovery entry point; most other mutations require neither journal to be pending. Read-only environment/plugin inspection may still be used after a failed job leaves an unfinished journal.
 
 ## Concurrency is a safety boundary
 

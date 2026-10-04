@@ -2,6 +2,7 @@ package clinic
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,9 @@ type Clinic struct {
 	Abandon func() bool
 
 	localSetupOffered bool
+	ctx               context.Context
+	pluginBaseline    []pluginContainer
+	pluginReady       func() error
 }
 
 func (e *Clinic) logln(s string) {
@@ -112,7 +116,7 @@ func (e *Clinic) workdir() string {
 }
 
 func (e *Clinic) Runner() proc.Runner {
-	return proc.Runner{Dir: e.workdir(), Env: e.baseEnv(), Log: e.Log}
+	return proc.Runner{Dir: e.workdir(), Env: e.baseEnv(), Log: e.Log, Ctx: e.ctx}
 }
 
 func (e *Clinic) run(extraEnv []string, name string, args ...string) error {

@@ -140,6 +140,7 @@ or a teardown.
 | `Runner.Dir` | Assigned to the command's working directory. Empty means inherit the current process directory. Compose callers must provide the intended project context; the runner does not discover it. |
 | `Runner.Env` | Assigned to the child environment. `nil` inherits the process environment; a non-nil slice supplies an explicit environment rather than automatically merging with the parent. |
 | `Runner.Log` | Optional `func(string)` sink. `Run` can call it concurrently from stdout and stderr reader goroutines. |
+| `Runner.Ctx` | Optional context for `Run`, `RunWith`, `Capture` and `Lines`; plugin application and recovery provide separate deadlines. |
 | `Command` | Constructs `exec.Command` and applies the platform console settings. It does not start the command. |
 | `CommandContext` | Same wrapper around `exec.CommandContext`; the caller supplies cancellation and deadlines. |
 | `Run` / `RunWith` | Start the command, stream stdout and stderr, wait for both readers and process completion, and return an error on failure. |
@@ -159,8 +160,11 @@ for an overlong line it logs the first chunk and a truncation notice, discarding
 the remaining chunks of that line. Reader errors themselves are not exposed as
 a separate API result; the final process result comes from `Wait`.
 
-Neither `Runner.Run` nor `Runner.Capture` has a context argument or an automatic
-timeout. Use the bounded `CommandContext` pattern where cancellation is required.
+`Runner.Run` and `Runner.Capture` use `Runner.Ctx` when supplied; without it they
+have no automatic timeout. Plugin apply and recovery supply bounded contexts.
+Context-created commands use a two-second `WaitDelay`, and cancellation closes
+streamed output pipes so an inherited pipe cannot keep a timed-out operation
+waiting indefinitely. `Run` reports the context error without exposing output.
 Go's default command cancellation targets the child process; this wrapper adds
 no process-group or descendant-tree cancellation guarantee.
 

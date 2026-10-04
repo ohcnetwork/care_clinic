@@ -56,6 +56,9 @@ install/
 |-- docker-compose.yml
 |-- backend.env
 |-- frontend.env
+|-- plugins.json
+|-- plugins-pending.json       # inactive draft, until apply consumes it
+|-- plugin-recovery.json      # only while apply or recovery is unfinished
 |-- Caddyfile
 |-- backup.Dockerfile
 |-- caddy.Dockerfile
@@ -275,7 +278,7 @@ A backend change uses Start to reapply configuration; Start also accounts for a 
 
 `WriteEnv` alone does not restart a container or rebuild an image. Saving a file and applying it are two operations. The editor only requests the apply action after its write loop and reload.
 
-Re-reading before writing avoids deliberately applying an old full-file snapshot over newer plugin edits. It is not a multi-file transaction or compare-and-swap protocol. If a later file write fails, earlier successful writes remain; if an apply action fails, the saved settings are still saved.
+Re-reading before writing avoids deliberately applying an old full-file snapshot over newer plugin edits. This Advanced environment-editor flow is not a multi-file transaction or compare-and-swap protocol. If a later file write fails, earlier successful writes remain; if an apply action fails, the saved settings are still saved. The separate Plugins editor uses the [rollback transaction](plugins.md#save-and-apply) instead.
 
 ### Retention as an example
 
@@ -415,7 +418,7 @@ clinic can continue working without updating.
 
 ## Plugins
 
-The plugin list is stored in `plugins.json` beside `backend.env`. Its backend parts are written to `ADDITIONAL_PLUGS` in `backend.env`, and the settings editor refuses to edit that variable directly. The catalog format, storage, and apply flow are documented in [Plugins](plugins.md).
+The active plugin list is stored in `plugins.json` beside `backend.env`. Its backend parts are written to `ADDITIONAL_PLUGS` in `backend.env`, and the settings editor refuses to edit that variable directly. Desktop saves edits as a separate `plugins-pending.json` draft; applying preserves the previous configuration and backend image in a durable rollback transaction until clinic health is verified. Failed recovery is retried through Start, and `GetState.plugin_recovery_pending` exposes the recovery controls. The catalog format, storage, and apply flow are documented in [Plugins](plugins.md).
 
 ## Changing the backup destination
 

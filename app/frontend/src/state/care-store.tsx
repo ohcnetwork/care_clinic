@@ -118,6 +118,7 @@ type CareStore = {
   installAppUpdate: () => Promise<void>;
   acknowledgeAppUpdate: () => boolean;
   restorePending: boolean;
+  pluginRecoveryPending: boolean;
   version: string;
   platform: string;
   backups: Backup[];
@@ -171,6 +172,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const [system, setSystem] = useState<SystemState>("unknown");
   const [systemDetail, setSystemDetail] = useState("");
   const [restorePending, setRestorePending] = useState(false);
+  const [pluginRecoveryPending, setPluginRecoveryPending] = useState(false);
   const [version, setVersion] = useState("");
   const [platform, setPlatform] = useState("");
   const [backups, setBackups] = useState<Backup[]>([]);
@@ -191,6 +193,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const runRef = useRef<RunState>(IDLE_RUN);
   const busyRef = useRef(false);
   const restorePendingRef = useRef(false);
+  const pluginRecoveryPendingRef = useRef(false);
   // Buffered so the fail screen can show the real build error rather than just
   // "exit status 1". Kept out of React state: the install emits thousands of
   // lines and only a step change needs to repaint.
@@ -321,6 +324,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
         const state = await bridge.GetState();
         restorePendingRef.current = state.restore_pending;
         setRestorePending(state.restore_pending);
+        pluginRecoveryPendingRef.current = state.plugin_recovery_pending;
+        setPluginRecoveryPending(state.plugin_recovery_pending);
         stateRefreshNeededRef.current = false;
       }
       const health = await bridge.ClinicHealth();
@@ -379,6 +384,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
       }
       if (restorePendingRef.current && action !== "start" && action !== "stop") {
         setOperationError(describeOperationError(action, "a restore is unfinished"));
+        return false;
+      }
+      if (pluginRecoveryPendingRef.current && action !== "start" && action !== "stop") {
+        setOperationError(describeOperationError(action, "a plugin rollback is unfinished"));
         return false;
       }
       // What the operator asked for, which is what makes a stopped clinic either
@@ -589,6 +598,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
     downStreakRef.current = 0;
     setTrouble(false);
     let restorePending = false;
+    let pluginPending = false;
     try {
       const state = await bridge.GetState();
       if (state.role !== "server") {
@@ -599,6 +609,9 @@ export function CareProvider({ children }: { children: ReactNode }) {
       restorePending = state.restore_pending;
       restorePendingRef.current = restorePending;
       setRestorePending(restorePending);
+      pluginPending = state.plugin_recovery_pending;
+      pluginRecoveryPendingRef.current = pluginPending;
+      setPluginRecoveryPending(pluginPending);
     } catch (e) {
       setBootError(new Error(errorText(e)));
       return;
@@ -613,9 +626,9 @@ export function CareProvider({ children }: { children: ReactNode }) {
     await syncAutostart();
     try {
       const health = await bridge.ClinicHealth();
-      if ((!health.active || restorePending) && !busyRef.current) {
+      if ((!health.active || restorePending || pluginPending) && !busyRef.current) {
         log(
-          restorePending
+          pluginPending ? "\nRecovering an unfinished plugin change..." : restorePending
             ? "\nRecovering an unfinished restore..."
             : (await bridge.WasAutostartLaunched())
               ? "\nLaunched at startup — starting CARE..."
@@ -761,6 +774,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
     setCareUpdate(null);
     setOperationError(null);
     restorePendingRef.current = false;
+    pluginRecoveryPendingRef.current = false;
+    setPluginRecoveryPending(false);
     stateRefreshNeededRef.current = false;
     setRestorePending(false);
     setStepsDone(NO_STEPS_DONE);
@@ -887,6 +902,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
           stateRefreshNeededRef.current = false;
           restorePendingRef.current = state.restore_pending;
           setRestorePending(state.restore_pending);
+          pluginRecoveryPendingRef.current = state.plugin_recovery_pending;
+          setPluginRecoveryPending(state.plugin_recovery_pending);
           if (!state.setup_done) {
             setStepsDone(NO_STEPS_DONE);
             setOpenStep("checks");
@@ -1014,6 +1031,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       installAppUpdate,
       acknowledgeAppUpdate,
       restorePending,
+      pluginRecoveryPending,
       version,
       platform,
       backups,
@@ -1039,7 +1057,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
       run, setupReset, startInstall, resumeInstall, retryInstall, restartSetup, openPanel,
       tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
-      installAppUpdate, acknowledgeAppUpdate, restorePending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
+      installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
       refresh, reloadBackups, syncAutostart,
       runAction, setAutostart, restore, restoreFile, uninstall, log,
     ],

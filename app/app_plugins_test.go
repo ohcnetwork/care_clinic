@@ -21,9 +21,12 @@ func TestPluginsDoNotRequireDesktopPassword(t *testing.T) {
 	if err := a.SavePlugins(want); err != nil {
 		t.Fatal(err)
 	}
-	got, err := a.ReadPlugins()
+	got, err := plugins.New(a.installDir()).PendingPlugins()
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("plugins were not accessible without a password: %+v, %v", got, err)
+		t.Fatalf("plugins could not be staged without a password: %+v, %v", got, err)
+	}
+	if active, err := a.ReadPlugins(); err != nil || len(active) != 0 {
+		t.Fatalf("staging changed the active plugins: %+v, %v", active, err)
 	}
 	if _, err := a.ReadEnv("backend", ""); err == nil {
 		t.Fatal("opening plugin access also opened protected environment settings")
@@ -31,7 +34,7 @@ func TestPluginsDoNotRequireDesktopPassword(t *testing.T) {
 }
 
 func TestPluginWritesKeepLifecycleAndMutationGuards(t *testing.T) {
-	for _, state := range []string{"not installed", "client", "removing", "restore", "busy", "closing"} {
+	for _, state := range []string{"not installed", "client", "removing", "restore", "plugin rollback", "busy", "closing"} {
 		t.Run(state, func(t *testing.T) {
 			a := settingsApp(t)
 			switch state {
@@ -45,6 +48,10 @@ func TestPluginWritesKeepLifecycleAndMutationGuards(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(a.installDir(), "restore-state.json"), []byte("{"), 0o600); err != nil {
 					t.Fatal(err)
 				}
+			case "plugin rollback":
+				if err := os.WriteFile(filepath.Join(a.installDir(), "plugin-recovery.json"), []byte("{"), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			case "busy":
 				a.jobMu.Lock()
 				defer a.jobMu.Unlock()
@@ -56,6 +63,9 @@ func TestPluginWritesKeepLifecycleAndMutationGuards(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(a.installDir(), "plugins.json")); !os.IsNotExist(err) {
 				t.Fatalf("blocked operation wrote plugin settings: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(a.installDir(), "plugins-pending.json")); !os.IsNotExist(err) {
+				t.Fatalf("blocked operation staged plugin settings: %v", err)
 			}
 		})
 	}

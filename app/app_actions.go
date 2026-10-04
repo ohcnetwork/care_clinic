@@ -180,6 +180,11 @@ func (a *App) requireStableClinic() error {
 	if err := a.requireSetup(); err != nil {
 		return err
 	}
+	if pending, err := a.engine().PendingPluginRecovery(); err != nil {
+		return err
+	} else if pending {
+		return errors.New("a plugin rollback is unfinished; start CARE to recover it before making other changes")
+	}
 	pending, err := a.engine().Backups().PendingRestore()
 	if err != nil {
 		return err
@@ -230,6 +235,12 @@ func (a *App) ClinicAction(action, adminPassword string) (err error) {
 	return a.run(func() error {
 		if err := a.requireSetup(); err != nil {
 			return err
+		}
+		if action == "apply-plugins" || action == "start" {
+			if !checking.CompareAndSwap(false, true) {
+				return errors.New("a CARE update check is still running; wait for it to finish before starting CARE or applying plugins")
+			}
+			defer checking.Store(false)
 		}
 		if action != "start" && action != "stop" {
 			if err := a.requireStableClinic(); err != nil {

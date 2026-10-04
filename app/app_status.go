@@ -20,14 +20,15 @@ import (
 )
 
 type AppState struct {
-	Role           string        `json:"role"`
-	ClientURL      string        `json:"client_url"`
-	Version        string        `json:"version"`
-	Platform       string        `json:"platform"`
-	SetupDone      bool          `json:"setup_done"`
-	MDNSName       string        `json:"mdns_name"`
-	Docker         prereq.Status `json:"docker"`
-	RestorePending bool          `json:"restore_pending"`
+	Role                  string        `json:"role"`
+	ClientURL             string        `json:"client_url"`
+	Version               string        `json:"version"`
+	Platform              string        `json:"platform"`
+	SetupDone             bool          `json:"setup_done"`
+	MDNSName              string        `json:"mdns_name"`
+	Docker                prereq.Status `json:"docker"`
+	RestorePending        bool          `json:"restore_pending"`
+	PluginRecoveryPending bool          `json:"plugin_recovery_pending"`
 }
 
 func (a *App) GetState() (state AppState, err error) {
@@ -40,15 +41,21 @@ func (a *App) GetState() (state AppState, err error) {
 	if err != nil {
 		return AppState{}, err
 	}
+	pluginPending, pluginErr := a.engine().PendingPluginRecovery()
+	if pluginErr != nil {
+		// Keep the recovery controls available even when the journal is damaged.
+		a.logln("error: " + pluginErr.Error())
+	}
 	return AppState{
-		Role:           cfg.Role,
-		ClientURL:      cfg.ClientURL,
-		Version:        a.pins.AppVersion,
-		Platform:       runtime.GOOS,
-		SetupDone:      cfg.SetupDone && !cfg.Removing,
-		MDNSName:       cfg.MDNSName,
-		Docker:         prereq.DockerCheck(a.engine().Runner()),
-		RestorePending: pending,
+		Role:                  cfg.Role,
+		ClientURL:             cfg.ClientURL,
+		Version:               a.pins.AppVersion,
+		Platform:              runtime.GOOS,
+		SetupDone:             cfg.SetupDone && !cfg.Removing,
+		MDNSName:              cfg.MDNSName,
+		Docker:                prereq.DockerCheck(a.engine().Runner()),
+		RestorePending:        pending,
+		PluginRecoveryPending: pluginPending,
 	}, nil
 }
 

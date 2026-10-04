@@ -53,6 +53,11 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
     {care.restorePending ? <PanelNotice title="An earlier restore needs to finish">
       {RESTORE_PENDING_NOTICE} Recovery data is kept until CARE starts successfully.
     </PanelNotice> : null}
+    {care.pluginRecoveryPending ? <PanelNotice title="Plugin recovery needs to finish">
+      The previous clinic configuration has not yet been confirmed healthy.
+      <Button disabled={mutationLocked} onClick={() => run("start")}>Recover clinic</Button>
+      <PanelLogButton />
+    </PanelNotice> : null}
     <section className={`panel-card panel-hero ${status.tone === "danger" ? "panel-hero-danger" : ""}`} aria-label="Clinic status">
       <div className={`panel-orb panel-tone-${status.tone}`} aria-hidden="true">
         {status.working ? <Spinner /> : status.tone === "danger" ? <TriangleAlert />
@@ -71,8 +76,8 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
           </Button>
           <Button disabled={requirements.working} onClick={onDiagnose}>See what&apos;s wrong</Button>
         </> : care.trouble ? <>
-          <Button variant="primary" disabled={mutationLocked} onClick={() => run(care.restorePending ? "start" : "restart")}>
-            <RotateCcw aria-hidden="true" />{care.restorePending ? "Start clinic" : "Restart clinic"}
+          <Button variant="primary" disabled={mutationLocked} onClick={() => run(care.restorePending || care.pluginRecoveryPending ? "start" : "restart")}>
+            <RotateCcw aria-hidden="true" />{care.restorePending || care.pluginRecoveryPending ? "Start clinic" : "Restart clinic"}
           </Button>
           <Button disabled={requirements.working} onClick={onDiagnose}>See what&apos;s wrong</Button>
         </> : <>
@@ -80,7 +85,7 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
             <Play aria-hidden="true" />Start clinic
           </Button> : <>
             <Button disabled={mutationLocked} onClick={() => run("stop")}><Square aria-hidden="true" />Stop</Button>
-            <Button disabled={mutationLocked || care.restorePending} onClick={() => run("restart")}><RotateCcw aria-hidden="true" />Restart</Button>
+            <Button disabled={mutationLocked || care.restorePending || care.pluginRecoveryPending} onClick={() => run("restart")}><RotateCcw aria-hidden="true" />Restart</Button>
           </>}
           <label className="panel-autostart">
             <Switch checked={care.autostart} disabled={mutationLocked || autostart.working || !care.autostartReady || care.autostartSaving}

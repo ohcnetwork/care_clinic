@@ -40,6 +40,7 @@ func Command(name string, args ...string) *exec.Cmd {
 
 func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
 	c := exec.CommandContext(ctx, name, args...)
+	c.WaitDelay = 2 * time.Second
 	hideConsole(c)
 	return c
 }
@@ -94,6 +95,20 @@ func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start %s: %w", name, err)
 	}
+	streamDone := make(chan struct{})
+	defer close(streamDone)
+	if r.Ctx != nil {
+		go func() {
+			select {
+			case <-r.Ctx.Done():
+				// A helper can inherit these pipes after its parent is killed.
+				// Do not let its output hold a timed-out build or recovery open.
+				_ = stdout.Close()
+				_ = stderr.Close()
+			case <-streamDone:
+			}
+		}()
+	}
 	var wg sync.WaitGroup
 	var outputMu sync.Mutex
 	linesSinceNetworkFailure := networkDiagnosticTail
@@ -128,6 +143,9 @@ func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 	go stream(stderr)
 	wg.Wait()
 	err = cmd.Wait()
+	if r.Ctx != nil && r.Ctx.Err() != nil {
+		return fmt.Errorf("%s interrupted: %w", name, r.Ctx.Err())
+	}
 	if err != nil && linesSinceNetworkFailure < networkDiagnosticTail && (r.Ctx == nil || r.Ctx.Err() == nil) {
 		return &NetworkError{Err: err}
 	}

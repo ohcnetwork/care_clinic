@@ -58,16 +58,16 @@ flowchart TD
     UI --> First{"Setup complete and not removing?"}
     First -->|No| Wizard["Setup and residue flow"]
     First -->|Yes| Panel["Control panel"]
-    Panel --> Start{"Unhealthy or restore pending?"}
+    Panel --> Start{"Unhealthy, restore pending, or plugin recovery pending?"}
     Start -->|Yes| Run["Request ClinicAction start"]
     Start -->|No| Observe["Observe running clinic"]
 ```
 
 `NewApp` does not treat a missing embedded release file, malformed saved configuration, or invalid restore journal as an ordinary first run. It returns an error rather than allowing initialization against uncertain state.
 
-[`refreshInstallDir()`](../app/app_lifecycle.go) runs under the mutation gate. It does nothing for an unconfigured or removing installation. It also leaves the installed kit untouched when a restore is pending. Otherwise it refreshes kit files and reapplies the saved clinic domain. A refresh error is logged; the callback does not silently rewrite the configuration as uninstalled.
+[`refreshInstallDir()`](../app/app_lifecycle.go) runs under the mutation gate. It does nothing for an unconfigured or removing installation. It also leaves the installed kit untouched when a restore or plugin rollback is pending. Otherwise it refreshes kit files and reapplies the saved clinic domain. A refresh error is logged; the callback does not silently rewrite the configuration as uninstalled.
 
-The backend starts name advertising, but the desktop state store makes the normal "start CARE on launch" request. In [`care-store.tsx`](../app/frontend/src/state/care-store.tsx), `bootPanel()` requests Start if health is inactive **or** `restore_pending` is true.
+The backend starts name advertising, but the desktop state store makes the normal "start CARE on launch" request. In [`care-store.tsx`](../app/frontend/src/state/care-store.tsx), `bootPanel()` requests Start if health is inactive, `restore_pending` is true, or `plugin_recovery_pending` is true. Overview also offers **Recover clinic** for unfinished plugin recovery.
 
 ### Advertiser lifetime
 
@@ -86,7 +86,8 @@ distinct from stopping Docker containers.
 | `setup` | Setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. |
 | `prereq` | The computer check's fix buttons (installing or starting Rancher Desktop, git, WSL 2, the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
 | `start`, `restart` | Starting can take minutes while Docker comes up; open the app again to try once more. |
-| `restore`, `uninstall`, `update`, rebuilds, `apply-plugins` | Quitting can leave data or the installation half-changed; the message says which action to run again after reopening. |
+| `restore`, `uninstall`, `update`, rebuilds | Quitting can leave data or the installation half-changed; the message says which action to run again after reopening. |
+| `apply-plugins` | Reopen Desktop and start CARE to recover the previous plugin configuration after an interrupted apply or rollback. |
 | `app-update` | The current version keeps working. A bundle swap already handed to macOS finishes on its own. |
 | `backup-now` | The unfinished backup is unusable; earlier backups are unaffected. |
 | Anything else, including unlabeled synchronous jobs | Generic wording pointing at the log. |
@@ -226,12 +227,12 @@ A panic inside the job is converted to a logged stack trace and failure notifica
 | --- | --- |
 | `requireAdmin(password)` | The cached configuration has `SetupDone=true` and bcrypt accepts the password against `AdminPwHash`. |
 | `requireSetup()` | Not removing, setup complete, and the installed `docker-compose.yml` exists as a regular file. |
-| `requireStableClinic()` | `requireSetup()` plus no pending restore journal. |
+| `requireStableClinic()` | `requireSetup()` plus no pending restore or plugin-recovery journal. |
 | `clientRoleAvailable()` | The saved role is not `server` and the install directory holds no earlier setup. It is what the client methods use instead of requiring `role == client`, so a computer that has chosen nothing can still look for a clinic and connect. |
 
-Start and Stop can be requested during a pending restore; Start performs recovery. Restart, rebuilds, backup-now, settings writes, plugin writes, backup-directory changes, and new restores require a stable clinic.
+Start and Stop can be requested during a pending restore or plugin rollback; Start performs recovery. Restart, rebuilds, backup-now, settings writes, plugin writes, backup-directory changes, and new restores require a stable clinic. Start and plugin apply also reserve the CARE update-check flag; an already running update check must finish first. Update checks are suppressed while plugin recovery is pending.
 
-Environment and plugin reads use `requireAdmin` plus `requireSetup`, allowing inspection after an interrupted restore. They still respect the shared/exclusive operation gate.
+Environment reads require the admin password and setup; plugin reads require setup but no password. Both allow inspection after an interrupted restore or plugin rollback and respect the shared/exclusive operation gate.
 
 The desktop administrator password is a local authorization mechanism. Advanced
 retains it only for its current unlock and locks after a fixed 15 minutes or
@@ -249,7 +250,7 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 
 | Method | Result | Execution and contract |
 | --- | --- | --- |
-| `GetState()` | `AppState` | Query. Returns embedded version, role and client URL. Only servers inspect Docker/restore state and expose server setup/name/status; journal errors propagate. Never exposes the pinned PEM or certificate ownership flag. |
+| `GetState()` | `AppState` | Query. Returns embedded version, role and client URL. Only servers inspect Docker/recovery state and expose server setup/name/status. Restore-journal errors propagate; plugin-journal errors are logged and keep `plugin_recovery_pending=true` so recovery controls remain available. Never exposes the pinned PEM or certificate ownership flag. |
 | `DockerStatus()` | `DockerStatus` | Query. Checks actual Docker/Compose usability. |
 | `GitStatus()` | `DockerStatus` | Query. Uses the same `{ok, message}` shape for Git. |
 | `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. Offline/isolated peers cannot be ruled out. |
@@ -385,7 +386,7 @@ to warn that the computer will ask for permission.
 | `RunUninstall(removeImages, removeBackups, removeRancher, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. The UI waits for both `uninstalled` and successful `care-done` before returning to Start or requesting desktop-app removal. |
 | `CareUpdateStatus()` | `ChannelStatus` | Query. The tracked branch, running commits, and any staged commit, read from `channel.lock`. |
 | `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves branch heads and builds a newer commit into `-next` images. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. |
-| `DismissCareUpdate()` | `void` | Sync. Records the staged commits as declined so the banner stops. The staged build still applies at the next start. |
+| `DismissCareUpdate()` | `void` | Sync, under the exclusive job gate with a stable-clinic check. Records staged commits as declined so the banner stops. The staged build still applies at the next normal start unless invalidated by changed plugin inputs. |
 | `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
 | `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. |
 | `ScanResidue()` | `ResidueReport` | Query. Role-independent. Inspects owned files, Docker resources, saved-password presence and native traces. No Docker executable means no Docker-side traces; an installed engine that cannot be inspected is an error. |
@@ -441,7 +442,7 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `rebuild-all` | `RebuildAll()` | Stable clinic and administrator password required. Before the engine call, the app recopies its bundled kit into the install directory and reapplies the domain, the same refresh it does at launch. This is the Advanced tab's **Rebuild everything** button. |
 | `rebuild-backend` | `RebuildBackend()` | Stable clinic and administrator password required. |
 | `rebuild-frontend` | `RebuildFrontend()` | Stable clinic and administrator password required. |
-| `apply-plugins` | `ApplyPlugins()` | Stable clinic required; no Desktop admin password. Rebuilds the backend only when its plugin inputs changed, otherwise syncs frontend plugin rows. |
+| `apply-plugins` | `ApplyPlugins()` | Healthy running clinic required; no Desktop admin password. Applies a staged draft with bounded readiness checks and durable configuration/image rollback on failure. |
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from the separate Storage tab's cleanable drive row. |
 | `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. |
@@ -471,7 +472,7 @@ The API does not require the desktop admin password for every operational contro
 | `GetBackupPolicy()` | `BackupPolicy` | Query. Requires an installed server. Reports the 86,400-second interval and actual installed retention days; zero means forever. Missing/unreadable settings or invalid/negative retention reject rather than inventing a policy. |
 | `WriteEnv(name, content, adminPassword)` | `void` | Sync. Admin plus stable clinic required; parse dotenv syntax, then atomically replace the selected file. |
 | `ReadPlugins()` | `CarePlugin[]` | Read. Installed server required, no password; read `plugins.json`, or derive the list from `ADDITIONAL_PLUGS` when that file is absent. |
-| `SavePlugins(plugins)` | `void` | Sync. Stable clinic required, no password; validate, write `ADDITIONAL_PLUGS` and `plugins.json`, without rebuilding or syncing by itself. |
+| `SavePlugins(plugins)` | `void` | Sync. Stable clinic required, no password; validate and stage `plugins-pending.json`, leaving active configuration untouched until apply. |
 | `PluginCatalog()` | `PluginCatalogEntry[]` | Query. The bundled plugin catalog. |
 | `ListBackups()` | `Backup[]` | Query. Returns an empty list if the installed compose file is absent; other file/read errors are not treated as an empty list. |
 | `GetBackupDir()` | `string` | Query. Effective backup directory, including the engine's default if unconfigured. |
@@ -599,7 +600,7 @@ The core serialized shapes are:
 
 | Shape | Fields |
 | --- | --- |
-| `AppState` | `version`, `platform`, `role`, `client_url`, `setup_done`, `mdns_name`, `docker`, `restore_pending`. Client-specific state exposes neither PEM nor ownership. `setup_done` is false while removal is in progress. |
+| `AppState` | `version`, `platform`, `role`, `client_url`, `setup_done`, `mdns_name`, `docker`, `restore_pending`, `plugin_recovery_pending`. Client-specific state exposes neither PEM nor ownership. `setup_done` is false while removal is in progress. |
 | `SetupIssue` | `step`, `message`; step is one of the wizard's requirement/configuration IDs. |
 | `SetupFailure` | `can_retry`, `download_interrupted`. Retry availability is checked again natively before acceptance; it is not permission to change setup settings. |
 | `SetupRecoveryStatus` | `backup_saved`, `backup_verified`, `codes_saved`, `backup_path`, `codes_path`, `backup_problem`, `codes_problem`. |

@@ -126,6 +126,12 @@ app/internal/
 |   |-- stop.go
 |   |-- status.go
 |   |-- rebuild.go
+|   |-- plugins.go
+|   |-- plugin_transaction.go
+|   |-- plugin_health.go
+|   |-- plugin_transaction_test.go
+|   |-- plugin_health_test.go
+|   |-- plugin_live_check_test.go
 |   |-- images.go
 |   |-- freespace.go
 |   |-- migrate.go
@@ -156,6 +162,8 @@ app/internal/
 |-- plugins/
 |   |-- catalog.yml
 |   |-- plugins.go
+|   |-- pending.go
+|   |-- pending_test.go
 |   `-- plugins_test.go
 |-- prereq/
 |   |-- check.go
@@ -225,7 +233,7 @@ app/internal/
 | [`internal/backup`](../app/internal/backup) | Backup inventory, recovery files/public certificates, decryption, staged replacement, journal recovery. | [Backups and restore](backups-and-restore.md). |
 | [`internal/compose`](../app/internal/compose) | Infrastructure and CARE image building, source checkout, freshness inputs. | [Clinic lifecycle](clinic-lifecycle.md). |
 | [`internal/health`](../app/internal/health) | HTTP readiness and port availability. | [Native integrations](native-integrations.md). |
-| [`internal/plugins`](../app/internal/plugins) | Desktop plugin list (`plugins.json`), bundled catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
+| [`internal/plugins`](../app/internal/plugins) | Active plugin list (`plugins.json`), inactive draft (`plugins-pending.json`), catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
 | [`internal/prereq`](../app/internal/prereq) | Docker/Git detection, action plans, Rancher Desktop provisioning and preconfiguration, and readiness waits. | [Native integrations](native-integrations.md). |
 | [`internal/release`](../app/internal/release) | Validated release manifest and source/image identity. | [Development and release](development-and-release.md#release-identity-and-pins). |
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
@@ -250,6 +258,9 @@ The larger subsystem guides contain their own file tables. These smaller package
 | Source | Role |
 | --- | --- |
 | [`plugins/plugins.go`](../app/internal/plugins/plugins.go) | `Plugin`, `Manager`, `Prepare`, `Catalog`, `FrontendRows`, dotenv/JSON read, safe variable replacement. |
+| [`plugins/pending.go`](../app/internal/plugins/pending.go), [`pending_test.go`](../app/internal/plugins/pending_test.go) | Private draft staging/consumption without changing active inputs, and persistence regressions. |
+| [`clinic/plugin_transaction.go`](../app/internal/clinic/plugin_transaction.go), [`plugin_transaction_test.go`](../app/internal/clinic/plugin_transaction_test.go) | Durable configuration/image/frontend-row rollback and injected failure/recovery regressions. |
+| [`clinic/plugin_health.go`](../app/internal/clinic/plugin_health.go), [`plugin_health_test.go`](../app/internal/clinic/plugin_health_test.go), [`plugin_live_check_test.go`](../app/internal/clinic/plugin_live_check_test.go) | Sustained container/endpoint readiness, Docker metadata compatibility, and opt-in read-only live checks. |
 | [`plugins/catalog.yml`](../app/internal/plugins/catalog.yml) | Embedded list of plugins offered in the panel. |
 | [`plugins/plugins_test.go`](../app/internal/plugins/plugins_test.go) | Literal values, legacy migration, backend/frontend split, validation, catalog refresh, frontend rows. |
 | [`release/pins.go`](../app/internal/release/pins.go) | `Pins`, required manifest fields, version/source-ref validation, diagnostic summary. |
@@ -305,7 +316,7 @@ app/frontend/
 | [`wails.d.ts`](../app/frontend/src/wails.d.ts) | Hand-maintained method names, argument lists, and promise result declarations. |
 | [`types.ts`](../app/frontend/src/types.ts) | JSON-facing return shapes used by the desktop. |
 | [`bridge.ts`](../app/frontend/src/lib/bridge.ts) | Lazy runtime lookup, call dispatch, event subscriptions, host logging. |
-| [`care-store.tsx`](../app/frontend/src/state/care-store.tsx) | Async-job completion handling, boot/start request, status polling, restore-pending behavior. |
+| [`care-store.tsx`](../app/frontend/src/state/care-store.tsx) | Async-job completion handling, boot/start request, status polling, restore/plugin-recovery state. |
 | [`run-steps.ts`](../app/frontend/src/lib/run-steps.ts) | Progress milestones derived from backend log messages. |
 | [`App.tsx`](../app/frontend/src/App.tsx) | Root flow routing and always-mounted permission/quit dialogs. |
 | [`role-screen.tsx`](../app/frontend/src/screens/role-screen.tsx), [`client-screen.tsx`](../app/frontend/src/screens/client-screen.tsx) | First-run navigation without persistence, client discovery/connection/recovery and saved connection state. |

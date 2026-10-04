@@ -96,6 +96,13 @@ is a standalone local executable, not a signed release installer.
 
 `wails dev` is not a fake bridge. It can find the current user's saved clinic configuration, refresh installed files, advertise the name, and ask the backend to start the stack. Use an isolated machine/user and Docker environment for destructive end-to-end work.
 
+If the dev runner has stopped but its Desktop window remains open, that window
+can still be running an older Go backend. Frontend refreshes do not replace it.
+Fully quit that Desktop process (hiding the macOS window is not quitting), then
+rerun `wails dev` from `app/` before testing backend changes. Do not run a second
+independent engine against the same installed clinic while the old app can
+still mutate its configuration.
+
 Changing the repository directory does not create a separate clinic: installation paths and the Compose project identity are deliberately stable. Do not experiment with restore or uninstall against a production clinic just because the desktop executable is a development build.
 
 ### Safe desktop UI tests
@@ -143,7 +150,7 @@ npm run test:ui -- tests/backups.spec.ts -g 'handoff|restore'
 | `panel.spec.ts` | Overview, Storage, requirements, mobile QR and truthful status/error handling. |
 | `backups.spec.ts` | Policy/destination, restore consent, cancellation and stale selections across updates. |
 | `advanced.spec.ts` | Fixed 15-minute unlock, tab-leave clearing, passwords/recovery and safe environment editing. |
-| `plugins.spec.ts` | Catalog/custom validation, typed settings, save/apply outcomes and update/job exclusion. |
+| `plugins.spec.ts` | Catalog/custom validation, typed settings, save/apply outcomes, failed-batch tab discard, successful-list retention, recovery controls, and update/job exclusion. |
 
 The suite checks layouts at 1100 by 700 and 720 by 560. Failure traces go to the
 ignored `app/frontend/test-results/` directory. Browser tests are evidence of UI

@@ -199,7 +199,7 @@ and [earlier-installation recovery](client-recovery.md).
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
 | Updates | Separate CARE backend/frontend updates and CARE Desktop application updates. |
-| Plugins | Add catalog or custom plugins, edit their settings, and Save and apply. No Desktop password is required. |
+| Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No Desktop password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
 | Advanced | Ten everyday clinic settings, support-only extra overrides, Desktop password/recovery management, diagnostic log, rebuild and uninstall. |
 
 **Connect phone or tablet** displays a real QR code for
