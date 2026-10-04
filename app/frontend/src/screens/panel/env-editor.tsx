@@ -1,5 +1,5 @@
 import {
-  Archive, ArrowLeft, ChevronRight, LockKeyhole,
+  Archive, ChevronDown, ChevronRight, LockKeyhole,
   Palette, Receipt, Settings2, Trash2, UserPlus,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -80,8 +80,8 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
   const loadingRequest = useRef<{ password: string; promise: Promise<Files> } | null>(null);
   const savedFiles = useRef(new Set<Section>(pendingFiles ?? []));
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const backRef = useRef<HTMLButtonElement>(null);
   const previousGroup = useRef<string | null>(null);
+  const pendingGroup = useRef<string | null>(null);
   const take = () => nextUid.current++;
   const editing = selected !== null;
   const working = busy || saving || applying || restorePending;
@@ -283,15 +283,61 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
     setSaveProblem(null);
     setNotice("");
   };
-  const back = () => {
-    if (working) return;
-    if (changeCount) { previousGroup.current = selected; setDiscarding(true); }
-    else changePage(null);
+  const toggleGroup = (id: string) => {
+    if (busy || saving || applying || lock.isLocked()) return;
+    const next = selected === id ? null : id;
+    if (changeCount) {
+      previousGroup.current = id;
+      pendingGroup.current = next;
+      setDiscarding(true);
+    } else changePage(next);
   };
   const patchCustom = (uid: number, patch: Partial<CustomRow>) => {
     if (disabled || lock.isLocked()) return;
     setCustom((current) => current.map((row) => row.uid === uid ? { ...row, ...patch } : row));
   };
+  const categories = [
+    ...GROUPS.map((entry, index) => ({
+      id: entry.id, title: entry.title, Icon: ICONS[index],
+      summary: files ? groupSummary(entry, initial) : "Settings haven't been read",
+    })),
+    { id: "other", title: "Extra settings (for support)", Icon: Settings2,
+      summary: "Only open this if your CARE support person asks you to" },
+  ];
+  const expandedContent = <>
+    <h3 className="advanced-expanded-title">{group?.title ?? "Extra settings (for support)"}</h3>
+    {group ? <div className="advanced-settings-card">
+      {group.settings.map((setting) => <SettingRow key={setting.key} setting={setting} changed={dirtyKeys.includes(setting.key)} error={errors[setting.key]}>
+        <SettingControl setting={setting} value={draft[setting.key]} disabled={disabled} invalid={!!errors[setting.key]}
+          onChange={(value) => {
+            if (disabled || lock.isLocked()) return;
+            setNotice(""); setDraft((current) => ({ ...current, [setting.key]: value }));
+          }} />
+      </SettingRow>)}
+    </div> : <div className="advanced-custom-list">
+      <p className="advanced-card-description">Values here override CARE's standard defaults. Only add or change them with help from your support person. Protected connection and online-service settings cannot be changed here.</p>
+      {custom.length === 0 ? <p className="advanced-field-hint">No extra settings added.</p> : null}
+      {custom.map((row) => <CustomRowView key={row.uid} row={row} error={errors[`custom:${row.uid}`]} disabled={disabled}
+        onKeyChange={(key) => patchCustom(row.uid, { key, file: fileForKey(key.trim()) })}
+        onValueChange={(value) => patchCustom(row.uid, { value })}
+        onRemove={() => { if (!disabled && !lock.isLocked()) setCustom((current) => current.filter((entry) => entry.uid !== row.uid)); }} />)}
+      <Button type="button" className="self-start" disabled={disabled} onClick={() => {
+        if (!disabled && !lock.isLocked()) setCustom((current) =>
+          [...current, { uid: take(), key: "", value: "", file: "backend", isNew: true }]);
+      }}>Add setting</Button>
+    </div>}
+    <footer className="advanced-settings-foot">
+      <p role="status">{saving ? "Saving settings…" : applying ? "Applying settings — staff may need to wait." :
+        needsApply.length > 0 && !changeCount ? "Saved changes still need to be applied." :
+          frontendOnly ? "CARE may be unavailable for a few minutes while changes are applied." : "CARE may be unavailable for about a minute while changes are applied."}</p>
+      <div className="advanced-actions">
+        <Button type="button" disabled={disabled || changeCount === 0} onClick={discard}>Discard</Button>
+        <Button type="button" variant="primary" disabled={!canSave} onClick={() => void save()}>
+          {saving || applying ? <Spinner /> : null}{needsApply.length > 0 && !changeCount ? "Apply saved changes" : "Save changes"}
+        </Button>
+      </div>
+    </footer>
+  </>;
 
   return <div className="advanced-env" data-editing={editing}>
     {restorePending ? <AdvancedNotice title="Finish the earlier restore first">
@@ -306,66 +352,36 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       {changeCount ? "Save the remaining changes when you're ready." : "Apply the saved settings when staff are ready for a short interruption."}
     </AdvancedNotice> : null}
 
-    {!editing ? <section className="advanced-card" aria-labelledby="advanced-settings-title">
+    <section className="advanced-card" aria-labelledby="advanced-settings-title">
       <header className="advanced-groups-head">
         <h2 className="advanced-card-title" id="advanced-settings-title">Clinic settings</h2>
         <p className="advanced-card-description">Everyday choices for your clinic. Applying changes may briefly interrupt staff using CARE.</p>
       </header>
-      {GROUPS.map((entry, index) => {
-        const Icon = ICONS[index];
-        return <button type="button" className="advanced-group" data-advanced-group={entry.id} key={entry.id} disabled={!files || loading || saving || applying}
-          onClick={() => changePage(entry.id)}>
-          <span className="advanced-icon"><Icon aria-hidden="true" /></span>
-          <div className="advanced-grow"><strong>{entry.title}</strong><p>{files ? groupSummary(entry, initial) : "Settings haven't been read"}</p></div>
-          <ChevronRight aria-hidden="true" />
-        </button>;
+      {categories.map(({ id, title, summary, Icon }) => {
+        const expanded = selected === id;
+        return <div key={id} className="advanced-group-item">
+          <button type="button" className="advanced-group" data-advanced-group={id}
+            id={`advanced-group-${id}`} aria-expanded={expanded} aria-controls={`advanced-group-content-${id}`}
+            disabled={!files || loading || saving || applying || busy || lock.disabled}
+            onClick={() => toggleGroup(id)}>
+            <span className="advanced-icon"><Icon aria-hidden="true" /></span>
+            <span className="advanced-grow"><strong>{title}</strong><span className="advanced-group-summary">{summary}</span></span>
+            {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+          </button>
+          <div id={`advanced-group-content-${id}`} role="region" aria-labelledby={`advanced-group-${id}`} hidden={!expanded}>
+            {expanded ? expandedContent : null}
+          </div>
+        </div>;
       })}
-      <button type="button" className="advanced-group" data-advanced-group="other" disabled={!files || loading || saving || applying} onClick={() => changePage("other")}>
-        <span className="advanced-icon"><Settings2 aria-hidden="true" /></span>
-        <div className="advanced-grow"><strong>Extra settings (for support)</strong><p>Only open this if your CARE support person asks you to</p></div>
-        <ChevronRight aria-hidden="true" />
-      </button>
-    </section> : group ? <section className="advanced-card advanced-settings-card" aria-label={group.title}>
-      {group.settings.map((setting) => <SettingRow key={setting.key} setting={setting} changed={dirtyKeys.includes(setting.key)} error={errors[setting.key]}>
-        <SettingControl setting={setting} value={draft[setting.key]} disabled={disabled} invalid={!!errors[setting.key]}
-          onChange={(value) => {
-            if (disabled || lock.isLocked()) return;
-            setNotice(""); setDraft((current) => ({ ...current, [setting.key]: value }));
-          }} />
-      </SettingRow>)}
-    </section> : <section className="advanced-card advanced-custom-list" aria-label="Extra settings (for support)">
-      <p className="advanced-card-description">Values here override CARE's standard defaults. Only add or change them with help from your support person. Protected connection and online-service settings cannot be changed here.</p>
-      {custom.length === 0 ? <p className="advanced-field-hint">No extra settings added.</p> : null}
-      {custom.map((row) => <CustomRowView key={row.uid} row={row} error={errors[`custom:${row.uid}`]} disabled={disabled}
-        onKeyChange={(key) => patchCustom(row.uid, { key, file: fileForKey(key.trim()) })}
-        onValueChange={(value) => patchCustom(row.uid, { value })}
-        onRemove={() => { if (!disabled && !lock.isLocked()) setCustom((current) => current.filter((entry) => entry.uid !== row.uid)); }} />)}
-      <Button type="button" className="self-start" disabled={disabled} onClick={() => {
-        if (!disabled && !lock.isLocked()) setCustom((current) =>
-          [...current, { uid: take(), key: "", value: "", file: "backend", isNew: true }]);
-      }}>Add setting</Button>
-    </section>}
-
-    {editing ? <footer className="advanced-settings-foot">
-      <Button type="button" ref={backRef} variant="ghost" disabled={working} onClick={back}><ArrowLeft aria-hidden="true" />Back to settings</Button>
-      <p role="status">{saving ? "Saving settings…" : applying ? "Applying settings — staff may need to wait." :
-        needsApply.length > 0 && !changeCount ? "Saved changes still need to be applied." :
-          frontendOnly ? "CARE may be unavailable for a few minutes while changes are applied." : "CARE may be unavailable for about a minute while changes are applied."}</p>
-      <div className="advanced-actions">
-        <Button type="button" disabled={disabled || changeCount === 0} onClick={discard}>Discard</Button>
-        <Button type="button" variant="primary" disabled={!canSave} onClick={() => void save()}>
-          {saving || applying ? <Spinner /> : null}{needsApply.length > 0 && !changeCount ? "Apply saved changes" : "Save changes"}
-        </Button>
-      </div>
-    </footer> : needsApply.length > 0 ? <Button type="button" className="self-start" disabled={!canSave} onClick={() => void save()}>Apply saved changes</Button> : null}
+    </section>
+    {!editing && needsApply.length > 0 ? <Button type="button" className="self-start" disabled={!canSave} onClick={() => void save()}>Apply saved changes</Button> : null}
 
     <AlertDialog open={discarding} onOpenChange={setDiscarding}>
       <AlertDialogContent className="advanced-dialog advanced-dialog-narrow"
         onOpenAutoFocus={(event) => { event.preventDefault(); cancelRef.current?.focus(); }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          if (backRef.current) backRef.current.focus();
-          else document.querySelector<HTMLButtonElement>(`[data-advanced-group="${previousGroup.current}"]`)?.focus();
+          document.querySelector<HTMLButtonElement>(`[data-advanced-group="${previousGroup.current}"]`)?.focus();
         }}>
         <AlertDialogTitle>Discard unsaved settings?</AlertDialogTitle>
         <AlertDialogDescription>Your unsaved edits will be lost. Settings already saved to this computer aren't undone.</AlertDialogDescription>
@@ -373,7 +389,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
           <Button type="button" ref={cancelRef} onClick={() => setDiscarding(false)}>Keep editing</Button>
           <Button type="button" disabled={locked} onClick={() => {
             if (locked || lock.isLocked()) return;
-            discard(); setDiscarding(false); changePage(null);
+            discard(); setDiscarding(false); changePage(pendingGroup.current);
           }}>Discard changes</Button>
         </div>
       </AlertDialogContent>

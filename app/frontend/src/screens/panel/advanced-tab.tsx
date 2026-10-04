@@ -17,7 +17,6 @@ import {
   AdvancedError, AdvancedLockProvider, AdvancedLogButton, AdvancedNotice, AdvancedSecretInput, advancedProblem, useAdvancedLock, type AdvancedProblem,
 } from "./advanced-ui";
 import { EnvEditor } from "./env-editor";
-import { GROUPS } from "./env-schema";
 import { PanelPageHeader } from "./panel-ui";
 
 const UNLOCK_MS = 15 * 60 * 1000;
@@ -68,20 +67,16 @@ function AdvancedContent() {
   }, [adminPassword, active, unlockedAt]);
   useEffect(() => {
     if (active && adminPassword !== null) headingRef.current?.focus();
-  }, [active, adminPassword, groupId]);
+  }, [active, adminPassword]);
   useEffect(() => {
     if (!applyingSettings || busy) return;
     setApplyingSettings(false);
     if (!operationError) setPendingSettings([]);
   }, [applyingSettings, busy, operationError]);
   if (!active) return null;
-  const group = GROUPS.find((entry) => entry.id === groupId);
-  return <div className="care-advanced" data-page={groupId ? "group" : "overview"} data-panel-blocked={disabled} tabIndex={-1}>
+  return <div className="care-advanced" data-panel-blocked={disabled} tabIndex={-1}>
     <div className="advanced-heading" ref={headingRef} tabIndex={-1}>
-      {groupId ? <div className="advanced-kicker">Advanced · Clinic settings</div> : null}
-      <PanelPageHeader title={group?.title ?? (groupId === "other" ? "Extra settings (for support)" : "Advanced")}
-        subtitle={group?.summary ?? (groupId === "other" ? "Only use this page with help from your CARE support person."
-          : "Clinic preferences and tools for your administrator.")}>
+      <PanelPageHeader title="Advanced" subtitle="Clinic preferences and tools for your administrator.">
         {adminPassword !== null ? <div className="advanced-unlocked">
           <span>Locks after 15 minutes</span>
           <Button type="button" variant="ghost" size="sm" aria-label="Lock Advanced settings"
@@ -95,10 +90,10 @@ function AdvancedContent() {
       {expired ? <AdvancedNotice title="Advanced has locked" tone="neutral">Enter the CARE Clinic password again. Unsaved settings and sensitive fields have been cleared.</AdvancedNotice> : null}
       <AdminGate onUnlock={unlock} />
     </> : <>
-      {!groupId ? <AdminRecoverySettings adminPassword={adminPassword} onPasswordChanged={unlock} /> : null}
+      <AdminRecoverySettings adminPassword={adminPassword} onPasswordChanged={unlock} />
       <EnvEditor adminPassword={adminPassword} groupId={groupId} onGroupChange={setGroupId} onWorkingChange={setWorking}
         pendingFiles={pendingSettings} onPendingFilesChange={setPendingSettings} onApplicationAccepted={() => setApplyingSettings(true)} />
-      {!groupId ? <>
+      <>
         <LogRow />
         <section className="advanced-card advanced-card-pad advanced-danger" aria-labelledby="advanced-careful-title">
           <h2 className="advanced-danger-kicker" id="advanced-careful-title">Careful</h2>
@@ -120,7 +115,7 @@ function AdvancedContent() {
             <UninstallPanel adminPassword={adminPassword} />
           </div>
         </section>
-      </> : null}
+      </>
     </>}
   </div>;
 }
@@ -307,15 +302,20 @@ export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
     setWorking(true);
     setProblem(null);
     clearOperationError();
+    setOpen(false);
     try {
       const accepted: unknown = await uninstall(removeImages, removeBackups, capabilities.rancher && removeRancher,
         adminPassword, capabilities.app && removeApp);
       setConfirmation("");
       if (accepted === true) { setOpen(false); clear(); }
-      else setProblem({ title: "Removal didn't start", message: "No removal was confirmed. Check the log, then type DELETE again if you want to retry." });
+      else {
+        setProblem({ title: "Removal didn't start", message: "No removal was confirmed. Check the log, then type DELETE again if you want to retry." });
+        setOpen(true);
+      }
     } catch (cause) {
       setConfirmation("");
       setProblem(advancedProblem(cause, "Removal didn't start", "Check the log, then type DELETE again if you want to retry."));
+      setOpen(true);
     } finally {
       pending.current = false;
       setWorking(false);
@@ -328,7 +328,7 @@ export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
     <AlertDialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
       <AlertDialogContent className="advanced-dialog advanced-removal-dialog"
         onOpenAutoFocus={(event) => { event.preventDefault(); cancelRef.current?.focus(); }}
-        onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus(); }}
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (!pending.current) triggerRef.current?.focus(); }}
         onEscapeKeyDown={(event) => { if (working) event.preventDefault(); }}>
         <span className="advanced-icon advanced-icon-danger"><Trash2 aria-hidden="true" /></span>
         <AlertDialogTitle className="advanced-dialog-title">Remove CARE and all patient data from this computer?</AlertDialogTitle>
