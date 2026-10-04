@@ -1,8 +1,8 @@
-# Releasing CARE Desktop
+# Releasing CARE Clinic
 
 [Documentation index](README.md)
 
-A release starts on its own when a change to `CARE_DESKTOP_VERSION` is merged
+A release starts on its own when a change to `CARE_CLINIC_VERSION` is merged
 into `main`, and can also be started by hand from GitHub Actions. Do not create
 or push a tag to start a build. The workflow reads the selected commit's
 [`deployments/.env`](../deployments/.env), runs CI, packages the CI-built
@@ -20,7 +20,7 @@ protection.
 ## Prepare a version
 
 1. Create a PR updating `deployments/.env`.
-2. Set `CARE_DESKTOP_VERSION` to a new numeric version, for example `0.1.1`.
+2. Set `CARE_CLINIC_VERSION` to a new numeric version, for example `0.1.1`.
    Use a new version even if only the backend, frontend, images, or deployment
    settings changed.
 3. Update the dependency pins needed by that release.
@@ -29,7 +29,7 @@ protection.
 
 | Configuration | What to maintain |
 | --- | --- |
-| `CARE_DESKTOP_VERSION` | One `X.Y.Z` value. `-dev` builds are not accepted by the release workflow. |
+| `CARE_CLINIC_VERSION` | One `X.Y.Z` value. `-dev` builds are not accepted by the release workflow. |
 | `CARE_BE_REPO`, `CARE_FE_REPO` | The intended CARE source repositories. |
 | `CARE_BE_REF`, `CARE_FE_REF` | The branch of verified CARE commits that installed clinics follow, normally `develop`. A full 40-character commit SHA pins that service instead. Tags are not supported. |
 | `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE` | Deliberately chosen image versions; use immutable digests when available. |
@@ -83,14 +83,14 @@ release input.
 
 ## Build the release
 
-Merging the version PR into `main` runs **Release CARE Desktop**. Its first
-job, **Decide whether to release**, compares `CARE_DESKTOP_VERSION` with the
+Merging the version PR into `main` runs **Release CARE Clinic**. Its first
+job, **Decide whether to release**, compares `CARE_CLINIC_VERSION` with the
 commit before the push: when it changed, the release continues; when only other
 `.env` values changed (an image or prerequisite pin, a CARE branch), every
 other job is skipped and the run ends without a release. Pushes that do not
 touch `deployments/.env` do not start the workflow at all.
 
-1. Open **Actions -> Release CARE Desktop** and find the run for the merge.
+1. Open **Actions -> Release CARE Clinic** and find the run for the merge.
 2. Wait for every job to finish.
 3. Open the resulting draft in the repository's **Releases** page.
 
@@ -107,17 +107,17 @@ gh workflow run release.yml --ref main
 
 All jobs use the workflow run's selected source commit, even if the branch moves
 while the build is running. A matching tag is created only after packaging
-succeeds. For `CARE_DESKTOP_VERSION=0.1.1`, the tag is `v0.1.1`.
+succeeds. For `CARE_CLINIC_VERSION=0.1.1`, the tag is `v0.1.1`.
 
 ## What the workflow does
 
 | Stage | Behavior |
 | --- | --- |
-| Gate | On a push to `main`, continue only when `CARE_DESKTOP_VERSION` differs from the previous commit; otherwise skip every job. A manual run always continues. |
+| Gate | On a push to `main`, continue only when `CARE_CLINIC_VERSION` differs from the previous commit; otherwise skip every job. A manual run always continues. |
 | Validate | Reject malformed/duplicate version values, FE/BE refs that are not a branch name or commit SHA, and a version that already has a draft or published release. |
 | Verify prerequisites | In parallel with validation, download every pinned Rancher Desktop, Git for Windows, Docker Engine, and Compose file from upstream and compare its SHA-256 with `deployments/.env`. A missing file or a different hash fails the release before anything is built. |
 | Check and build | Call the same CI workflow used by PRs: lint, race tests, frontend checks, and real macOS/Windows native builds. No separate untested release rebuild. |
-| Windows signing | With the SignPath configuration, submit the CI-built `CARE Desktop.exe` and `uninstall.exe` for signing in one request, rebuild the NSIS installer around the signed files with the installer inputs CI produced, and submit the installer for signing. Each request waits for an approver. Without the configuration, both jobs are skipped and the CI installer is used unsigned. |
+| Windows signing | With the SignPath configuration, submit the CI-built `CARE Clinic.exe` and `uninstall.exe` for signing in one request, rebuild the NSIS installer around the signed files with the installer inputs CI produced, and submit the installer for signing. Each request waits for an approver. Without the configuration, both jobs are skipped and the CI installer is used unsigned. |
 | macOS signing | With the existing credentials, sign the app with hardened runtime, notarize/staple it, then sign and notarize/staple the DMG. Otherwise explicitly report ad-hoc signing. |
 | Package | Wrap the CI macOS app in a DMG and copy the signed (or CI-built unsigned) Windows installer. Verify macOS metadata matches the release version. |
 | Record | Save the exact release configuration, source commit, workflow run URL, signing status, and SHA-256 file checksums. |
@@ -129,8 +129,8 @@ a release has a separate concurrency group from ordinary PR/main CI.
 For version `0.1.1`, the draft has these five assets:
 
 ```text
-CARE-Desktop-0.1.1-macos.dmg
-CARE-Desktop-0.1.1-windows-amd64-setup.exe
+CARE-Clinic-0.1.1-macos.dmg
+CARE-Clinic-0.1.1-windows-amd64-setup.exe
 release-config.env
 release-manifest.json
 SHA256SUMS
@@ -222,7 +222,7 @@ routes, both described in
   applies it when the operator accepts or at the next start. This needs no
   desktop release at all, which is the point: a verified fix merged to the
   branch reaches clinics that nobody will manually update.
-- **CARE Desktop** is offered from this release page under Advanced ->
+- **CARE Clinic** is offered from this release page under Advanced ->
   Updates, and is always operator-initiated.
 
 ## Windows signing (SignPath)
@@ -259,7 +259,7 @@ instead of silently producing unsigned installers.
 
 ### During a release
 
-1. **Sign Windows application** submits the CI-built `CARE Desktop.exe` and
+1. **Sign Windows application** submits the CI-built `CARE Clinic.exe` and
    `uninstall.exe` and waits up to an hour for an approver.
 2. **Build installer around the signed application** verifies both signatures,
    then runs makensis with the installer inputs CI produced, the signed application
@@ -293,7 +293,7 @@ branch in step with Wails' `wails.writeUninstaller` macro when upgrading Wails.
 
 1. Once SignPath approves the project, create the artifact configuration and the
    signing policy there, then store the four settings above in the repository.
-2. Bump `CARE_DESKTOP_VERSION` past the last released version (for example `0.1.1`
+2. Bump `CARE_CLINIC_VERSION` past the last released version (for example `0.1.1`
    after the unsigned `0.1.0`); versions are never reused.
 3. Run the release workflow and approve both signing requests.
 4. Check `release-manifest.json`, then publish the draft.

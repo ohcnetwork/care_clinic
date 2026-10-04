@@ -42,7 +42,7 @@ func newResponder(name string, link lanInterface, logf func(string)) (*responder
 	if logf == nil {
 		logf = func(message string) { log.Print(message) }
 	}
-	zone, err := hmdns.NewMDNSService(name, "_https._tcp", "local.", name+".local.", 443, link.ips, []string{"CARE Desktop"})
+	zone, err := hmdns.NewMDNSService(name, "_https._tcp", "local.", name+".local.", 443, link.ips, []string{"CARE Clinic"})
 	if err != nil {
 		return nil, err
 	}

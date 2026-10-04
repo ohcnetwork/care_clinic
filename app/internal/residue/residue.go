@@ -163,7 +163,7 @@ func systemTraces(run proc.Runner) ([]Trace, error) {
 		add("firewall", "Firewall rules", "the clinic's inbound rules are still in place")
 	}
 	if autostart.Enabled() {
-		add("autostart", "Start at login", "CARE Desktop is set to open when this computer starts")
+		add("autostart", "Start at login", "CARE Clinic is set to open when this computer starts")
 	}
 	return traces, errors.Join(failed...)
 }

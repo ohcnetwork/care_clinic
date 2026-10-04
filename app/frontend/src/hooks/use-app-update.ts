@@ -36,7 +36,7 @@ export function useAppUpdate(disabled = false, enabled = true, isBlocked?: () =>
   const installPending = useRef(false);
   const progressRef = useRef<AppUpdateProgress | null>(null);
   const failure = useRef<unknown>(null);
-  const updating = busy && busyLabel === "Updating CARE Desktop";
+  const updating = busy && busyLabel === "Updating CARE Clinic";
   const active = starting || updating || progress !== null;
   const isActive = () => installPending.current || progressRef.current !== null || updating;
 
@@ -50,7 +50,7 @@ export function useAppUpdate(disabled = false, enabled = true, isBlocked?: () =>
       const result = await bridge.CheckAppUpdate();
       if (mounted.current) setUpdate(result);
     } catch (error) {
-      log(`check CARE Desktop update: ${errorText(error)}`);
+      log(`check CARE Clinic update: ${errorText(error)}`);
       if (mounted.current) setProblem(updateProblem(error, true));
     } finally {
       checkPending.current = false;
@@ -72,7 +72,7 @@ export function useAppUpdate(disabled = false, enabled = true, isBlocked?: () =>
       setStarting(false);
     });
     const offError = onCareEvent("care-error", (label: string, detail: string) => {
-      if (label === "The CARE Desktop update didn't finish") failure.current = detail;
+      if (label === "The CARE Clinic update didn't finish") failure.current = detail;
     });
     const offDone = onCareEvent("care-done", (code: number, label?: string) => {
       if (label !== "app-update") return;

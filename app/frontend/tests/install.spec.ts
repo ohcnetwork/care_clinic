@@ -265,7 +265,7 @@ test("failure is honest about partial setup, keeps diagnostics in the log, and p
   await expect(page.locator(".install-screen pre")).toHaveCount(0);
   await expect(retry(page)).toHaveAttribute("aria-describedby", "install-retry-consequences");
   await expect(page.locator("#install-retry-consequences")).toContainText("clinic address and existing backups are kept");
-  await expect(page.locator("#install-retry-consequences")).toContainText("old Desktop admin codes stop working");
+  await expect(page.locator("#install-retry-consequences")).toContainText("old CARE Clinic admin codes stop working");
   await expect(page.locator("#install-retry-consequences")).toContainText("Keep your old backup recovery files");
   expect(await calls(page, "CleanupFailedInstall")).toBe(0);
   await page.evaluate(() => window.careTest.failNext("OpenLogFolder", "open /private/diagnostics: exit status 1"));
@@ -332,9 +332,9 @@ test("an interrupted download explains reconnecting without offering cleanup or 
   const updateChecks = await calls(page, "CheckAppUpdate");
   await retryableFailure(page);
   await expect(page.getByRole("heading", { name: "The download was interrupted", exact: true })).toBeFocused();
-  await expect(page.locator(".install-screen")).toContainText("Keep CARE Desktop open, reconnect to the internet, then try again.");
+  await expect(page.locator(".install-screen")).toContainText("Keep CARE Clinic open, reconnect to the internet, then try again.");
   await expect(page.locator("#install-retry-consequences")).toContainText("clinic address, backup folder, admin password and saved recovery files");
-  await expect(page.locator(".install-screen")).not.toContainText(/exit status|\/private\/diagnostics|old Desktop admin codes stop working|clears the unfinished install first/);
+  await expect(page.locator(".install-screen")).not.toContainText(/exit status|\/private\/diagnostics|old CARE Clinic admin codes stop working|clears the unfinished install first/);
   await page.mouse.move(0, 0);
   await expect(retry(page)).toHaveCSS("background-color", "rgb(5, 122, 85)");
   await expect(page.getByRole("button", { name: /Update now|Check again/ })).toHaveCount(0);
@@ -507,7 +507,7 @@ for (const failure of ["couldn't reach GitHub to check for updates: private tran
       window.careTest.failNext("CheckAppUpdate", error);
     }, failure);
     await fail(page);
-    await expect(page.getByText("Checking for a CARE Desktop update…", { exact: true })).toBeVisible();
+    await expect(page.getByText("Checking for a CARE Clinic update…", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Update now", exact: true })).toHaveCount(0);
     await expect(retry(page)).toBeEnabled();
     await page.evaluate(() => window.careTest.release("CheckAppUpdate"));
@@ -525,11 +525,11 @@ test("an update stays busy after job acceptance and failure offers a separate up
   await begin(page);
   await fail(page, true);
   await page.getByRole("button", { name: "Update now", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Downloading CARE Desktop 0.1.6…", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Downloading CARE Clinic 0.1.6…", exact: true })).toBeVisible();
   await expect(retry(page)).toBeDisabled();
   await expect(page.getByRole("button", { name: "Back to setup", exact: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.finishUpdate("couldn't replace the application: /private/failure exit status 1"));
-  await expect(page.getByRole("heading", { name: "The CARE Desktop update didn't finish", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "The CARE Clinic update didn't finish", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry update", exact: true })).toBeEnabled();
   await expect(retry(page)).toBeEnabled();
   await expect(page.locator(".install-screen")).not.toContainText("/private/failure");
@@ -537,16 +537,16 @@ test("an update stays busy after job acceptance and failure offers a separate up
   await expect.poll(() => calls(page, "InstallAppUpdate")).toBe(2);
   expect(await calls(page, "CleanupFailedInstall")).toBe(0);
   for (const [phase, heading] of [
-    ["verifying", "Checking the CARE Desktop download…"],
-    ["installing", "Updating the CARE Desktop application…"],
-    ["installer", "The CARE Desktop installer has opened"],
+    ["verifying", "Checking the CARE Clinic download…"],
+    ["installing", "Updating the CARE Clinic application…"],
+    ["installer", "The CARE Clinic installer has opened"],
   ] as const) {
     await page.evaluate((next) => window.careTest.progress({ phase: next, done: 50e6, total: 50e6 }), phase);
     await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     await expect(retry(page)).toBeDisabled();
   }
   await page.evaluate(() => window.careTest.finishUpdate());
-  await expect(page.getByText("Finish updating in the installer, then reopen CARE Desktop before trying setup again.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Finish updating in the installer, then reopen CARE Clinic before trying setup again.", { exact: true })).toBeVisible();
   await expect(retry(page)).toBeDisabled();
 });
 

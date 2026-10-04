@@ -1,4 +1,4 @@
-// CARE Desktop control app — installer + control panel, driven by the Go bridge
+// CARE Clinic control app — installer + control panel, driven by the Go bridge
 // (window.go.main.App) and Wails events. Fonts are bundled locally so the app
 // works with no network; icons come from lucide-react as inline SVG, so there is
 // no icon font to ship either.

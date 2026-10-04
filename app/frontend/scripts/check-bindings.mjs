@@ -2,7 +2,7 @@
 // method on the Go App. Nothing else catches a mismatch: `go build` only sees the
 // Go side, and wails.d.ts is hand-written, so `tsc` believes whatever it declares.
 // A renamed binding therefore ships green and fails at runtime with
-// "The CARE Desktop runtime has no <name> method."
+// "The CARE Clinic runtime has no <name> method."
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

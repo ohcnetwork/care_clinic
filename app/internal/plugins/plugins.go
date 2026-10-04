@@ -28,7 +28,7 @@ const (
 	additionalPlugsKey = "ADDITIONAL_PLUGS"
 	listFile           = "plugins.json"
 	ManagedKey         = "managed_by"
-	ManagedValue       = "care-desktop"
+	ManagedValue       = "care-clinic"
 )
 
 type Backend struct {

@@ -18,7 +18,7 @@ func TestHasEntryRequiresLocalAddress(t *testing.T) {
 		data string
 		want bool
 	}{
-		{"127.0.0.1 care.local # care-desktop\n", true},
+		{"127.0.0.1 care.local # care-clinic\n", true},
 		{"::1 localhost CARE.LOCAL\n", true},
 		{"127.0.0.1 localhost care.local # other\n", true},
 		{"192.0.2.1 care.local\n", false},
@@ -207,7 +207,7 @@ func TestWithoutHost(t *testing.T) {
 		name, in, want string
 		changed        bool
 	}{
-		{"drops a CARE line", "127.0.0.1 localhost\n127.0.0.1 care.local # care-desktop\n", "127.0.0.1 localhost\n", true},
+		{"drops a CARE line", "127.0.0.1 localhost\n127.0.0.1 care.local # care-clinic\n", "127.0.0.1 localhost\n", true},
 		{"drops a line from any tool", "10.0.0.5\tCARE.local\n::1 localhost\n", "::1 localhost\n", true},
 		{"keeps other names on a shared line", "127.0.0.1 care.local other.local # dev\n", "127.0.0.1 other.local # dev\n", true},
 		{"keeps windows line endings", "127.0.0.1 localhost\r\n127.0.0.1 care.local\r\n", "127.0.0.1 localhost\r\n", true},

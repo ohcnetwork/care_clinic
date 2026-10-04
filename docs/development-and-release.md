@@ -33,7 +33,7 @@ The direct Go dependencies have narrow jobs:
 | `github.com/hashicorp/mdns` | DNS-SD record construction; CARE owns the interface-bound responder transport. |
 | `github.com/miekg/dns` | DNS packet encoding/decoding for the responder and direct hostname probes. |
 | `golang.org/x/net` | Interface-bound IPv4/IPv6 multicast sockets. |
-| `golang.org/x/crypto` | Bcrypt hashing and comparison for desktop administrator authorization. |
+| `golang.org/x/crypto` | Bcrypt hashing and comparison for CARE Clinic administrator authorization. |
 | `golang.org/x/sys` | Low-level platform operations, including Windows durable file replacement. |
 
 The desktop's build prerequisites are Go, Node/npm, the Wails CLI, and the native tools required by Wails on the build OS. macOS packaging uses Apple's developer tools; Windows installer creation needs NSIS (`makensis`). Docker and Git are needed for actually setting up and operating a clinic, not merely for every small Go unit test.
@@ -86,7 +86,7 @@ Windows folder rather than assuming `$env:USERPROFILE\Desktop`:
 
 ```powershell
 $desktop = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
-Copy-Item -LiteralPath '.\build\bin\CARE Desktop.exe' -Destination $desktop
+Copy-Item -LiteralPath '.\build\bin\CARE Clinic.exe' -Destination $desktop
 ```
 
 Run this from `app` after building, with the destination app closed. The result
@@ -189,7 +189,7 @@ flowchart TD
 ### `stage-install.mjs`
 
 The script derives `app/wails.json`'s numeric installer version from
-`CARE_DESKTOP_VERSION` in `deployments/.env` (stripping `-dev` for local builds).
+`CARE_CLINIC_VERSION` in `deployments/.env` (stripping `-dev` for local builds).
 Run it before invoking Wails for production builds, as Wails reads its metadata
 before its pre-build hook. CI does this explicitly.
 
@@ -256,7 +256,7 @@ UI suite because all screens share them.
 
 | Group | Required keys |
 | --- | --- |
-| Desktop identity | `CARE_DESKTOP_VERSION`. |
+| Desktop identity | `CARE_CLINIC_VERSION`. |
 | Third-party bases | `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE`, `CORAZA_VERSION`. |
 | Built-image names | `BACKUP_IMAGE`, `CADDY_WAF_IMAGE`, `BACKEND_IMAGE`, `FRONTEND_IMAGE`. |
 | CARE sources | `CARE_BE_REPO`, `CARE_FE_REPO`, `CARE_BE_REF`, `CARE_FE_REF`. |
@@ -286,7 +286,7 @@ into `main`, or the commit selected for a manual run):
 
 | Source | Expected value |
 | --- | --- |
-| `CARE_DESKTOP_VERSION` | Numeric `X.Y.Z`, without `-dev`. |
+| `CARE_CLINIC_VERSION` | Numeric `X.Y.Z`, without `-dev`. |
 | `app/wails.json` -> `info.productVersion` | Derived as `X.Y.Z` before building. |
 | Automatically created tag | `vX.Y.Z`, pointing to the workflow's source commit. |
 | CARE backend and frontend refs | A branch name to follow, or a full commit hash to pin. |
@@ -328,7 +328,7 @@ missing, and a PR branch push does not trigger a duplicate push workflow.
 | Lint | Formatting, the Wails/internal boundary, pinned Actionlint workflow validation, and golangci-lint v2.13.2 through its v9 action. |
 | Go tests | Clean-checkout `go build ./...` and the full race-enabled test suite, including the release identity/CI gate contracts. Node, PostgreSQL fixture tools, OpenSSL, Python, Git, and Compose must be available rather than silently skipping their tests. |
 | Frontend | Node 22, `npm ci`, binding checks, TypeScript, and the Vite production build. Uploads the built frontend for native builds. |
-| Native builds | After the first three jobs pass: actual Wails macOS universal and Windows/amd64 builds for CARE Desktop. Windows must produce an NSIS installer with NSIS 3.12 from [`install-nsis`](../.github/actions/install-nsis/action.yml), and its version metadata must match `wails.json` and `.env`; the bare application and the generated installer inputs are uploaded separately so a release can sign the application before rebuilding the installer. |
+| Native builds | After the first three jobs pass: actual Wails macOS universal and Windows/amd64 builds for CARE Clinic. Windows must produce an NSIS installer with NSIS 3.12 from [`install-nsis`](../.github/actions/install-nsis/action.yml), and its version metadata must match `wails.json` and `.env`; the bare application and the generated installer inputs are uploaded separately so a release can sign the application before rebuilding the installer. |
 | CI | Stable aggregate check; fails if any required job failed, was cancelled, or was skipped. Configure this check in branch protection. |
 
 Go comes from `app/go.mod`, and module writes are disallowed. Native jobs reuse
@@ -420,14 +420,14 @@ For another change, select the package/test covering that behavior first. The fu
 
 ## Packaging and publication
 
-The release workflow runs when a push to `main` changes `CARE_DESKTOP_VERSION`
+The release workflow runs when a push to `main` changes `CARE_CLINIC_VERSION`
 in `deployments/.env`, or when started by hand, and reuses the native artifacts
 built by CI in the same workflow run:
 
 | Platform | Wails target | Artifact |
 | --- | --- | --- |
-| macOS | `darwin/universal` | `CARE-Desktop-X.Y.Z-macos.dmg`. |
-| Windows | `windows/amd64` with `-nsis` | `CARE-Desktop-X.Y.Z-windows-amd64-setup.exe`. |
+| macOS | `darwin/universal` | `CARE-Clinic-X.Y.Z-macos.dmg`. |
+| Windows | `windows/amd64` with `-nsis` | `CARE-Clinic-X.Y.Z-windows-amd64-setup.exe`. |
 
 Linux has backend/native helper implementations but no published desktop installer.
 
@@ -447,7 +447,7 @@ The Windows installer definition lives in `app/build/windows/` (`info.json`,
 `installer/wails_tools.nsh` and the WebView2 bootstrapper from `wails.json` and
 its own module on every build, so those are ignored.
 
-Follow [Releasing CARE Desktop](releases.md) for the complete maintainer procedure
+Follow [Releasing CARE Clinic](releases.md) for the complete maintainer procedure
 and safe retry rules.
 
 ### In-place desktop updates
@@ -487,7 +487,7 @@ DMG/translocated copies must refuse in-place updating instead of opening a disk
 image and claiming success. Installation from a DMG is still required once.
 An older installed version keeps its old updater until this release is installed.
 
-Targeted tests: Go tests named `TestDesktopUpdate`, `TestDownload`, `TestSwap`,
+Targeted tests: Go tests named `TestClinicAppUpdate`, `TestDownload`, `TestSwap`,
 `TestMacUpdateHelper`, `TestWindowsUpdateHelper`, and `TestUpdateHelper`; frontend
 `tests/app-updater.spec.ts` and updater cases in `tests/start-screen.spec.ts`.
 These exercise fixture downloads, helper generation/startup errors, local
@@ -508,4 +508,4 @@ success; native upgrade acceptance remains required.
 | Kit file | `deployments/` source, readers/mounts, staging/runtime preservation assumptions, file map. |
 | Release version | `deployments/.env`; build metadata and tags are derived. Update release documentation if behavior changes. |
 
-Keep code and diagrams synchronized. A documentation-only change does not require rebuilding CARE Desktop.
+Keep code and diagrams synchronized. A documentation-only change does not require rebuilding CARE Clinic.

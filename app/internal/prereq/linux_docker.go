@@ -20,7 +20,7 @@ const (
 )
 
 const dockerLinuxUnit = `[Unit]
-Description=Docker Application Container Engine (installed by CARE Desktop)
+Description=Docker Application Container Engine (installed by CARE Clinic)
 Documentation=https://docs.docker.com
 After=network-online.target firewalld.service time-set.target
 Wants=network-online.target

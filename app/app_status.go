@@ -131,7 +131,7 @@ func (a *App) RestartPlan() reboot.Plan { return reboot.Check() }
 func (a *App) RestartNow() error {
 	return a.withServerJob(func() error {
 		if err := autostart.Set(true); err != nil {
-			a.logln("note: couldn't set CARE Desktop to open after the restart (" + err.Error() +
+			a.logln("note: couldn't set CARE Clinic to open after the restart (" + err.Error() +
 				") - open it yourself once the computer is back")
 		}
 		return reboot.Now()

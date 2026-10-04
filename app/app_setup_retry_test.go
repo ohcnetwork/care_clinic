@@ -201,7 +201,7 @@ func TestRetrySetupRespectsTheJobAndClosingGuards(t *testing.T) {
 	a.jobMu.Unlock()
 	a.closing = true
 	if err := a.RetrySetup(); err == nil {
-		t.Fatal("retry ran while CARE Desktop was closing")
+		t.Fatal("retry ran while CARE Clinic was closing")
 	}
 }
 

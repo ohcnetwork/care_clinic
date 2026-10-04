@@ -33,7 +33,7 @@ async function visit(page: Page, scenario = "current") {
 async function beginUpdate(page: Page) {
   await visit(page, "available");
   await page.getByRole("button", { name: "Update now", exact: true }).click();
-  await expect(page.getByText("Downloading CARE Desktop 0.1.6\u2026")).toBeVisible();
+  await expect(page.getByText("Downloading CARE Clinic 0.1.6\u2026")).toBeVisible();
 }
 
 async function screenshot(page: Page, name: string) {
@@ -134,7 +134,7 @@ test("the client update card receives progress and failure feedback", async ({ p
   await connect(page).click();
   await expect(page.getByRole("heading", { name: "Find your clinic's server" })).toBeVisible();
   await page.getByRole("button", { name: "Update now", exact: true }).click();
-  await expect(page.getByText("Downloading CARE Desktop 0.1.6\u2026", { exact: true })).toBeVisible();
+  await expect(page.getByText("Downloading CARE Clinic 0.1.6\u2026", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.finishUpdate("native update failed with private details"));
   await expect(page.getByRole("alert").first()).toContainText("Your current version was kept");
@@ -158,7 +158,7 @@ test("checking is single-flight, nonblocking, and never claims success before a 
 
 test("available updates keep both paths usable and open the release notes", async ({ page }) => {
   await visit(page, "available");
-  await expect(page.getByText("CARE Desktop 0.1.6", { exact: true })).toBeVisible();
+  await expect(page.getByText("CARE Clinic 0.1.6", { exact: true })).toBeVisible();
   await expect(setup(page)).toBeEnabled();
   await expect(connect(page)).toBeEnabled();
   await page.getByRole("button", { name: "What's new", exact: true }).click();
@@ -196,7 +196,7 @@ for (const first of ["update", "setup", "client"] as const) {
       else { (action === "setup" ? setup : client).click(); update.click(); }
     }, first);
     if (first === "update") {
-      await expect(page.getByText("Downloading CARE Desktop 0.1.6\u2026")).toBeVisible();
+      await expect(page.getByText("Downloading CARE Clinic 0.1.6\u2026")).toBeVisible();
       expect(await methodCount(page, "InstallAppUpdate")).toBe(1);
       expect(await methodCount(page, "BeginServerSetup")).toBe(0);
       expect(await page.evaluate(() => window.careTest.state.role)).toBe("");
@@ -222,9 +222,9 @@ for (const phase of ["verifying", "installing", "restarting", "installer"] as co
     await page.evaluate((value: AppUpdateProgress["phase"]) =>
       window.careTest.progress({ phase: value, done: 0, total: 0 }), phase);
     const expected = {
-      verifying: "Checking CARE Desktop 0.1.6\u2026",
-      installing: "Installing CARE Desktop 0.1.6\u2026",
-      restarting: "Restarting CARE Desktop to finish updating\u2026",
+      verifying: "Checking CARE Clinic 0.1.6\u2026",
+      installing: "Installing CARE Clinic 0.1.6\u2026",
+      restarting: "Restarting CARE Clinic to finish updating\u2026",
       installer: "The installer has opened",
     }[phase];
     await expect(page.getByText(expected, { exact: true })).toBeVisible();
@@ -245,7 +245,7 @@ for (const phase of ["verifying", "installing", "restarting", "installer"] as co
       await expect(page.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
     }
     if (phase === "installer") {
-      await expect(page.getByText("Follow it to finish updating, then reopen CARE Desktop.")).toBeVisible();
+      await expect(page.getByText("Follow it to finish updating, then reopen CARE Clinic.")).toBeVisible();
       await page.getByRole("button", { name: "OK", exact: true }).click();
       await expect(setup(page)).toBeEnabled();
       await expect(connect(page)).toBeEnabled();
@@ -257,7 +257,7 @@ for (const phase of ["verifying", "installing", "restarting", "installer"] as co
 test("failed and cancelled updates keep technical details out of the UI and allow retry", async ({ page }) => {
   await beginUpdate(page);
   await page.evaluate(() => window.careTest.finishUpdate(
-    "couldn't replace CARE Desktop with version 0.1.6, so the current version was kept: User canceled (-128)",
+    "couldn't replace CARE Clinic with version 0.1.6, so the current version was kept: User canceled (-128)",
   ));
   await expect(page.getByRole("alert")).toContainText("Your current version was kept");
   await expect(page.getByText(/-128|User canceled|couldn't replace/)).toHaveCount(0);
@@ -266,14 +266,14 @@ test("failed and cancelled updates keep technical details out of the UI and allo
   await page.getByRole("button", { name: "Open log file", exact: true }).click();
   expect(await methodCount(page, "OpenLogFolder")).toBe(1);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByText("Downloading CARE Desktop 0.1.6\u2026")).toBeVisible();
+  await expect(page.getByText("Downloading CARE Clinic 0.1.6\u2026")).toBeVisible();
   expect(await methodCount(page, "InstallAppUpdate")).toBe(2);
 });
 
 test("a damaged download has its specific retry state, without exposing checksums", async ({ page }) => {
   await beginUpdate(page);
   await page.evaluate(() => window.careTest.finishUpdate(
-    "the CARE Desktop 0.1.6 update didn't download properly and was deleted without being installed (its SHA-256 is secret)",
+    "the CARE Clinic 0.1.6 update didn't download properly and was deleted without being installed (its SHA-256 is secret)",
   ));
   await expect(page.getByRole("alert")).toContainText("The download didn't come through properly");
   await expect(page.getByText("Nothing was installed. Try again on a steadier connection.")).toBeVisible();

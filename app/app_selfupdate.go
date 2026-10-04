@@ -24,7 +24,7 @@ const macUpdateStepTimeout = 5 * time.Minute
 func updateTarget() (string, error) {
 	target, err := appremoval.Target()
 	if err != nil {
-		return "", fmt.Errorf("update location unavailable: install CARE Desktop in a permanent folder first, then open that copy and update again (%w)", err)
+		return "", fmt.Errorf("update location unavailable: install CARE Clinic in a permanent folder first, then open that copy and update again (%w)", err)
 	}
 	if runtime.GOOS == "windows" {
 		target = filepath.Dir(target)
@@ -52,7 +52,7 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 	a.updateProgress(phaseVerifying, 0, 0)
 	switch runtime.GOOS {
 	case "darwin":
-		a.logln("Unpacking CARE Desktop " + version + "...")
+		a.logln("Unpacking CARE Clinic " + version + "...")
 		staged, err := stageMacBundle(download, work, filepath.Base(target))
 		if err != nil {
 			return err
@@ -99,7 +99,7 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 		return fmt.Errorf("couldn't authorize the update handoff: %w", err)
 	}
 	a.updateProgress(phaseRestarting, 0, 0)
-	a.logln("Restarting CARE Desktop to finish updating. Clinic containers and data are left alone.")
+	a.logln("Restarting CARE Clinic to finish updating. Clinic containers and data are left alone.")
 	a.closing = true
 	a.quitAfterJob()
 	return nil
@@ -123,7 +123,7 @@ func startUpdateHelper(cmd *exec.Cmd, ready string) error {
 		case <-deadline.C:
 			_ = cmd.Process.Kill()
 			<-done
-			return fmt.Errorf("the update helper did not become ready; CARE Desktop was kept open")
+			return fmt.Errorf("the update helper did not become ready; CARE Clinic was kept open")
 		case <-ticker.C:
 			if _, err := os.Stat(ready); err == nil {
 				return nil

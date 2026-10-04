@@ -49,7 +49,7 @@ func (e *Clinic) Uninstall(opts UninstallOptions) error {
 	} else {
 		for _, resource := range resources {
 			if len(resource.ids) > 0 {
-				return errors.New("clinic resources remain but this installation's compose file is missing; reopen CARE Desktop to restore its files before uninstalling")
+				return errors.New("clinic resources remain but this installation's compose file is missing; reopen CARE Clinic to restore its files before uninstalling")
 			}
 		}
 	}
@@ -89,7 +89,7 @@ func (e *Clinic) removeInstallFiles(removeUnusedKey bool) error {
 	}
 	dir := filepath.Clean(e.InstallDir)
 	if !filepath.IsAbs(dir) || !strings.EqualFold(filepath.Base(dir), "install") ||
-		!strings.EqualFold(filepath.Base(filepath.Dir(dir)), "care-desktop") {
+		!strings.EqualFold(filepath.Base(filepath.Dir(dir)), "care-clinic") {
 		return fmt.Errorf("refusing to delete an unrecognized installation directory: %s", dir)
 	}
 	if removeUnusedKey {

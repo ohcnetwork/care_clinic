@@ -7,10 +7,10 @@ import type { AppUpdateProgress } from "@/types";
 
 const phaseText = (phase: AppUpdateProgress["phase"], version: string) =>
   ({
-    downloading: `Downloading CARE Desktop ${version}...`,
-    verifying: `Checking CARE Desktop ${version}...`,
-    installing: `Installing CARE Desktop ${version}...`,
-    restarting: "Restarting CARE Desktop to finish updating...",
+    downloading: `Downloading CARE Clinic ${version}...`,
+    verifying: `Checking CARE Clinic ${version}...`,
+    installing: `Installing CARE Clinic ${version}...`,
+    restarting: "Restarting CARE Clinic to finish updating...",
     installer: "The installer is open. Follow it to finish updating.",
   })[phase];
 
@@ -18,9 +18,9 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
   const { update, version, checking, problem, progress, active, check, install, disabled: blocked } =
     useAppUpdate(disabled);
   const error = !problem ? "" : problem.kind === "install" || problem.kind === "download"
-    ? "CARE Desktop could not finish updating. Your current version was kept. Try again."
+    ? "CARE Clinic could not finish updating. Your current version was kept. Try again."
     : problem.kind === "location"
-      ? "Install CARE Desktop in a permanent folder first, then open that copy and try again. On macOS, leave the disk image; on Windows, use the installed Start menu shortcut. Development copies cannot update themselves."
+      ? "Install CARE Clinic in a permanent folder first, then open that copy and try again. On macOS, leave the disk image; on Windows, use the installed Start menu shortcut. Development copies cannot update themselves."
     : problem.kind === "unavailable"
       ? "There is no installer for this computer yet. Check again another day."
       : "Couldn't check for updates. Check your internet connection and try again.";
@@ -29,7 +29,7 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
     <div className="rounded-xl border border-line bg-card px-[18px] py-4 shadow-card">
       <div className="flex items-center gap-3.5">
         <div className="min-w-0 flex-1">
-          <div className="text-[15px] font-bold text-ink">CARE Desktop updates</div>
+          <div className="text-[15px] font-bold text-ink">CARE Clinic updates</div>
           <div className="mt-[3px] text-[13px] text-muted-foreground">
             Version <span className="font-mono text-ink2">{update?.current || version || "..."}</span>
             {update?.available ? (
@@ -58,7 +58,7 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
         <div className="mt-3.5 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-brand-bg px-4 py-[13px] text-[12.5px] text-brand-ink">
           <span className="min-w-[180px] flex-1">
             Downloads {update.asset}, verifies its checksum, and installs the update.
-            CARE Desktop closes briefly, replaces this installed copy, and reopens.
+            CARE Clinic closes briefly, replaces this installed copy, and reopens.
             Your computer may ask for permission. Clinic data and settings are kept;
             a running clinic is not stopped.
           </span>
@@ -66,7 +66,7 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
             <Button onClick={() => void bridge.OpenURL(update.notes_url)}>Release notes</Button>
           ) : null}
           <Button variant="primary" disabled={blocked || checking || active} onClick={() => void install()}>
-            Update CARE Desktop
+            Update CARE Clinic
           </Button>
         </div>
       ) : null}

@@ -142,7 +142,7 @@ func rootsFromFiles(paths []string) *x509.CertPool {
 }
 
 // Set by our Caddyfile's pki block, so a cert carrying it is ours by construction.
-const CommonName = "CARE Desktop Local CA"
+const CommonName = "CARE Clinic Local CA"
 
 var linuxCAAnchors = []string{
 	"/usr/local/share/ca-certificates/care-root.crt",

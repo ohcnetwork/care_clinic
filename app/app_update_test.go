@@ -42,8 +42,8 @@ func TestPlatformAssetPicksOneInstaller(t *testing.T) {
 	rel := ghRelease{Assets: []ghAsset{
 		{Name: "SHA256SUMS", URL: "https://example.invalid/SHA256SUMS"},
 		{Name: "release-manifest.json", URL: "https://example.invalid/manifest"},
-		{Name: "CARE-Desktop-1.2.3-macos.dmg", URL: "https://example.invalid/dmg"},
-		{Name: "CARE-Desktop-1.2.3-windows-amd64-setup.exe", URL: "https://example.invalid/exe"},
+		{Name: "CARE-Clinic-1.2.3-macos.dmg", URL: "https://example.invalid/dmg"},
+		{Name: "CARE-Clinic-1.2.3-windows-amd64-setup.exe", URL: "https://example.invalid/exe"},
 	}}
 	asset, ok := platformAsset(rel)
 	if !ok {
@@ -55,14 +55,14 @@ func TestPlatformAssetPicksOneInstaller(t *testing.T) {
 	if _, ok := findAsset(rel, func(name string) bool { return name == "SHA256SUMS" }); !ok {
 		t.Fatal("checksums were not found alongside the installer")
 	}
-	empty := ghRelease{Assets: []ghAsset{{Name: "CARE-Desktop-1.2.3-macos.dmg"}}}
+	empty := ghRelease{Assets: []ghAsset{{Name: "CARE-Clinic-1.2.3-macos.dmg"}}}
 	if _, ok := platformAsset(empty); ok {
 		t.Fatal("an asset with no URL was accepted")
 	}
 }
 
 func TestDownloadVerifiedRetriesThenRejectsDamagedInstallers(t *testing.T) {
-	good := []byte("CARE Desktop installer")
+	good := []byte("CARE Clinic installer")
 	digest := sha256.Sum256(good)
 	want := hex.EncodeToString(digest[:])
 	for _, tc := range []struct {
@@ -90,7 +90,7 @@ func TestDownloadVerifiedRetriesThenRejectsDamagedInstallers(t *testing.T) {
 			}))
 			defer server.Close()
 			var logs []string
-			asset := ghAsset{Name: "CARE-Desktop-1.2.3-setup.exe", URL: server.URL}
+			asset := ghAsset{Name: "CARE-Clinic-1.2.3-setup.exe", URL: server.URL}
 			path, err := downloadVerified(asset, want, "1.2.3", func(line string) { logs = append(logs, line) }, nil)
 			if got := requests.Load(); got != tc.requests {
 				t.Fatalf("made %d download attempts, want %d", got, tc.requests)
@@ -110,7 +110,7 @@ func TestDownloadVerifiedRetriesThenRejectsDamagedInstallers(t *testing.T) {
 				t.Fatalf("retry was not logged: %q", logs)
 			}
 			cache, _ := os.UserCacheDir()
-			if left, _ := os.ReadDir(filepath.Join(cache, "CARE Desktop", "updates")); len(left) != 0 {
+			if left, _ := os.ReadDir(filepath.Join(cache, "CARE Clinic", "updates")); len(left) != 0 {
 				t.Fatalf("damaged download was left behind: %v", left)
 			}
 		})
@@ -134,7 +134,7 @@ func TestSwapScriptReplacesBundleOrKeepsTheOldOne(t *testing.T) {
 		t.Skip("the in-place app swap is macOS only")
 	}
 	bundle := func(dir, marker string) string {
-		app := filepath.Join(dir, "CARE Desktop.app")
+		app := filepath.Join(dir, "CARE Clinic.app")
 		if err := os.MkdirAll(filepath.Join(app, "Contents"), 0o755); err != nil {
 			t.Fatal(err)
 		}

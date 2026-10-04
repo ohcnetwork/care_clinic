@@ -97,7 +97,7 @@ func newRestoreFixture(t *testing.T) (*Store, func() restoreDockerState, func(re
 		Files:     "original-files",
 	})
 	s := New(proc.Runner{Dir: root, Env: os.Environ()}, &Store{
-		Dir: root, BackupDir: root, Project: "care-desktop", Image: "fixture-backup", BackendImage: "fixture-backend",
+		Dir: root, BackupDir: root, Project: "care-clinic", Image: "fixture-backup", BackendImage: "fixture-backend",
 		EnsureImage: func() error { return nil }, EnsureRestoreImages: func() error { return nil },
 		Migrate: func(string, string) error { return nil },
 	})

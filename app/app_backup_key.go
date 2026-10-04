@@ -24,7 +24,7 @@ type encryptedBackupKey struct {
 
 func backupKeyAAD(cfg Config) []byte {
 	digest := sha256.Sum256([]byte(cfg.BackupCertificate))
-	return []byte(fmt.Sprintf("CARE Desktop backup key v1\x00%s\x00%x", cfg.MDNSName, digest))
+	return []byte(fmt.Sprintf("CARE Clinic backup key v1\x00%s\x00%x", cfg.MDNSName, digest))
 }
 
 func backupKeyCipher(password string, salt []byte) (cipher.AEAD, error) {

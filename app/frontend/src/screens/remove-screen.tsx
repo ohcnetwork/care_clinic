@@ -50,7 +50,7 @@ export function RemoveScreen() {
     try {
       if (!cleaned && !(await step())) {
         setProblem({ title: "Some setup files still need to be removed",
-          message: "CARE Desktop has been kept so removal can be retried. Open the log file for support." });
+          message: "CARE Clinic has been kept so removal can be retried. Open the log file for support." });
         return;
       }
       setCleaned(true);
@@ -58,7 +58,7 @@ export function RemoveScreen() {
       await bridge.ExitUninstall();
     } catch (cause) {
       setProblem(advancedProblem(cause, "Removal couldn't finish",
-        "CARE Desktop has been kept. Try again, or open the log file for support."));
+        "CARE Clinic has been kept. Try again, or open the log file for support."));
     } finally {
       setConfirmation("");
       pending.current = false;
@@ -93,7 +93,7 @@ export function RemoveScreen() {
     try {
       await bridge.ExitUninstall();
     } catch (cause) {
-      setProblem(advancedProblem(cause, "The uninstaller couldn't be closed", "Try again when CARE Desktop is idle."));
+      setProblem(advancedProblem(cause, "The uninstaller couldn't be closed", "Try again when CARE Clinic is idle."));
     } finally {
       pending.current = false;
       setWorking(false);
@@ -110,7 +110,7 @@ export function RemoveScreen() {
       <ScreenBody className="flex flex-col gap-4">
         {setup === "loading" && !problem ? <p className="advanced-busy" role="status"><Spinner />Checking this installation…</p> : null}
         {cleaned ? <AdvancedNotice title="The clinic setup has been removed" tone="success">
-          The system uninstaller can now remove the CARE Desktop app.
+          The system uninstaller can now remove the CARE Clinic app.
         </AdvancedNotice> : null}
         {setup === "server" ? (
           adminPassword === null ? (
@@ -178,7 +178,7 @@ export function RemoveScreen() {
         {setup === "loading" && problem ? <Button type="button" className="self-start" onClick={() => void readSetup()}>Check installation again</Button> : null}
 
         {!cleaned ? <Button className="self-start" disabled={locked} onClick={() => void keep()}>
-          Keep CARE Desktop
+          Keep CARE Clinic
         </Button> : null}
       </ScreenBody>
       <AlertDialog open={confirming} onOpenChange={(next) => { if (!next) close(); }}>

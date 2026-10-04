@@ -77,7 +77,7 @@ export function SetupLayout({ steps, page, done, blocked = [], working, title, s
         </div>
         <footer className="on-foot">
           {back ? <Button className="on-back" variant="ghost" disabled={working || update.active} onClick={back}><ArrowLeft aria-hidden="true" />{editing ? "Back to review" : "Back"}</Button> : null}
-          <p className="on-foot-note" role="status">{update.active ? "Wait for the CARE Desktop update to finish." : note}</p>
+          <p className="on-foot-note" role="status">{update.active ? "Wait for the CARE Clinic update to finish." : note}</p>
           {next ? <Button variant="primary" className="on-primary" disabled={working || update.active || nextDisabled} onClick={next}>
             {page === "review" ? <Download aria-hidden="true" /> : null}
             {page === "review" ? "Install" : "Continue"}

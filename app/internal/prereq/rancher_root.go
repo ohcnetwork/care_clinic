@@ -19,8 +19,8 @@ const (
 	rancherSudoersPath = "/private/etc/sudoers.d/zzzzz-rancher-desktop-lima"
 	rancherOldSudoers  = "/private/etc/sudoers.d/rancher-desktop-lima"
 	dockerSockLink     = "/var/run/docker.sock"
-	dockerSockDaemon   = "/Library/LaunchDaemons/org.ohcnetwork.care-desktop.docker-socket.plist"
-	dockerSockLabel    = "org.ohcnetwork.care-desktop.docker-socket"
+	dockerSockDaemon   = "/Library/LaunchDaemons/org.ohcnetwork.care-clinic.docker-socket.plist"
+	dockerSockLabel    = "org.ohcnetwork.care-clinic.docker-socket"
 )
 
 type rootSetup struct {

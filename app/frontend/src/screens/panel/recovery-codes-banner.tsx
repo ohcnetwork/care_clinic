@@ -93,8 +93,8 @@ export function RecoveryCodesBanner({ disabled }: { disabled: boolean }) {
       if (!live.current) return;
       const error = advancedProblem(cause, "The new recovery codes couldn't be saved",
         "Your previous codes have not been replaced. Try saving again.");
-      if (error.title === "The Desktop admin password didn't match") {
-        error.message = "Enter your Desktop admin password again. Your CARE web password may be different.";
+      if (error.title === "The CARE Clinic admin password didn't match") {
+        error.message = "Enter your CARE Clinic admin password again. Your CARE web password may be different.";
       }
       setProblem(error);
     } finally {
@@ -117,7 +117,7 @@ export function RecoveryCodesBanner({ disabled }: { disabled: boolean }) {
       <KeyRound aria-hidden="true" />
       <div className="panel-grow">
         <strong>{remaining === 0 ? "No recovery codes left." : `Only ${remaining} recovery ${remaining === 1 ? "code" : "codes"} left.`} </strong>
-        Save a new set so you can reset your Desktop password if you forget it.
+        Save a new set so you can reset your CARE Clinic password if you forget it.
       </div>
       <Button size="sm" disabled={locked} onClick={() => {
         if (pending.current || blocked.current || updateLock.isActive()) return;
@@ -129,13 +129,13 @@ export function RecoveryCodesBanner({ disabled }: { disabled: boolean }) {
         onEscapeKeyDown={(event) => { if (pending.current) event.preventDefault(); }}>
         <AlertDialogTitle>Save new recovery codes</AlertDialogTitle>
         <AlertDialogDescription>
-          Enter your Desktop admin password to save six new recovery codes.
+          Enter your CARE Clinic admin password to save six new recovery codes.
           A successfully saved set replaces all old codes, including unused ones.
         </AlertDialogDescription>
         <form className="advanced-dialog-body" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-          <AdvancedSecretInput label="Desktop admin password" value={password} onChange={setPassword}
+          <AdvancedSecretInput label="CARE Clinic admin password" value={password} onChange={setPassword}
             disabled={locked} autoComplete="current-password" autoFocus />
-          <p>Keep the new sheet somewhere secure, preferably away from this computer. These codes reset the Desktop password; they do not unlock backups.</p>
+          <p>Keep the new sheet somewhere secure, preferably away from this computer. These codes reset the CARE Clinic password; they do not unlock backups.</p>
           {cancelled ? <AdvancedNotice title="No new recovery codes were saved" tone="neutral">
             Your existing unused codes still work. Enter your password again to retry.
           </AdvancedNotice> : null}

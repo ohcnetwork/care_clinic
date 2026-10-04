@@ -75,12 +75,12 @@ func (a *App) CanRemoveApp() bool {
 func (a *App) RemoveApp() (err error) {
 	defer a.logError(&err)
 	if a.osUninstall {
-		return errors.New("the uninstaller is already removing CARE Desktop")
+		return errors.New("the uninstaller is already removing CARE Clinic")
 	}
 	a.jobMu.Lock()
 	defer a.jobMu.Unlock()
 	if a.closing {
-		return errors.New("CARE Desktop is closing")
+		return errors.New("CARE Clinic is closing")
 	}
 	set, err := a.setUp()
 	if err != nil {

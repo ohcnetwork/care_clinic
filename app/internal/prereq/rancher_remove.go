@@ -30,7 +30,7 @@ func (pr *Provisioner) RemoveRancherDesktop() error {
 	case "windows":
 		return pr.removeRancherWindows()
 	default:
-		pr.logln("Rancher Desktop is only installed by CARE Desktop on macOS and Windows; nothing to remove.")
+		pr.logln("Rancher Desktop is only installed by CARE Clinic on macOS and Windows; nothing to remove.")
 		return nil
 	}
 }

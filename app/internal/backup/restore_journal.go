@@ -16,7 +16,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/atomicfile"
 )
 
-const RestoreLabel = "org.care-desktop.restore"
+const RestoreLabel = "org.care-clinic.restore"
 
 var restoreIDPattern = regexp.MustCompile(`^[0-9a-f]{24}$`)
 var restoreProjectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)

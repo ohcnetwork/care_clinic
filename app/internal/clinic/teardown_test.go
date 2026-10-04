@@ -71,7 +71,7 @@ func TestInstallRemovalHandlesUnusedCertificate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			e := &Clinic{
-				InstallDir: filepath.Join(root, "care-desktop", "install"),
+				InstallDir: filepath.Join(root, "care-clinic", "install"),
 				BackupDir:  filepath.Join(root, "backups"),
 				Pins:       &release.Pins{},
 			}

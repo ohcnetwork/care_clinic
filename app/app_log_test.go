@@ -74,7 +74,7 @@ func TestBoundMethodNamesTheExportedCaller(t *testing.T) {
 	if got := a.NamedForTest(); got != "NamedForTest" {
 		t.Fatalf("boundMethod = %q", got)
 	}
-	if got := boundMethod(); got != "CARE Desktop" {
+	if got := boundMethod(); got != "CARE Clinic" {
 		t.Fatalf("a caller that is not a bound method should be named generically: %q", got)
 	}
 }

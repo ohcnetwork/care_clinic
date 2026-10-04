@@ -14,7 +14,7 @@ func TestEnsureInstallDirKeepsSettings(t *testing.T) {
 	t.Setenv("HOME", root)
 	t.Setenv("USERPROFILE", root)
 	a := &App{
-		configFile: filepath.Join(root, "care-desktop", "config.json"),
+		configFile: filepath.Join(root, "care-clinic", "config.json"),
 		pins:       &release.Pins{},
 		installFS: fstest.MapFS{
 			"install/.gitkeep":          {Data: []byte("")},

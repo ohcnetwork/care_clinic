@@ -431,15 +431,15 @@ export function CareProvider({ children }: { children: ReactNode }) {
     appUpdatePhaseRef.current = null;
     appUpdateHandoffRef.current = false;
     lastErrorRef.current = "";
-    setBusy(true, "Updating CARE Desktop");
+    setBusy(true, "Updating CARE Clinic");
     activeActionRef.current = "app-update";
-    log("\n$ care-desktop update");
+    log("\n$ care-clinic update");
     try {
       await bridge.InstallAppUpdate();
     } catch (e) {
       log(`error: ${errorText(e)}`);
       if (flowRef.current !== "role") {
-        toast.error("CARE Desktop couldn't finish updating. Your current version was kept. Try again.");
+        toast.error("CARE Clinic couldn't finish updating. Your current version was kept. Try again.");
       }
       setBusy(false);
       activeActionRef.current = "";
@@ -782,12 +782,12 @@ export function CareProvider({ children }: { children: ReactNode }) {
     setRun(IDLE_RUN);
     setSetupReset((value) => value + 1);
     setFlow("role");
-    setBusy(removeApp, removeApp ? "Removing CARE Desktop" : "");
+    setBusy(removeApp, removeApp ? "Removing CARE Clinic" : "");
     if (removeApp) {
       void bridge.RemoveApp().catch((e) => {
         log(`remove app: ${errorText(e)}`);
         setBusy(false);
-        toast.error("The clinic was removed, but CARE Desktop couldn't remove itself. Close it and remove the application using this computer's settings.");
+        toast.error("The clinic was removed, but CARE Clinic couldn't remove itself. Close it and remove the application using this computer's settings.");
       });
     } else {
       toast("The clinic was removed. Backups you chose to keep are still in their folder.");
@@ -804,7 +804,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
         logFromHost(line);
       }),
       onCareEvent("care-error", (title: string, detail: string) => {
-        if (title === "The CARE Desktop update didn't finish") return;
+        if (title === "The CARE Clinic update didn't finish") return;
         lastErrorRef.current = detail;
         if (flowRef.current === "panel") {
           const error = describeOperationError(activeActionRef.current || "operation", detail);
@@ -822,7 +822,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
         // A reloaded UI may attach while the native updater is already running.
         if (!activeActionRef.current) {
           activeActionRef.current = "app-update";
-          setBusy(true, "Updating CARE Desktop");
+          setBusy(true, "Updating CARE Clinic");
         }
       }),
       onCareEvent("care-done", (code: number, label?: string) => {
@@ -831,7 +831,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
           if (code === 0 && (appUpdatePhaseRef.current === "installer" || appUpdatePhaseRef.current === "restarting")) {
             appUpdateHandoffRef.current = true;
             activeActionRef.current = "app-update";
-            setBusy(true, "Finish the CARE Desktop update");
+            setBusy(true, "Finish the CARE Clinic update");
             return;
           }
           appUpdatePhaseRef.current = null;
@@ -839,7 +839,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
           activeActionRef.current = "";
           setBusy(false);
           if (code !== 0 && flowRef.current !== "role") {
-            toast.error("CARE Desktop couldn't finish updating. Your current version was kept. Try again.");
+            toast.error("CARE Clinic couldn't finish updating. Your current version was kept. Try again.");
           }
           return;
         }

@@ -34,7 +34,7 @@ function whenReady(): Promise<CareBridge> {
         return;
       }
       if (Date.now() - startedAt > READY_TIMEOUT_MS) {
-        reject(new Error("The CARE Desktop runtime is not available."));
+        reject(new Error("The CARE Clinic runtime is not available."));
         return;
       }
       window.setTimeout(poll, POLL_MS);
@@ -55,7 +55,7 @@ export const bridge = new Proxy({} as CareBridge, {
       // a version skew between the app and this bundle — fails as
       // "(intermediate value)[i] is not a function", which says nothing.
       if (typeof fn !== "function") {
-        throw new Error(`The CARE Desktop runtime has no "${method}" method.`);
+        throw new Error(`The CARE Clinic runtime has no "${method}" method.`);
       }
       return fn.apply(app, args);
     };

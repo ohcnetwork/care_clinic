@@ -14,7 +14,7 @@ type updateTransport func(*http.Request) (*http.Response, error)
 
 func (f updateTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestDesktopUpdateDoesNotRequireServerSetup(t *testing.T) {
+func TestClinicAppUpdateDoesNotRequireServerSetup(t *testing.T) {
 	for _, role := range []string{"", roleClient, roleServer} {
 		t.Run("role="+role, func(t *testing.T) {
 			a := roleApp(t)
@@ -61,7 +61,7 @@ func TestDesktopUpdateDoesNotRequireServerSetup(t *testing.T) {
 	}
 }
 
-func TestDesktopUpdateStillHonorsJobAndClosingGuards(t *testing.T) {
+func TestClinicAppUpdateStillHonorsJobAndClosingGuards(t *testing.T) {
 	a := roleApp(t)
 	a.jobMu.Lock()
 	err := a.InstallAppUpdate()

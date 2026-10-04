@@ -28,20 +28,20 @@ flowchart LR
 | Embedded `installFS` | Desktop executable | Immutable copy of the kit used by that build. |
 | Installed kit | Application | Runtime files used by Docker Compose. |
 | Installed `backend.env` / `frontend.env` | Clinic operator and application-managed fields | Clinic-specific settings preserved during kit refresh. |
-| `config.json` | `App` | Local setup/removal state, name, backup path, and desktop administrator hash. |
-| Exported recovery materials | Clinic manager | Private backup recovery file and printable Desktop admin recovery codes, kept outside the installation and backup folder. |
+| `config.json` | `App` | Local setup/removal state, name, backup path, and CARE Clinic administrator hash. |
+| Exported recovery materials | Clinic manager | Private backup recovery file and printable CARE Clinic admin recovery codes, kept outside the installation and backup folder. |
 
 ## Local paths
 
-[`configPath()`](../app/app_config.go) starts with Go's `os.UserConfigDir()`, falls back to `os.UserHomeDir()` on failure, requires an absolute result, and appends `care-desktop/config.json`.
+[`configPath()`](../app/app_config.go) starts with Go's `os.UserConfigDir()`, falls back to `os.UserHomeDir()` on failure, requires an absolute result, and appends `care-clinic/config.json`.
 
 [`installDir()`](../app/app_installdir.go) normally places `install` beside that configuration file. On Windows, when an absolute home directory is available, the installed kit instead lives under the user's home directory. This avoids making the potentially roaming application-configuration directory the normal home for source checkouts and Docker bind mounts.
 
 | Platform | Typical configuration file | Typical installed kit |
 | --- | --- | --- |
-| macOS | `~/Library/Application Support/care-desktop/config.json` | `~/Library/Application Support/care-desktop/install/` |
-| Windows | `%AppData%\care-desktop\config.json` | `%UserProfile%\care-desktop\install\` |
-| Linux | `$XDG_CONFIG_HOME/care-desktop/config.json`, normally `~/.config/care-desktop/config.json` | `install/` beside `config.json`. |
+| macOS | `~/Library/Application Support/care-clinic/config.json` | `~/Library/Application Support/care-clinic/install/` |
+| Windows | `%AppData%\care-clinic\config.json` | `%UserProfile%\care-clinic\install\` |
+| Linux | `$XDG_CONFIG_HOME/care-clinic/config.json`, normally `~/.config/care-clinic/config.json` | `install/` beside `config.json`. |
 
 These are conventions, not hard-coded assumptions about every user's home or environment. The actual paths come from the functions above.
 
@@ -110,14 +110,14 @@ See [client removal](native-integrations.md#removing-client-access).
 | `removing` | `Removing` | Destructive cleanup began but may not have completed. Omitted when false. |
 | `mdns_name` | `MDNSName` | Saved clinic name, normally such as `care.local`. |
 | `backup_dir` | `BackupDir` | Effective selected backup directory, not just the picker parent. Empty means use the engine default. |
-| `admin_pw_hash` | `AdminPwHash` | Bcrypt hash for local desktop administrative authorization. |
+| `admin_pw_hash` | `AdminPwHash` | Bcrypt hash for local CARE Clinic administrative authorization. |
 | `admin_recovery_hashes` | `AdminRecoveryHashes` | Six SHA-256 code-hash slots; a used slot is cleared. No plaintext codes. |
-| `admin_recovery_path` | `AdminRecoveryPath` | Exported Desktop recovery-code sheet location. Setup checks that a regular, readable file still contains the six distinct saved codes; symlinks and oversized sheets are rejected. |
+| `admin_recovery_path` | `AdminRecoveryPath` | Exported CARE Clinic recovery-code sheet location. Setup checks that a regular, readable file still contains the six distinct saved codes; symlinks and oversized sheets are rejected. |
 | `recovery_failures` / `recovery_retry_after` | `RecoveryFailures` / `RecoveryRetryAfter` | Persisted failed-attempt count and Unix timestamp for offline recovery throttling. |
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
 
-The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent Desktop changes and recovery affect only the local bcrypt hash, not the CARE web login.
+The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login.
 
 ### Load rules
 
@@ -165,7 +165,7 @@ Atomic replacement protects a single file. It is not a transaction across Docker
 their wizard steps. [`RunSetup()`](../app/app_actions.go) repeats the complete
 preflight under the exclusive job lock before accepting asynchronous work. It
 checks disk space, platform prerequisites, residue, the network profile, the
-clinic address, the backup destination, both recovery exports, and the Desktop
+clinic address, the backup destination, both recovery exports, and the CARE Clinic
 password. Export paths must remain outside CARE's own folders. Validation
 rejection leaves the operator on Review rather than starting an installation
 that is already known to fail.
@@ -217,19 +217,19 @@ settings that still need applying remain distinguishable from an unsaved draft.
 
 This timer exists in React. Go does not issue a 15-minute session token or
 remember a globally unlocked administrator. `ReadEnv`, `WriteEnv`, protected
-rebuilds, recovery administration and uninstall validate the supplied Desktop
+rebuilds, recovery administration and uninstall validate the supplied CARE Clinic
 password through their native guards. Ordinary clinic controls, Updates and
 Plugins have their own lifecycle rules and do not acquire this Advanced unlock.
 
-The Desktop password is distinct from the operating-system password used for
+The CARE Clinic password is distinct from the operating-system password used for
 privilege prompts and from the CARE web login after initial setup. See
-[recovery materials](backups-and-restore.md#3-backup-recovery-file-and-desktop-admin-recovery).
+[recovery materials](backups-and-restore.md#3-backup-recovery-file-and-care-clinic-admin-recovery).
 
 ## Environment-file API
 
 [`envPath()`](../app/app_env.go) accepts only `backend` and `frontend`, mapping them to fixed filenames under the installed kit. It is not an arbitrary file-reading or file-writing API.
 
-`ReadEnv` checks the desktop administrator password and setup state under a shared read lock, then reads the entire installed file. File errors are returned; there is no fallback to the repository template or an empty settings object.
+`ReadEnv` checks the CARE Clinic administrator password and setup state under a shared read lock, then reads the entire installed file. File errors are returned; there is no fallback to the repository template or an empty settings object.
 
 `WriteEnv` checks the administrator password and stable-clinic state under the exclusive lock. It validates syntax using `compose-go/dotenv`, then atomically writes the selected file as `0600`.
 
@@ -329,7 +329,7 @@ including backend placeholders needed at startup, remain untouched when other
 settings are saved.
 This is an editor restriction, not a change to CARE's authentication or existing
 MFA configuration. Local password rate limiting, idle sign-out, request
-protection and offline Desktop recovery remain available. Branding URLs can
+protection and offline CARE Clinic recovery remain available. Branding URLs can
 point to assets hosted on the clinic's local network.
 
 Undescribed non-hidden keys appear in "Extra settings (for support)." New
@@ -388,14 +388,14 @@ Treat both environment files as sensitive. The backend file contains service cre
 
 ## Updates
 
-The **Updates** tab shows both update mechanisms without a Desktop admin password prompt. The **Plugins** tab also allows viewing, saving and applying plugins without that prompt. Advanced retains password-protected environment settings and administration; its red rebuild card sits immediately above uninstall at the bottom.
+The **Updates** tab shows both update mechanisms without a CARE Clinic admin password prompt. The **Plugins** tab also allows viewing, saving and applying plugins without that prompt. Advanced retains password-protected environment settings and administration; its red rebuild card sits immediately above uninstall at the bottom.
 
 | Card | Shows | Actions |
 | --- | --- | --- |
 | CARE | The tracked branch, the commits in use, and checking, up-to-date, staged-update or failed-check state. | Check now; retry a failed check; install a staged update now. |
-| CARE Desktop | The installed version against the newest published GitHub release, with its notes. | Download the verified installer for this platform and launch it. |
+| CARE Clinic | The installed version against the newest published GitHub release, with its notes. | Download the verified installer for this platform and launch it. |
 
-CARE Desktop's shared controller remains guarded after native completion while
+CARE Clinic's shared controller remains guarded after native completion while
 an installer/restart handoff is unresolved. Only a completed external-installer
 handoff can be acknowledged with Done in Updates (OK before installation or on
 clients). A restarting phase waits for reopening. Acknowledgement does not

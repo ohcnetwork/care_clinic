@@ -14,7 +14,7 @@ import (
 )
 
 // fwPrefix tags the firewall rules we create so uninstall can remove exactly ours.
-const fwPrefix = "CARE Desktop "
+const fwPrefix = "CARE Clinic "
 
 // Status reports whether the active network lets other LAN devices reach the
 // clinic. Applicable is false off Windows (the wizard hides the row); Fixable means

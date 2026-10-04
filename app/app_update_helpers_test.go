@@ -62,8 +62,8 @@ func TestMacUpdateElevationPreflight(t *testing.T) {
 }
 
 func TestMacUpdateHelperWaitsBeforeReplacingAndReportsFailure(t *testing.T) {
-	target := "/Applications/CARE's Desktop.app"
-	staged := "/private/update/stage/CARE's Desktop.app"
+	target := "/Applications/CARE's Clinic.app"
+	staged := "/private/update/stage/CARE's Clinic.app"
 	work := "/private/update"
 	for _, elevated := range []bool{false, true} {
 		script := macUpdateHelper(target, staged, work, 12345, elevated)
@@ -93,7 +93,7 @@ func TestMacUpdateHelperWaitsBeforeReplacingAndReportsFailure(t *testing.T) {
 }
 
 func TestWindowsUpdateHelperUsesExactInstallDirectoryAndWaits(t *testing.T) {
-	exe := filepath.Join("custom path", "CARE's Desktop.exe")
+	exe := filepath.Join("custom path", "CARE's Clinic.exe")
 	script := windowsUpdateHelper(exe, "release-setup.exe", "work", "1.2.3", strings.Repeat("a", 64), 12345)
 	for _, required := range []string{
 		"Get-Process -Id 12345", "UninstallString", "Confirm-Download",
@@ -157,10 +157,10 @@ func TestMacCopiedBundlePinsExecutableBeforeSwap(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(stage, "Contents", "Info.plist"), []byte(
-		`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>CARE's Desktop</string></dict></plist>`), 0o600); err != nil {
+		`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>CARE's Clinic</string></dict></plist>`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	exe := filepath.Join(stage, "Contents", "MacOS", "CARE's Desktop")
+	exe := filepath.Join(stage, "Contents", "MacOS", "CARE's Clinic")
 	if err := os.WriteFile(exe, []byte("inert executable fixture"), 0o600); err != nil {
 		t.Fatal(err)
 	}

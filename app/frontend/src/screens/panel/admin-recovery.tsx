@@ -105,7 +105,7 @@ export function AdminPasswordForm({
       {recovering ? <AdvancedSecretInput label="Unused recovery code" value={code} onChange={setCode}
         icon={<KeyRound aria-hidden="true" />} disabled={locked} autoFocus
         hint="Each code works once. Spaces and hyphens are accepted." /> : null}
-      <AdvancedSecretInput id={`${id}-password`} label="New Desktop admin password" value={password}
+      <AdvancedSecretInput id={`${id}-password`} label="New CARE Clinic admin password" value={password}
         onChange={setPassword} disabled={locked} autoComplete="new-password" autoFocus={!recovering}
         hint={<div className="advanced-password-rules">
           {rules.map((rule) => <span key={rule.label} className={`advanced-password-rule${rule.met ? " is-met" : ""}`}>
@@ -115,7 +115,7 @@ export function AdminPasswordForm({
       {password && !strength.strong ? <p className="advanced-field-hint" role="status">
         {strength.message}
       </p> : null}
-      <AdvancedSecretInput id={`${id}-confirm`} label="Confirm new Desktop admin password" value={confirm}
+      <AdvancedSecretInput id={`${id}-confirm`} label="Confirm new CARE Clinic admin password" value={confirm}
         onChange={setConfirm} disabled={locked} autoComplete="new-password"
         invalid={!!confirm && password !== confirm}
         hint={confirm && password !== confirm ? <span className="advanced-field-error">The passwords don't match. Type the same password again.</span> : undefined} />
@@ -129,7 +129,7 @@ export function AdminPasswordForm({
       <Button type="button" disabled={working} onClick={cancel}>Cancel</Button>
       <Button type="submit" variant="primary" disabled={!canSubmit}>
         {working ? <Spinner /> : null}
-        {working ? "Saving…" : recovering ? "Reset Desktop password" : "Change Desktop password"}
+        {working ? "Saving…" : recovering ? "Reset CARE Clinic password" : "Change CARE Clinic password"}
       </Button>
     </div>
   </form>;
@@ -215,7 +215,7 @@ export function AdminRecoverySettings({
         <span className="advanced-icon advanced-icon-brand"><KeyRound aria-hidden="true" /></span>
         <div className="advanced-grow">
           <h2 className="advanced-card-title" id="advanced-recovery-title">Admin password and recovery codes</h2>
-          <p className="advanced-card-description">Manage the Desktop password, or save six new recovery codes. Your CARE web login is separate.</p>
+          <p className="advanced-card-description">Manage the CARE Clinic password, or save six new recovery codes. Your CARE web login is separate.</p>
         </div>
         <div className="advanced-actions">
           <Button type="button" disabled={blocked || working} onClick={() => open("password")}>Change password</Button>
@@ -234,7 +234,7 @@ export function AdminRecoverySettings({
         }}
         onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus(); }}
         onEscapeKeyDown={(event) => { if (working || pending.current) event.preventDefault(); }}>
-        <AlertDialogTitle>{dialog === "password" ? "Change the Desktop admin password" : "Save six new recovery codes?"}</AlertDialogTitle>
+        <AlertDialogTitle>{dialog === "password" ? "Change the CARE Clinic admin password" : "Save six new recovery codes?"}</AlertDialogTitle>
         <AlertDialogDescription>
           {dialog === "password" ? "Staff sign-in to the CARE website stays the same."
             : "A successfully saved replacement set immediately invalidates every previous code, including unused ones."}
@@ -246,7 +246,7 @@ export function AdminRecoverySettings({
               setWorking(false);
               onPasswordChanged(password);
               setDialog(null);
-              setNotice("Desktop password changed. Your CARE web login and unused recovery codes are unchanged.");
+              setNotice("CARE Clinic password changed. Your CARE web login and unused recovery codes are unchanged.");
             }} /> : <>
             <AdvancedNotice title="Keep the new sheet somewhere secure" tone="neutral">
               Save it outside CARE's folders and the backup folder, preferably away from this computer.

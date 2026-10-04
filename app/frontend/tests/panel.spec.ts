@@ -10,7 +10,7 @@ const clinic = (page: Page) => overview(page).getByRole("region", { name: "Clini
 const section = (page: Page, name: string) => page.getByRole("navigation", { name: "Clinic sections" })
   .getByRole("button", { name: new RegExp(`^${name}`) });
 const software = (page: Page) => page.getByRole("region", { name: "CARE software", exact: true });
-const desktop = (page: Page) => page.getByRole("region", { name: "CARE Desktop application", exact: true });
+const desktop = (page: Page) => page.getByRole("region", { name: "CARE Clinic application", exact: true });
 
 async function openPanel(page: Page, scenario = "panel-current", query = "") {
   await page.goto(`/tests/fixtures/index.html?scenario=${scenario}${query}`);
@@ -65,7 +65,7 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 720, height: 560 
     await capture(page, `panel-actual-storage-${viewport.width}`);
     await section(page, "Updates").click();
     await expect(software(page).getByRole("heading", { name: "CARE software" })).toBeVisible();
-    await expect(desktop(page).getByRole("heading", { name: "CARE Desktop application" })).toBeVisible();
+    await expect(desktop(page).getByRole("heading", { name: "CARE Clinic application" })).toBeVisible();
     await expect(software(page)).not.toContainText("preview-backend-current");
     await expect(software(page)).not.toContainText("branch");
     await fits(page);
@@ -79,11 +79,11 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 720, height: 560 
         asset: "CARE-preview.dmg", size: 50_000_000,
       });
     });
-    await desktop(page).getByRole("button", { name: "Check CARE Desktop updates" }).click();
-    await expect(desktop(page)).toContainText("CARE Desktop 0.1.6 is available");
+    await desktop(page).getByRole("button", { name: "Check CARE Clinic updates" }).click();
+    await expect(desktop(page)).toContainText("CARE Clinic 0.1.6 is available");
     await fits(page);
     await capture(page, `panel-actual-updates-available-${viewport.width}`);
-    await desktop(page).getByRole("button", { name: "Update CARE Desktop", exact: true }).scrollIntoViewIfNeeded();
+    await desktop(page).getByRole("button", { name: "Update CARE Clinic", exact: true }).scrollIntoViewIfNeeded();
     await fits(page);
     await capture(page, `panel-actual-desktop-available-${viewport.width}`);
     await section(page, "Advanced").click();
@@ -161,7 +161,7 @@ test("storage refresh and cleanup use native results without invented freed-spac
   const storage = page.locator('.panel-page[aria-label="Storage"]');
   await expect(storage.getByText("37 GB currently used", { exact: true })).toBeVisible();
   const vm = storage.locator(".panel-storage-vm");
-  await expect(vm.getByRole("heading", { name: "CARE Desktop storage" })).toBeVisible();
+  await expect(vm.getByRole("heading", { name: "CARE Clinic storage" })).toBeVisible();
   await expect(vm).toContainText("Storage capacity: 100 GB");
   await expect(vm).toContainText("not the amount used");
   await expect(vm).toContainText("Other apps using Rancher Desktop may also be included.");
@@ -196,7 +196,7 @@ test("storage read failure retains explicitly old readings and can be retried", 
     drive.level = "unknown"; drive.free = 0; drive.total = 0;
     window.careTest.emit("care-storage", window.careTest.fixtures.storage);
   });
-  const vm = storage.locator("section").filter({ has: page.getByRole("heading", { name: "CARE Desktop storage", exact: true }) });
+  const vm = storage.locator("section").filter({ has: page.getByRole("heading", { name: "CARE Clinic storage", exact: true }) });
   await expect(vm).toContainText("Space unavailable");
   await expect(vm.locator(".panel-storage-usage")).toHaveCount(0);
   await expect(vm.getByRole("progressbar")).toHaveCount(0);
@@ -360,10 +360,10 @@ test("a CARE update remains available after failed deferral or failed apply", as
   await expect(software(page)).toContainText("Ready to install");
 });
 
-test("CARE Desktop shows only native byte progress, keeps clinic status, and recovers from failure", async ({ page }) => {
+test("CARE Clinic shows only native byte progress, keeps clinic status, and recovers from failure", async ({ page }) => {
   await openPanel(page, "available", "&screen=panel");
   await section(page, "Updates").click();
-  await desktop(page).getByRole("button", { name: "Update CARE Desktop", exact: true }).dblclick();
+  await desktop(page).getByRole("button", { name: "Update CARE Clinic", exact: true }).dblclick();
   await expect.poll(() => calls(page, "InstallAppUpdate")).toBe(1);
   await expect(desktop(page)).toContainText("31.0 MB of 50.0 MB");
   await capture(page, "panel-actual-desktop-downloading-1100");
@@ -375,7 +375,7 @@ test("CARE Desktop shows only native byte progress, keeps clinic status, and rec
   await expect(desktop(page)).toContainText("Checking the downloaded update");
   await expect(desktop(page)).not.toContainText("100%");
   await page.evaluate(() => window.careTest.finishUpdate("private file verification: exit status 1"));
-  await expect(desktop(page)).toContainText("CARE Desktop couldn't finish updating");
+  await expect(desktop(page)).toContainText("CARE Clinic couldn't finish updating");
   await expect(desktop(page)).not.toContainText("private file verification");
   await expect(desktop(page).getByRole("button", { name: "Try again", exact: true })).toBeEnabled();
   await capture(page, "panel-actual-desktop-error-1100");
@@ -385,12 +385,12 @@ test("plugin changes remain locked during an external installer handoff", async 
   await page.setViewportSize({ width: 720, height: 560 });
   await openPanel(page, "available", "&screen=panel");
   await section(page, "Updates").click();
-  await desktop(page).getByRole("button", { name: "Update CARE Desktop", exact: true }).click();
+  await desktop(page).getByRole("button", { name: "Update CARE Clinic", exact: true }).click();
   await expect(desktop(page)).toContainText("31.0 MB of 50.0 MB");
   await page.evaluate(() => window.careTest.progress({ phase: "installer", done: 50_000_000, total: 50_000_000 }));
   await expect(desktop(page).getByRole("button", { name: "Done", exact: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.finishUpdate());
-  await expect(desktop(page)).toContainText("Follow the installer to finish, then reopen CARE Desktop.");
+  await expect(desktop(page)).toContainText("Follow the installer to finish, then reopen CARE Clinic.");
   await expect(desktop(page).getByRole("button", { name: "Done", exact: true })).toBeEnabled();
   await capture(page, "panel-actual-installer-handoff-720");
   await section(page, "Plugins").click();
@@ -408,7 +408,7 @@ test("plugin changes remain locked during an external installer handoff", async 
 test("active desktop updates block Plugins and Advanced independently of job acceptance", async ({ page }) => {
   await openPanel(page);
   await section(page, "Advanced").click();
-  const password = page.getByLabel("Desktop admin password", { exact: true });
+  const password = page.getByLabel("CARE Clinic admin password", { exact: true });
   const unlock = page.getByRole("button", { name: "Unlock", exact: true });
   await expect(password).toBeEnabled();
   await password.fill("preview-only-password");
@@ -590,7 +590,7 @@ test("starting CARE from troubleshooting reports failures inside the dialog and 
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.release("ClinicAction"));
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
-  await expect(dialog.getByRole("status").filter({ hasText: "Working — keep CARE Desktop open." })).toBeVisible();
+  await expect(dialog.getByRole("status").filter({ hasText: "Working — keep CARE Clinic open." })).toBeVisible();
   await page.evaluate(() => window.careTest.finishJob("start"));
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeEnabled();
   await expect(dialog.getByRole("alert")).toHaveCount(0);

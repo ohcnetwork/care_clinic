@@ -67,7 +67,7 @@ export function InstallingScreen() {
       {quiet ? (
         <div role="status">
           <Callout tone="warn" title="This is taking longer than usual">
-            No new installation messages have arrived for at least 15 minutes. Open the log file and share it with your support contact before closing CARE Desktop.
+            No new installation messages have arrived for at least 15 minutes. Open the log file and share it with your support contact before closing CARE Clinic.
           </Callout>
         </div>
       ) : (
