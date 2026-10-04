@@ -1625,7 +1625,7 @@ eight-minute Docker-readiness limit. A live Rancher process gets that full limit
 to finish starting; Linux Docker keeps its normal readiness checks without
 Rancher process monitoring.
 
-**Rancher CARE Clinic administrator setup (macOS)**
+**Rancher Desktop administrator setup (macOS)**
 
 With `adminAccess`, Rancher Desktop needs root-owned pieces before it can forward
 ports 80 and 443. When any is missing it shows its own explanation dialog and a

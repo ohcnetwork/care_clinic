@@ -224,7 +224,7 @@ A successful removal cannot be inferred from just an absent container.
 | Exported backup certificate | `backup-cert.pem` in the effective backup directory. | Public ownership marker for recognizing this clinic's backup directory. |
 | Backup files | The backup package's validated inventory in the configured backup location. | Selecting backup removal must not mean recursively deleting arbitrary neighboring files. |
 | Saved configuration | App-provided config path, when it represents installation state rather than only a selected wizard name. | Keeps enough state, including `Removing`, to prevent an unsafe fresh start after partial deletion. |
-| User-exported recovery materials | Private backup recovery file and printable CARE Clinic recovery-code sheet in user-chosen locations. | Never deleted by uninstall. The matching private file is required for retained backups; Desktop codes become invalid when config is removed. |
+| User-exported recovery materials | Private backup recovery file and printable CARE Clinic recovery-code sheet in user-chosen locations. | Never deleted by uninstall. The matching private file is required for retained backups; CARE Clinic recovery codes become invalid when config is removed. |
 | Hosts mapping | CARE's owned hosts-file marker, `# care-clinic`. | Native cleanup must avoid unrelated host mappings. |
 | Trusted certificate | CARE certificate fingerprints and the stable `CARE Clinic Local CA` identity. | Reinstalling generates new certificates; cleanup must also recognize an older trusted CARE root. |
 | Windows network changes | Firewall rules with owned `CARE Clinic ` display-name prefix, recognized by `netfix`. | Shared network profiles are not owned cleanup artifacts; removal does not restore them to Public. |
