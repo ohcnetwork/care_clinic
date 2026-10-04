@@ -87,7 +87,7 @@ distinct from stopping Docker containers.
 | `prereq` | The computer check's fix buttons (installing or starting Rancher Desktop, git, WSL 2, the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
 | `start`, `restart` | Starting can take minutes while Docker comes up; open the app again to try once more. |
 | `restore`, `uninstall`, `update`, rebuilds | Quitting can leave data or the installation half-changed; the message says which action to run again after reopening. |
-| `apply-plugins` | Reopen Desktop and start CARE to recover the previous plugin configuration after an interrupted apply or rollback. |
+| `apply-plugins` | Reopen CARE Clinic and start CARE to recover the previous plugin configuration after an interrupted apply or rollback. |
 | `app-update` | The current version keeps working. A bundle swap already handed to macOS finishes on its own. |
 | `backup-now` | The unfinished backup is unusable; earlier backups are unaffected. |
 | Anything else, including unlabeled synchronous jobs | Generic wording pointing at the log. |
