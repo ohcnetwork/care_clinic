@@ -246,12 +246,12 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
       await group(page, entry.title);
       await expect(root(page).locator(".advanced-setting")).toHaveCount(entry.settings.length);
       await fits(page);
-      await root(page).getByRole("button", { name: "Back to settings", exact: true }).click();
+      await root(page).locator(`[data-advanced-group="${entry.id}"]`).click();
     }
     await group(page, "Staff access");
     await fits(page);
     await screenshot(page, `advanced-signin-${size.width}x${size.height}`);
-    await root(page).getByRole("button", { name: "Back to settings", exact: true }).click();
+    await root(page).locator('[data-advanced-group="signin"]').click();
     await root(page).getByRole("button", { name: "Change password", exact: true }).click();
     await expect(dialog(page)).toBeVisible();
     await fits(page);
@@ -270,7 +270,7 @@ test("Advanced navigation never starts writes, rebuilds, recovery resets or remo
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Staff access");
-  await root(page).getByRole("button", { name: "Back to settings" }).click();
+  await root(page).locator('[data-advanced-group="signin"]').click();
   await openRemoval(page);
   await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
   for (const method of ["WriteEnv", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes"]) {
@@ -316,7 +316,7 @@ test("leaving Advanced clears sensitive inputs and requires a new unlock", async
   expect(await count(page, "WriteEnv")).toBe(0);
 });
 
-test("group validation, discard and back confirmation never save implicitly", async ({ page }) => {
+test("group validation, discard and collapse confirmation never save implicitly", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Staff access");
@@ -325,13 +325,55 @@ test("group validation, discard and back confirmation never save implicitly", as
   await expect(root(page)).toContainText("Must be at least 5");
   await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
   await minutes.fill("20");
-  await root(page).getByRole("button", { name: "Back to settings" }).click();
+  await root(page).locator('[data-advanced-group="signin"]').click();
   await expect(dialog(page)).toContainText("Discard unsaved settings?");
   await dialog(page).getByRole("button", { name: "Keep editing" }).click();
   await expect(minutes).toHaveValue("20");
   await root(page).getByRole("button", { name: "Discard", exact: true }).click();
   await expect(minutes).toHaveValue("30");
   expect(await count(page, "WriteEnv")).toBe(0);
+});
+
+test("categories expand inline, stay keyboard accessible and confirm dirty switches and collapse", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  const staff = root(page).locator('[data-advanced-group="signin"]');
+  const details = root(page).locator('[data-advanced-group="branding"]');
+  await staff.focus();
+  await page.keyboard.press("Enter");
+  await expect(staff).toBeFocused();
+  await expect(staff).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(`#${await staff.getAttribute("aria-controls")}`)).toBeVisible();
+  await expect(root(page).getByRole("heading", { name: "Advanced", exact: true })).toBeVisible();
+  await expect(root(page).getByRole("button", { name: "Change password", exact: true })).toBeVisible();
+  await expect(root(page).getByRole("heading", { name: "Log file", exact: true })).toBeVisible();
+  await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true })).toBeVisible();
+  await expect(root(page).locator("[data-advanced-group]")).toHaveCount(6);
+  const minutes = root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" });
+  await minutes.fill("20");
+  await details.click();
+  await expect(dialog(page)).toContainText("Discard unsaved settings?");
+  await dialog(page).getByRole("button", { name: "Keep editing" }).click();
+  await expect(minutes).toHaveValue("20");
+  await expect(staff).toHaveAttribute("aria-expanded", "true");
+  await expect(details).toHaveAttribute("aria-expanded", "false");
+  await details.click();
+  await dialog(page).getByRole("button", { name: "Discard changes", exact: true }).click();
+  await expect(details).toHaveAttribute("aria-expanded", "true");
+  await expect(staff).toHaveAttribute("aria-expanded", "false");
+  await staff.click();
+  await expect(minutes).toHaveValue("30");
+  await minutes.fill("25");
+  await staff.click();
+  await dialog(page).getByRole("button", { name: "Discard changes", exact: true }).click();
+  await expect(staff).toBeFocused();
+  await expect(staff).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(`#${await staff.getAttribute("aria-controls")}`)).toBeHidden();
+  await page.keyboard.press("Space");
+  await expect(staff).toHaveAttribute("aria-expanded", "true");
+  await expect(minutes).toHaveValue("30");
+  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ClinicAction")).toBe(0);
 });
 
 test("saving merges fresh settings once and waits for the accepted restart", async ({ page }) => {
@@ -672,7 +714,7 @@ test("removal submits exact opt-ins once and remains busy until native completio
   })).toEqual({ images: true, backups: false, rancher: false, passwordMatches: true });
   await page.evaluate(() => window.careTest.release("RunUninstall"));
   await expect(dialog(page)).toBeHidden();
-  await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true })).toBeDisabled();
+  await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true, includeHidden: true })).toBeDisabled();
   expect(await count(page, "RemoveApp")).toBe(0);
   await page.evaluate(() => window.careTest.finishJob("uninstall", "cleanup failed: native detail"));
   await expect(page.getByRole("alert").filter({ hasText: "Removal didn't finish" }).first()).toBeVisible();
@@ -693,6 +735,13 @@ test("unavailable removal options fail closed and an immediate rejection keeps t
   await dialog(page).getByRole("button", { name: "Delete everything", exact: true }).click();
   await expect(dialog(page)).toContainText("Removal didn't start");
   await expect(dialog(page).getByLabel("Type DELETE to confirm", { exact: true })).toHaveValue("");
+  await expect(page.getByRole("status", { name: "Removing CARE from this computer", exact: true })).toBeHidden();
+  await page.evaluate(() => { window.careTest.fixtures.finishJobs = false; });
+  await dialog(page).getByLabel("Type DELETE to confirm", { exact: true }).fill("DELETE");
+  await dialog(page).getByRole("button", { name: "Delete everything", exact: true }).click();
+  await expect(dialog(page)).toBeHidden();
+  await expect(page.getByRole("status", { name: "Removing CARE from this computer", exact: true })).toBeVisible();
+  expect(await count(page, "RunUninstall")).toBe(2);
 });
 
 test("rebuild requires its own decision and cancellation does not start it", async ({ page }) => {
@@ -759,7 +808,7 @@ test("an unfinished restore disables environment writes, rebuilds and removal", 
     window.careTest.emit("care-done", 0, "status");
   });
   await expect(root(page).getByRole("button", { name: "Rebuild", exact: true })).toBeDisabled();
-  await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true })).toBeDisabled();
+  await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true, includeHidden: true })).toBeDisabled();
   await group(page, "Staff access");
   await expect(root(page)).toContainText("Finish the earlier restore first");
   await expect(root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" })).toBeDisabled();
@@ -839,7 +888,7 @@ test("the optional app removal waits for both successful native completion event
     preview.emit("uninstalled", true);
   });
   await expect(root(page)).toBeVisible();
-  await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true })).toBeDisabled();
+  await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true, includeHidden: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.emit("care-done", 0, "status"));
   await expect(root(page)).toBeVisible();
   await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true })).toBeDisabled();

@@ -289,18 +289,23 @@ for (const first of ["uninstalled", "care-done"] as const) {
     await dialog(page).getByLabel("Type DELETE to confirm", { exact: true }).fill("DELETE");
     await dialog(page).getByRole("button", { name: "Delete everything", exact: true }).click();
     await expect(dialog(page)).toBeHidden();
+    const progress = page.getByRole("status", { name: "Removing CARE from this computer", exact: true });
+    await expect(progress).toBeVisible();
+    await expect(progress).toContainText("Please wait and keep this window open");
     await page.evaluate((event) => {
       window.careTest.state.role = "";
       window.careTest.state.setup_done = false;
       if (event === "uninstalled") window.careTest.emit("uninstalled", true);
       else window.careTest.emit("care-done", 0, "uninstall");
     }, first);
+    await expect(progress).toBeVisible();
     await expect(page.locator(".care-advanced")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Uninstall…", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Uninstall…", exact: true, includeHidden: true })).toBeDisabled();
     await page.evaluate((event) => {
       if (event === "uninstalled") window.careTest.emit("care-done", 0, "uninstall");
       else window.careTest.emit("uninstalled", true);
     }, first);
+    await expect(progress).toBeHidden();
     await expect(page.getByRole("heading", { name: "Set up CARE on this computer", exact: true })).toBeVisible();
     expect(await calls(page, "RemoveApp")).toHaveLength(0);
     await page.getByRole("button", { name: "Start setup", exact: true }).click();
@@ -308,6 +313,109 @@ for (const first of ["uninstalled", "care-done"] as const) {
     await expect(page.getByLabel("Clinic address", { exact: true })).toHaveValue("care");
   });
 }
+
+for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) {
+  test(`central removal progress cannot be dismissed and permits native confirmation at ${size.width}x${size.height}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await panel(page);
+    await page.getByRole("button", { name: "Advanced", exact: true }).click();
+    await page.getByLabel("Desktop admin password", { exact: true }).fill("ClinicTest123");
+    await page.getByRole("button", { name: "Unlock", exact: true }).click();
+    await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
+    await page.evaluate(() => {
+      window.careTest.fixtures.finishJobs = false;
+      window.careTest.hold("RunUninstall");
+    });
+    await dialog(page).getByLabel("Type DELETE to confirm", { exact: true }).fill("DELETE");
+    await dialog(page).getByRole("button", { name: "Delete everything", exact: true }).click();
+    const progress = page.getByRole("status", { name: "Removing CARE from this computer", exact: true });
+    await expect(progress).toBeVisible();
+    await expect(dialog(page)).toBeHidden();
+    expect(await progress.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return Math.abs((box.left + box.right) / 2 - innerWidth / 2) < 2 &&
+        Math.abs((box.top + box.bottom) / 2 - innerHeight / 2) < 2 &&
+        box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight;
+    })).toBe(true);
+    await page.keyboard.press("Escape");
+    await page.mouse.click(5, 5);
+    await expect(progress).toBeVisible();
+    await permission(page, "Remove CARE's certificate?", "Approve the system permission prompt to continue.");
+    await expect(dialog(page)).toHaveCount(1);
+    await expect(dialog(page).getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[role="alertdialog"]'))).toBe(true);
+    await page.evaluate(() => window.careTest.failNext("RespondToConfirmation", "private permission diagnostic"));
+    await dialog(page).getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(dialog(page).getByRole("alert")).toContainText("Your answer couldn't be sent");
+    await dialog(page).getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(dialog(page)).toBeHidden();
+    await expect(progress).toBeVisible();
+    await page.evaluate(() => window.careTest.release("RunUninstall"));
+    await expect(progress).toBeVisible();
+    await page.evaluate(() => window.careTest.emit("care-error", "Removal needs attention", "certificate cleanup failed"));
+    await expect(progress.getByRole("alert")).toContainText("Removal needs attention");
+    await page.evaluate(() => window.careTest.finishJob("uninstall", "certificate cleanup failed"));
+    await expect(progress).toBeHidden();
+    await expect(page.getByRole("alert").filter({ hasText: "Removal didn't finish" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Uninstall…", exact: true })).toBeEnabled();
+    expect(await calls(page, "RemoveApp")).toHaveLength(0);
+  });
+}
+
+test("removal progress survives the optional app handoff and clears on its failure", async ({ page }) => {
+  await panel(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.canRemoveApp = true;
+    window.careTest.fixtures.finishJobs = false;
+    window.careTest.hold("RemoveApp");
+    window.careTest.failNext("RemoveApp", "private removal diagnostic");
+  });
+  await page.getByRole("button", { name: "Advanced", exact: true }).click();
+  await page.getByLabel("Desktop admin password", { exact: true }).fill("ClinicTest123");
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
+  await dialog(page).getByRole("checkbox", { name: /Also remove the CARE Desktop app/ }).check();
+  await dialog(page).getByLabel("Type DELETE to confirm", { exact: true }).fill("DELETE");
+  await dialog(page).getByRole("button", { name: "Delete everything", exact: true }).click();
+  await page.evaluate(() => window.careTest.finishJob("uninstall"));
+  const progress = page.getByRole("status", { name: "Removing CARE Desktop", exact: true });
+  await expect(progress).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start setup", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start setup", exact: true }).locator("xpath=ancestor::*[@inert]")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(progress).toBeVisible();
+  await page.evaluate(() => window.careTest.release("RemoveApp"));
+  await expect(progress).toBeHidden();
+  await expect(page.getByRole("button", { name: "Start setup", exact: true })).toBeEnabled();
+  await expect(page.locator("[data-sonner-toast][data-type=error]")).toContainText("couldn't remove itself");
+});
+
+test("Windows clinic removal keeps progress through the native exit handoff and reports exit failure", async ({ page }) => {
+  await page.goto("/tests/fixtures/index.html?screen=remove&platform=windows");
+  await page.getByLabel("Desktop admin password", { exact: true }).fill("ClinicTest123");
+  await page.getByRole("button", { name: "Unlock", exact: true }).click();
+  await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
+  await page.evaluate(() => {
+    window.careTest.fixtures.finishJobs = false;
+    window.careTest.hold("ExitUninstall");
+    window.careTest.failNext("ExitUninstall", "private exit diagnostic");
+  });
+  await dialog(page).getByLabel("Type DELETE to confirm", { exact: true }).fill("DELETE");
+  await dialog(page).getByRole("button", { name: "Delete everything", exact: true }).click();
+  const progress = page.getByRole("status", { name: "Removing CARE from this computer", exact: true });
+  await expect(progress).toBeVisible();
+  await page.evaluate(() => window.careTest.emit("care-done", 0, "uninstall"));
+  await expect(progress).toBeVisible();
+  expect(await calls(page, "ExitUninstall")).toHaveLength(0);
+  await page.evaluate(() => window.careTest.emit("uninstalled", true));
+  await expect.poll(async () => (await calls(page, "ExitUninstall")).length).toBe(1);
+  await expect(progress).toBeVisible();
+  await page.evaluate(() => window.careTest.release("ExitUninstall"));
+  await expect(progress).toBeHidden();
+  await expect(page.locator("[data-sonner-toast][data-type=error]")).toContainText("uninstaller couldn't close");
+  expect(await calls(page, "RemoveApp")).toHaveLength(0);
+});
 
 async function installDemo(page: Page, fail = false) {
   await page.goto(`/tests/fixtures/index.html?simulateInstall=1${fail ? "&scenario=installation-failed" : ""}`);

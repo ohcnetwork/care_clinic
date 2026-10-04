@@ -276,6 +276,13 @@ options keep their defaults or previously saved values. Only open
 **Extra settings (for support)** when your CARE support person asks you to;
 its values override the defaults. Email, SMS and MFA settings remain excluded.
 
+Click a category to expand its settings inline; click it again to collapse it,
+or choose another category to switch. The Advanced header, other categories,
+password/recovery tools, log and removal controls stay on the same page.
+Collapsing or switching with unsaved edits asks whether to keep editing or
+discard them; navigation never saves settings. Each expanded category contains
+its own save/discard controls and apply status.
+
 Advanced locks **15 minutes after a successful unlock**, even while the user is
 active. It is not an inactivity timeout. Leaving the tab or using **Lock** locks
 it sooner. Locking clears the retained password and unsaved or sensitive form
@@ -319,6 +326,13 @@ explicit deletion choices. Completion is acknowledged only after both native
 cleanup success and the corresponding job completion. Partial failures keep the
 removal flow available. Removing the desktop executable is a separate optional
 step on supported installations.
+
+A central, non-dismissible progress message asks you to wait and keep the
+window open throughout removal, including an optional desktop-app handoff.
+Native permission confirmations remain usable above that message. Progress
+does not end on the first success event; it waits for both `uninstalled` and
+successful `care-done`. A rejected start restores the deletion confirmation
+with a retry error; a failed running job clears progress and shows the failure.
 
 See [cleanup and uninstall](cleanup-and-uninstall.md) before deleting clinic
 data, images or backups. Use a disposable environment for installation, restore,
