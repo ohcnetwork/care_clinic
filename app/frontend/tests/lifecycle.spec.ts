@@ -319,7 +319,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     await page.setViewportSize(size);
     await panel(page);
     await page.getByRole("button", { name: "Advanced", exact: true }).click();
-    await page.getByLabel("Clinic admin password", { exact: true }).fill("ClinicTest123");
+    await page.getByLabel("CARE Clinic admin password", { exact: true }).fill("ClinicTest123");
     await page.getByRole("button", { name: "Unlock", exact: true }).click();
     await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
     await page.evaluate(() => {
@@ -372,7 +372,7 @@ test("removal progress survives the optional app handoff and clears on its failu
     window.careTest.failNext("RemoveApp", "private removal diagnostic");
   });
   await page.getByRole("button", { name: "Advanced", exact: true }).click();
-  await page.getByLabel("Clinic admin password", { exact: true }).fill("ClinicTest123");
+  await page.getByLabel("CARE Clinic admin password", { exact: true }).fill("ClinicTest123");
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
   await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
   await dialog(page).getByRole("checkbox", { name: /Also remove the CARE Clinic app/ }).check();
@@ -393,7 +393,7 @@ test("removal progress survives the optional app handoff and clears on its failu
 
 test("Windows clinic removal keeps progress through the native exit handoff and reports exit failure", async ({ page }) => {
   await page.goto("/tests/fixtures/index.html?screen=remove&platform=windows");
-  await page.getByLabel("Clinic admin password", { exact: true }).fill("ClinicTest123");
+  await page.getByLabel("CARE Clinic admin password", { exact: true }).fill("ClinicTest123");
   await page.getByRole("button", { name: "Unlock", exact: true }).click();
   await page.getByRole("button", { name: "Uninstall…", exact: true }).click();
   await page.evaluate(() => {
