@@ -15,7 +15,7 @@ import { EMPTY_SETUP_FORM, type SetupForm } from "@/state/forms";
 
 export function App() {
   const care = useCare();
-  const removing = care.busy && (care.busyLabel === "Uninstalling" || care.busyLabel === "Removing CARE Desktop");
+  const removing = care.busy && (care.busyLabel === "Uninstalling" || care.busyLabel === "Removing CARE Clinic");
   // Keep choices across step navigation, but discard them when retry cleanup
   // invalidates the saved recovery material.
   const [setupForm, setSetupForm] = useState<SetupForm>(EMPTY_SETUP_FORM);

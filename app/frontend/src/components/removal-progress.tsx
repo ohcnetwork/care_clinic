@@ -3,7 +3,7 @@ import { useCare } from "@/state/care-store";
 
 export function RemovalProgress() {
   const { busy, busyLabel, operationError } = useCare();
-  if (!busy || (busyLabel !== "Uninstalling" && busyLabel !== "Removing CARE Desktop")) return null;
+  if (!busy || (busyLabel !== "Uninstalling" && busyLabel !== "Removing CARE Clinic")) return null;
 
   // Native permission and quit dialogs stay above this non-modal status layer.
   return <div className="fixed inset-0 z-40 flex items-center justify-center bg-brand-deep/40 p-5 backdrop-blur-[2px]">
@@ -11,7 +11,7 @@ export function RemovalProgress() {
       role="status" aria-live="polite" aria-labelledby="removal-progress-title">
       <div className="mb-4 flex justify-center"><Spinner className="size-9" /></div>
       <h2 id="removal-progress-title" className="text-lg font-bold">
-        {busyLabel === "Removing CARE Desktop" ? "Removing CARE Desktop" : "Removing CARE from this computer"}
+        {busyLabel === "Removing CARE Clinic" ? "Removing CARE Clinic" : "Removing CARE from this computer"}
       </h2>
       <p className="mt-3 text-sm text-muted-foreground">Please wait and keep this window open until removal finishes.</p>
       <p className="mt-2 text-sm text-muted-foreground">If your computer asks for permission, approve the system prompt to continue.</p>
