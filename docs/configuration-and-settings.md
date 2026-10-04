@@ -117,7 +117,7 @@ See [client removal](native-integrations.md#removing-client-access).
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
 
-The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent Desktop changes and recovery affect only the local bcrypt hash, not the CARE web login.
+The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login.
 
 ### Load rules
 

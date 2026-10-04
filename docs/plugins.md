@@ -154,7 +154,7 @@ The domain manager's `SavePlugins`, called during setup or inside the apply tran
 }
 ```
 
-`name` defaults to the slug and can be overridden in `meta`. `url` and `managed_by` always come from Desktop.
+`name` defaults to the slug and can be overridden in `meta`. `url` and `managed_by` always come from CARE Clinic.
 
 `SyncFrontendPlugins` runs `python manage.py shell -c <script>` in the backend container. The rows are passed through the `CARE_CLINIC_FRONTEND_PLUGINS` environment variable, so settings never appear in command arguments or the log. The script:
 
@@ -204,7 +204,7 @@ Overview first if it is stopped. `ApplyPlugins`:
 If recovery fails, the error says CARE could not be recovered and the journal
 and safety image remain. Overview exposes **Recover clinic**, which runs
 `Start`. Start checks the journal before any normal startup/build/update work;
-reopening Desktop also requests this recovery. Other configuration mutations
+reopening CARE Clinic also requests this recovery. Other configuration mutations
 are blocked until it finishes. An interrupted attempt is therefore rolled
 back rather than retried with the bad plugin inputs. Do not delete the journal
 or prune the safety image while recovery is pending.
@@ -271,7 +271,7 @@ addition to the native stable-clinic and operation guards.
 
 | Symptom | Likely cause |
 | --- | --- |
-| Plugin loading fails | Desktop restores the previous configuration and image. Check the log for missing settings, `ModuleNotFoundError`, or startup failures, correct the draft, and save again. |
+| Plugin loading fails | CARE Clinic restores the previous configuration and image. Check the log for missing settings, `ModuleNotFoundError`, or startup failures, correct the draft, and save again. |
 | Plugin recovery is unfinished | Use **Recover clinic** in Overview. Keep the recovery journal, safety image and backups; if recovery still fails, share the log with support. |
 | Rebuild fails during `pip install` | Wrong `package_name`/`version`, a private repository, or no internet during the build. |
 | Plugin UI does not appear | The browser cannot reach `frontend.url`, the URL is not a `remoteEntry.js`, or the log shows the sync warning. The browser console names the slug that failed. |

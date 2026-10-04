@@ -21,7 +21,7 @@ application's own user or API documentation.
 | [Repository and file map](repository-map.md) | Where every Go component lives, what each file does, and which guide explains it. |
 | [Wails application and API](wails-application.md) | Process startup, background jobs, concurrency, authorization, all bound methods, and events. |
 | [Configuration and settings](configuration-and-settings.md) | The installed directory, persisted configuration, environment files, plugins, and settings changes. |
-| [Plugins](plugins.md) | How CARE loads backend and frontend plugins, the `catalog.yml` format, and how Desktop installs and syncs them. |
+| [Plugins](plugins.md) | How CARE loads backend and frontend plugins, the `catalog.yml` format, and how CARE Clinic installs and syncs them. |
 | [Clinic lifecycle and deployment](clinic-lifecycle.md) | Setup, image builds, starting, migrations, service relationships, and stopping. |
 | [Backups and restore](backups-and-restore.md) | Encryption, key preservation, scheduling, retention, staged restore, and interruption recovery. |
 | [Cleanup and uninstall](cleanup-and-uninstall.md) | What each removal operation deletes or preserves, ownership checks, and partial-cleanup recovery. |
@@ -40,7 +40,7 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | "Where does a button click enter Go?" | [Wails application and API](wails-application.md). |
 | "When do I enter my computer password, and what does Cancel do?" | [Permission prompts](desktop-workflows.md#permission-prompts) and [the confirmation protocol](wails-application.md#in-window-permission-confirmations). |
 | "Does Advanced really lock after 15 minutes?" | [Advanced's unlock window](desktop-workflows.md#advanceds-15-minute-unlock). |
-| "Why are actions still locked after the Desktop installer opens?" | [Update handoff and running work](desktop-workflows.md#updates-and-running-work). |
+| "Why are actions still locked after the CARE Clinic installer opens?" | [Update handoff and running work](desktop-workflows.md#updates-and-running-work). |
 | "Why does an operation say something else is running?" | [Concurrency and job protocol](wails-application.md#concurrency-and-job-protocol). |
 | "Which `backend.env` does the editor read?" | [Configuration and settings](configuration-and-settings.md). |
 | "Why did a setting require a rebuild?" | [Applying settings](configuration-and-settings.md#applying-settings) and [the different builds](development-and-release.md#the-different-builds). |
