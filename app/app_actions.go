@@ -220,6 +220,8 @@ func failureTitle(label string) string {
 		return "The CARE release line upgrade didn't finish"
 	case "free-space":
 		return "Cleanup didn't finish"
+	case "engine-update":
+		return "The CARE engine update didn't finish"
 	case "app-update":
 		return "The CARE Clinic update didn't finish"
 	case "network-name":
@@ -231,7 +233,7 @@ func failureTitle(label string) string {
 func (a *App) ClinicAction(action, adminPassword string) (err error) {
 	defer a.logError(&err)
 	switch action {
-	case "start", "stop", "restart", "rebuild-all", "rebuild-backend", "rebuild-frontend", "apply-plugins", "backup-now", "update", "free-space":
+	case "start", "stop", "restart", "rebuild-all", "rebuild-backend", "rebuild-frontend", "apply-plugins", "backup-now", "update", "free-space", "engine-update":
 	default:
 		return errors.New("action not allowed: " + action)
 	}
@@ -249,6 +251,11 @@ func (a *App) ClinicAction(action, adminPassword string) (err error) {
 			if err := a.requireStableClinic(); err != nil {
 				return err
 			}
+		}
+		// The update itself installs and starts the engine; an outdated stopped
+		// engine would otherwise be rejected by the readiness check below.
+		if action == "engine-update" {
+			return a.updateEngine()
 		}
 		if strings.HasPrefix(action, "rebuild-") {
 			if err := a.requireAdmin(adminPassword); err != nil {

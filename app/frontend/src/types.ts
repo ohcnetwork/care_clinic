@@ -32,6 +32,15 @@ export type ToolPlan = {
 };
 
 export type DownloadInfo = { name: string; size: number };
+export type EngineState = {
+  supported: boolean;
+  expected_version: string;
+  installed_version: string;
+  running_version: string;
+  running: boolean;
+  update_needed: boolean;
+  logs: "" | "connecting" | "collecting" | "interrupted";
+};
 export type PrereqDownloadProgress = {
   name: string;
   phase: "connecting" | "downloading" | "verifying" | "complete" | "failed";

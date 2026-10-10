@@ -42,8 +42,13 @@ flowchart LR
 - **Ports.** The helper listens on ports 80 and 443 and forwards them into the
   VM, where Caddy publishes the clinic. Only those two ports are forwarded.
 - **Update.** When `CARE_VM_VERSION` changes in a new app release, the setup
-  check shows "Update CARE engine". The data disk (images, volumes, clinic
-  data) is kept; only the engine files are replaced.
+  check shows "Update CARE engine". App self-updates leave a running engine in
+  place, so the panel compares the installed and running engine with the pin
+  and shows "CARE engine update required" on Overview and Logs. After the
+  operator confirms, the app removes the clinic containers (volumes kept),
+  stops the old helper, installs the pinned engine, starts it with the new
+  helper and starts the clinic again if it was running. The data disk (images,
+  volumes, clinic data) is kept; only the engine files are replaced.
 
 ## Platforms
 

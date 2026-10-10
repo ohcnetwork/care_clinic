@@ -65,6 +65,7 @@ const ACTION_LABELS: Record<string, string> = {
   update: "Updating CARE",
   "upgrade-line": "Upgrading CARE",
   "free-space": "Freeing space",
+  "engine-update": "Updating CARE engine",
 };
 
 export const RESTORE_PENDING_NOTICE =

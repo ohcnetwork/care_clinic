@@ -135,6 +135,7 @@ func (h *host) collectLogs(ctx context.Context) {
 			report("renewing guest log stream from last saved cursor")
 			continue
 		}
+		h.setLogs(LogsInterrupted)
 		report("guest logging interrupted; a gap may exist: %v", err)
 		// Invalid/vacuumed cursors cannot be replayed. Explicitly record the gap
 		// before resuming from the guest's recent history.
@@ -165,6 +166,7 @@ func (h *host) streamLogs(ctx context.Context, root string, cursor *string) erro
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("guest log stream: %s", resp.Status)
 	}
+	h.setLogs(LogsCollecting)
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64<<10), 2<<20)
 	for scanner.Scan() {

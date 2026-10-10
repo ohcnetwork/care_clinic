@@ -30,6 +30,9 @@ func TestGuestLogsRouteAndReplayCursor(t *testing.T) {
 	if cursor != "two" {
 		t.Fatalf("cursor: %s", cursor)
 	}
+	if h.status.Logs != LogsCollecting {
+		t.Fatalf("collection status: %q", h.status.Logs)
+	}
 	for _, name := range []string{"guest-system.log", "containers/care-backend-1.log"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil || len(data) == 0 || strings.Contains(string(data), "SECRET") {

@@ -10,6 +10,7 @@ const TITLES: Record<string, string> = {
   "backup-now": "Backup didn't finish",
   update: "The CARE update didn't finish",
   "free-space": "Cleanup didn't finish",
+  "engine-update": "The CARE engine update didn't finish",
   autostart: "The startup setting couldn't be saved",
   "dismiss-update": "The update couldn't be deferred",
   uninstall: "Removal didn't finish",

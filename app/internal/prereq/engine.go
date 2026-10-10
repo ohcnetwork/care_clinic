@@ -90,6 +90,22 @@ func (pr *Provisioner) engineCurrent() (installed, current bool) {
 	return true, vm.ToolsInstalled() && (pr.pins == nil || m.Version == pr.pins.CareVMVersion)
 }
 
+// EngineVersions reports the installed CARE engine version (empty when none is
+// installed) and the version this build of CARE Clinic was released with.
+func (pr *Provisioner) EngineVersions() (installed, expected string, toolsOK bool) {
+	if pr.pins != nil {
+		expected = pr.pins.CareVMVersion
+	}
+	if m, err := vm.Installed(); err == nil {
+		installed = m.Version
+	}
+	return installed, expected, vm.ToolsInstalled()
+}
+
+// UpdateEngine replaces an installed CARE engine with the pinned version. A
+// running engine is stopped first; its data disk is kept.
+func (pr *Provisioner) UpdateEngine() error { return pr.installEngine() }
+
 func (pr *Provisioner) enginePlan() ToolPlan {
 	p := ToolPlan{URL: dockerHelpURL()}
 	if runtime.GOOS == "windows" {

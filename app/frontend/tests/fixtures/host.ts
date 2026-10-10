@@ -1,6 +1,6 @@
 import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
-  ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
+  ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, EngineState, NetworkStatus, ResidueReport,
   CarePlugin, Health, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan, WindowsVMStatus,
 } from "../../src/types";
 
@@ -12,6 +12,7 @@ type Results = { [K in Method]: Awaited<ReturnType<Host[K]>> };
 type Fixtures = {
   disk: DiskStatus;
   docker: DockerStatus;
+  engine: EngineState;
   windowsVM: WindowsVMStatus;
   network: NetworkStatus;
   restart: RestartPlan;
@@ -118,6 +119,7 @@ export function installTestHost() {
   const fixtures: Fixtures = {
     disk: { ok: true, message: "212 GB free", how: "", free: 212 * 2 ** 30, need: 30 * 2 ** 30 },
     docker: { ok: true, message: "" },
+    engine: { supported: state.platform !== "linux", expected_version: "0.1.1", installed_version: "0.1.1", running_version: "0.1.1", running: true, update_needed: false, logs: "collecting" },
     windowsVM: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     restart: { needed: false, title: "Restart to finish setting up the CARE engine", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
@@ -218,6 +220,7 @@ export function installTestHost() {
     fixtures.storage.headline = "Space for the clinic is running low.";
   }
   if (scenario === "panel-requirements") { fixtures.docker.ok = false; }
+  if (scenario === "panel-engine-outdated") fixtures.engine = { ...fixtures.engine, installed_version: "0.1.0", running_version: "0.1.0", update_needed: true, logs: "" };
   if (scenario === "panel-update") fixtures.channel.pending_backend = "preview-backend-next";
   const available = ["available", "downloading", "installing", "verifying", "restarting", "installer", "failed", "download-failed", "unavailable"].includes(scenario);
   let update: AppUpdate = {
@@ -461,6 +464,7 @@ export function installTestHost() {
       requireServer();
       if (state.restore_pending && !["start", "stop"].includes(action)) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
       if (action === "backup-now") fixtures.storage.last_run.state = "running";
+      if (action === "engine-update") fixtures.engine = { ...fixtures.engine, installed_version: fixtures.engine.expected_version, running_version: fixtures.engine.expected_version, update_needed: false, logs: "collecting" };
       acceptJob(action);
     },
     VerifyAdminPassword: async (password: string) => password === fixtures.adminPassword,
@@ -573,6 +577,7 @@ export function installTestHost() {
     },
     DockerPlan: async () => softwarePlan(),
     EngineDownloadInfo: async () => ({ name: "CARE engine", size: 612e6 }),
+    EngineStatus: async () => ({ ...fixtures.engine }),
     InstallDocker: () => installSoftware("docker"),
     OpenDocker: async () => { requireServer(); fixtures.docker.ok = true; },
     EnableWindowsVM: async () => { requireServer(); fixtures.windowsVM.ok = true; return ""; },

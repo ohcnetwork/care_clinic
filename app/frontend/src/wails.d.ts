@@ -18,6 +18,7 @@ import type {
   DiskStatus,
   DockerStatus,
   DownloadInfo,
+  EngineState,
   Health,
   ImportedBackup,
   NameStatus,
@@ -53,6 +54,7 @@ declare global {
           EnableWindowsVM(): Promise<string>;
           DockerPlan(): Promise<ToolPlan>;
           EngineDownloadInfo(): Promise<DownloadInfo>;
+          EngineStatus(): Promise<EngineState>;
           InstallDocker(): Promise<string>;
           OpenDocker(): Promise<void>;
           ScanResidue(): Promise<ResidueReport>;

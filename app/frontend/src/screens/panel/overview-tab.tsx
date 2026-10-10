@@ -9,6 +9,7 @@ import { bridge } from "@/lib/bridge";
 import { diskSize } from "@/lib/format";
 import { RESTORE_PENDING_NOTICE, useCare } from "@/state/care-store";
 import { PhoneDialog } from "./phone-dialog";
+import { EngineUpdateNotice, useEngineState } from "./engine-update";
 import { RequirementsCard, usePanelRequirements } from "./panel-requirements";
 import { backupFailureDetail, panelStatus } from "./panel-status";
 import { PanelBadge, PanelLogButton, PanelNotice, PanelPageHeader, usePanelTask } from "./panel-ui";
@@ -34,6 +35,7 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
   const address = usePanelTask();
   const autostart = usePanelTask();
   const status = panelStatus(care);
+  const engine = useEngineState();
   const startupError = care.autostartError;
   const locked = care.busy || requirements.working || action.working;
   const mutationLocked = locked || updateLock.active;
@@ -53,6 +55,7 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
     {care.restorePending ? <PanelNotice title="An earlier restore needs to finish">
       {RESTORE_PENDING_NOTICE} Recovery data is kept until CARE starts successfully.
     </PanelNotice> : null}
+    <EngineUpdateNotice engine={engine} />
     {care.pluginRecoveryPending ? <PanelNotice title="Plugin recovery needs to finish">
       The previous clinic configuration has not yet been confirmed healthy.
       <Button disabled={mutationLocked} onClick={() => run("start")}>Recover clinic</Button>

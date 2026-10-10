@@ -29,7 +29,16 @@ type HostStatus struct {
 	DiskTotal uint64 `json:"disk_total"`
 	PID       int    `json:"pid"`
 	WebPorts  []int  `json:"web_ports,omitempty"`
+	// Logs is empty when the helper predates guest log collection.
+	Logs string `json:"logs,omitempty"`
 }
+
+// Guest log collection states reported in HostStatus.Logs.
+const (
+	LogsConnecting  = "connecting"
+	LogsCollecting  = "collecting"
+	LogsInterrupted = "interrupted"
+)
 
 type host struct {
 	m       machine
@@ -98,7 +107,7 @@ func runHost(logf func(string, ...any)) error {
 	h := &host{
 		m: m, man: man, logf: logf, stopReq: make(chan struct{}),
 		g:      newGuest(func(ctx context.Context) (net.Conn, error) { return m.dial(ctx, vsockControl) }),
-		status: HostStatus{Running: true, Version: man.Version, PID: os.Getpid()},
+		status: HostStatus{Running: true, Version: man.Version, PID: os.Getpid(), Logs: LogsConnecting},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -135,6 +144,12 @@ func runHost(logf func(string, ...any)) error {
 	cancel()
 	h.shutdown()
 	return nil
+}
+
+func (h *host) setLogs(state string) {
+	h.mu.Lock()
+	h.status.Logs = state
+	h.mu.Unlock()
 }
 
 func (h *host) setError(err error) {

@@ -9,3 +9,10 @@ func (e *Clinic) Restart() error {
 	}
 	return e.Start()
 }
+
+// RemoveContainers removes the clinic's containers but keeps its volumes, so
+// the next Start recreates them with the engine's current settings.
+func (e *Clinic) RemoveContainers() error {
+	e.logln("Removing CARE's containers (data kept)...")
+	return e.dc("down")
+}

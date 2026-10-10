@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 
 import { bridge } from "@/lib/bridge";
 import { useCare } from "@/state/care-store";
-import { PanelLogButton, PanelNotice, PanelPageHeader, usePanelTask } from "./panel-ui";
+import { EngineUpdateNotice, engineLogStatus, useEngineState } from "./engine-update";
+import { PanelBadge, PanelLogButton, PanelNotice, PanelPageHeader, usePanelTask } from "./panel-ui";
 
 const files = [
   ["care-log.log", "Installation, updates, backups and app errors"],
@@ -19,6 +20,8 @@ export function LogsTab() {
   const care = useCare();
   const task = usePanelTask();
   const [path, setPath] = useState("");
+  const engine = useEngineState();
+  const collection = engineLogStatus(engine);
   useEffect(() => {
     if (care.tab !== "logs") return;
     let active = true;
@@ -30,10 +33,14 @@ export function LogsTab() {
   }, [care.tab]);
   return <div className="panel-page" aria-label="Logs">
     <PanelPageHeader title="Logs" subtitle="Local diagnostics for installation, updates and running CARE." />
+    <EngineUpdateNotice engine={engine} />
     <section className="panel-card panel-card-pad">
       <h2 className="mb-3 flex items-center gap-2 text-base font-semibold"><FolderOpen className="size-5" aria-hidden="true" />All local logs in one folder</h2>
       {path ? <p className="panel-small break-all font-mono">{path}</p> : null}
-      <p className="panel-small">Engine and container logs are collected while the CARE engine is running, even when this window is closed.</p>
+      <p className="panel-small mt-3 flex items-center gap-2" role="status" aria-label="Engine log collection">
+        <span>Engine and container logs:</span><PanelBadge tone={collection.tone}>{collection.label}</PanelBadge>
+      </p>
+      <p className="panel-small">{collection.detail} Collection continues while the CARE engine runs, even when this window is closed.</p>
       <PanelLogButton />
       {task.error ? <p className="panel-inline-error" role="alert">{task.error}</p> : null}
     </section>
