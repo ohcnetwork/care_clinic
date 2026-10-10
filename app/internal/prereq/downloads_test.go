@@ -293,7 +293,6 @@ func pinnedDownloads(t *testing.T, p *release.Pins) []Download {
 		}
 		all = append(all, d)
 	}
-	all = append(all, gitWindowsDownload(p))
 	for _, goarch := range []string{"amd64", "arm64"} {
 		engine, compose, err := dockerLinuxDownloads(p, goarch)
 		if err != nil {
@@ -359,23 +358,6 @@ func TestDockerLinuxDownloadsMatchArchitecture(t *testing.T) {
 	}
 }
 
-func TestGitWindowsDownloadName(t *testing.T) {
-	for version, name := range map[string]string{
-		"2.55.0.windows.1": "Git-2.55.0-64-bit.exe",
-		"2.55.0.windows.5": "Git-2.55.0.5-64-bit.exe",
-	} {
-		d := gitWindowsDownload(&release.Pins{GitWindowsVersion: version, GitWindowsSHA256: "sum"})
-		want := Download{
-			Name:   name,
-			URL:    "https://github.com/git-for-windows/git/releases/download/v" + version + "/" + name,
-			SHA256: "sum",
-		}
-		if d != want {
-			t.Errorf("%s: got %+v, want %+v", version, d, want)
-		}
-	}
-}
-
 func TestReleaseWorkflowVerifiesTheDownloadsTheAppUses(t *testing.T) {
 	if !proc.Exists("node") {
 		t.Skip("Node.js is not installed")
@@ -432,8 +414,8 @@ const run = async (env, missing) => {
   assert.equal(gone.failed, true);
   assert.ok(gone.logs.some(line => line.includes("HTTP 404")));
   let threw = false;
-  try { await run(served.replace(/^GIT_WINDOWS_VERSION=.*$/m, "GIT_WINDOWS_VERSION=latest")); } catch { threw = true; }
-  assert.ok(threw, "an unpinned Git version was accepted");
+  try { await run(served.replace(/^RANCHER_VERSION=.*$/m, "RANCHER_VERSION=latest")); } catch { threw = true; }
+  assert.ok(threw, "an unpinned Rancher Desktop version was accepted");
 })().catch(error => { console.error(error); process.exit(1); });
 `
 	cmd := proc.Command("node", "-e", script)

@@ -4,30 +4,36 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
-	"time"
 
-	"github.com/ohcnetwork/care_desktop/app/internal/release"
+	"github.com/ohcnetwork/care_desktop/app/internal/lines"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/atomicfile"
-	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
 
-const LockFile = "channel.lock"
+// LockFile records which published CARE release each service runs.
+const LockFile = "line.json"
+
+// legacyLockFile was written by app versions that built CARE from source.
+const legacyLockFile = "channel.lock"
 
 const (
 	Backend  = "backend"
 	Frontend = "frontend"
 )
 
+// Release is one published CARE image, copied from the lines manifest so the
+// clinic keeps working offline.
+type Release = lines.Image
+
 type Channel struct {
-	Ref      string `json:"ref,omitempty"`
-	Current  string `json:"current,omitempty"`
-	Next     string `json:"next,omitempty"`
-	Declined string `json:"declined,omitempty"`
+	Current  Release  `json:"current"`
+	Next     *Release `json:"next,omitempty"`
+	Declined string   `json:"declined,omitempty"`
 }
 
 type Lock struct {
+	Line     string  `json:"line,omitempty"`
+	NextLine string  `json:"next_line,omitempty"`
 	Backend  Channel `json:"backend"`
 	Frontend Channel `json:"frontend"`
 }
@@ -91,29 +97,15 @@ func ModifyLock(dir string, fn func(*Lock) error) error {
 	return writeLock(dir, l)
 }
 
-func (b *Builder) updateLock(service string, fn func(*Channel)) error {
+func (b *Builder) updateLock(fn func(*Lock)) error {
 	return ModifyLock(b.dir, func(l *Lock) error {
-		c := l.Get(service)
-		fn(&c)
-		l.Set(service, c)
+		fn(l)
 		return nil
 	})
 }
 
-const lsRemoteTimeout = 25 * time.Second
-
-func head(run proc.Runner, repo, branch string) string {
-	out, err := run.CaptureIn(lsRemoteTimeout,
-		[]string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "GCM_INTERACTIVE=never"},
-		"git", "-c", "credential.helper=", "-c", "credential.interactive=never",
-		"ls-remote", "--", repo, "refs/heads/"+branch)
-	if err != nil {
-		return ""
-	}
-	sha, _, _ := strings.Cut(out, "\t")
-	sha = strings.TrimSpace(sha)
-	if !release.IsCommitRef(sha) {
-		return ""
-	}
-	return sha
+// removeLegacySource deletes the git checkouts and lock left by source builds.
+func removeLegacySource(dir string) {
+	_ = os.RemoveAll(filepath.Join(dir, "src"))
+	_ = os.Remove(filepath.Join(dir, legacyLockFile))
 }

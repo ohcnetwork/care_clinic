@@ -215,6 +215,8 @@ func failureTitle(label string) string {
 		return "The plugins couldn't be applied"
 	case "update":
 		return "The CARE update didn't finish"
+	case "upgrade-line":
+		return "The CARE release line upgrade didn't finish"
 	case "free-space":
 		return "Cleanup didn't finish"
 	case "app-update":

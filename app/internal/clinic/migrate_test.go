@@ -27,7 +27,7 @@ func migrationFixture(t *testing.T) (*Clinic, func() string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "src", "backend"), 0o700); err != nil {
+	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -40,18 +40,21 @@ func migrationFixture(t *testing.T) (*Clinic, func() string, string) {
 	t.Setenv("CARE_MIGRATION_CREDENTIALS", credentials)
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 	const fixtureRef = "0123456789abcdef0123456789abcdef01234567"
+	digest := "@sha256:" + strings.Repeat("a", 64)
+	lock := `{"line":"fixture","backend":{"current":{"commit":"` + fixtureRef + `","image":"fixture/backend` + digest +
+		`","builder":"fixture/backend-builder` + digest + `"}},"frontend":{"current":{"commit":"` + fixtureRef +
+		`","image":"fixture/frontend` + digest + `","builder":"fixture/frontend-builder` + digest + `","runtime_keys":["REACT_CARE_API_URL"]}}}`
 	hash := func(data string) string {
 		sum := sha256.Sum256([]byte(data))
 		return hex.EncodeToString(sum[:])[:12]
 	}
 	pins := &release.Pins{
-		AppVersion: "fixture", BeRef: fixtureRef, BeRepo: "fixture-repo", FeRef: fixtureRef, FeRepo: "fixture-repo",
+		AppVersion: "fixture", DefaultLine: "fixture",
 		BackendImage: "fixture-backend", FrontendImage: "fixture-frontend", BackupImage: "fixture-backup",
 		CaddyWafImage: "fixture-caddy", CaddyImage: "fixture-caddy-base", PostgresImage: "fixture-postgres", CorazaVersion: "fixture",
 	}
-	sourceKey := "fixture+" + fixtureRef + "+repo@" + hash("fixture-repo")
-	t.Setenv("CARE_BACKEND_FINGERPRINT", sourceKey)
-	t.Setenv("CARE_FRONTEND_FINGERPRINT", sourceKey+"+env@"+hash(""))
+	t.Setenv("CARE_BACKEND_FINGERPRINT", "fixture/backend"+digest)
+	t.Setenv("CARE_FRONTEND_FINGERPRINT", "fixture/frontend"+digest)
 	t.Setenv("CARE_BACKUP_FINGERPRINT", pins.PostgresImage+"+dockerfile@"+hash("synthetic-backup"))
 	t.Setenv("CARE_CADDY_FINGERPRINT", pins.CaddyImage+"+coraza@fixture+dockerfile@"+hash("synthetic-caddy"))
 	script := `#!/bin/sh
@@ -65,6 +68,7 @@ case "$1 $2" in
       fixture-frontend) printf '%s\n' "$CARE_FRONTEND_FINGERPRINT" ;;
       fixture-backup) printf '%s\n' "$CARE_BACKUP_FINGERPRINT" ;;
       fixture-caddy) printf '%s\n' "$CARE_CADDY_FINGERPRINT" ;;
+      fixture/*) printf 'sha256:fixture\n' ;;
       *) exit 99 ;;
     esac
     exit 0 ;;
@@ -84,7 +88,7 @@ case "$1" in
   inspect)
     if [ "$CARE_MIGRATION_FAILURE" = running ]; then printf 'running\n'; else printf 'exited\n'; fi
     exit 0 ;;
-  build) exit 0 ;;
+  build|pull) exit 0 ;;
 esac
 case "$*" in
   *' manage.py migrate --noinput') [ "$CARE_MIGRATION_FAILURE" != migration ]; exit $? ;;
@@ -100,12 +104,12 @@ esac
 exit 99
 `
 	for path, data := range map[string]string{
-		"docker":                   script,
-		"backend.env":              "POSTGRES_PASSWORD='SyntheticDatabaseSecret'\nDATABASE_URL='postgres://fixture:SyntheticURLSecret@db:5432/care?sslmode=disable'\n",
-		"frontend.env":             "",
-		"backup.Dockerfile":        "synthetic-backup",
-		"caddy.Dockerfile":         "synthetic-caddy",
-		"src/backend/.care-source": sourceKey,
+		"docker":            script,
+		"backend.env":       "POSTGRES_PASSWORD='SyntheticDatabaseSecret'\nDATABASE_URL='postgres://fixture:SyntheticURLSecret@db:5432/care?sslmode=disable'\n",
+		"frontend.env":      "",
+		"backup.Dockerfile": "synthetic-backup",
+		"caddy.Dockerfile":  "synthetic-caddy",
+		"line.json":         lock,
 	} {
 		mode := os.FileMode(0o600)
 		if path == "docker" {
@@ -251,23 +255,13 @@ func TestStagedDatabaseURLHandlesEscapedCredentials(t *testing.T) {
 
 func TestRebuildAllBuildsBothImagesBeforeRestartingEverything(t *testing.T) {
 	e, trace, _ := migrationFixture(t)
-	stamp, err := os.ReadFile(filepath.Join(e.InstallDir, "src", "backend", ".care-source"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(e.InstallDir, "src", "frontend"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(e.InstallDir, "src", "frontend", ".care-source"), stamp, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("CARE_MIGRATION_FAILURE", "migration")
 	if err := e.RebuildAll(); err == nil {
 		t.Fatal("rebuild reported success after a migration failure")
 	}
 	calls := trace()
-	backend := strings.Index(calls, "build -f "+filepath.Join(e.InstallDir, "src", "backend", "docker", "prod.Dockerfile"))
-	frontend := strings.Index(calls, "build -t fixture-frontend")
+	backend := strings.Index(calls, "-t fixture-backend")
+	frontend := strings.Index(calls, "-t fixture-frontend")
 	stop := strings.Index(calls, "compose stop\n")
 	migrate := strings.Index(calls, "manage.py migrate")
 	if backend < 0 || frontend < 0 {

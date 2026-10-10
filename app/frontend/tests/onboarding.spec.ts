@@ -476,7 +476,7 @@ for (const platform of ["darwin", "linux", "windows"]) {
         await expect(page.locator(".on-space-summary")).toHaveCSS("color", "rgb(4, 108, 78)");
       }
       if (title === "Installing what CARE needs") {
-        await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available", "Available"]);
+        await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available"]);
         await expect(page.locator(".on-data-row").first().locator("strong")).toHaveText(platform === "linux" ? "Docker" : "Rancher Desktop");
       }
       await forward(page).click();
@@ -489,7 +489,7 @@ for (const platform of ["darwin", "linux", "windows"]) {
       await page.clock.fastForward(6_000);
       await expect(page.locator("#setup-title")).toHaveText(title);
     }
-    for (const method of ["InstallDocker", "InstallGit", "PurgeResidue", "RunSetup"]) expect(await calls(page, method)).toBe(0);
+    for (const method of ["InstallDocker", "PurgeResidue", "RunSetup"]) expect(await calls(page, method)).toBe(0);
   });
 }
 
@@ -502,7 +502,7 @@ test("space blocks setup before any downloads or configuration writes", async ({
   await expect(summary).toHaveCSS("color", "rgb(153, 27, 27)");
   await expect(page.getByText("Free up space", { exact: true })).toBeVisible();
   await expect(forward(page)).toBeDisabled();
-  for (const method of ["InstallDocker", "InstallGit", "PurgeResidue", "SetMDNSName", "RunSetup"]) expect(await calls(page, method)).toBe(0);
+  for (const method of ["InstallDocker", "PurgeResidue", "SetMDNSName", "RunSetup"]) expect(await calls(page, method)).toBe(0);
   await page.evaluate(() => { window.careTest.fixtures.disk.ok = true; window.careTest.fixtures.disk.free = 30 * 2 ** 30; });
   await page.getByRole("button", { name: "Check again" }).click();
   await expect(forward(page)).toBeEnabled();
@@ -555,20 +555,21 @@ test("software polling stops at Available without advancing the step", async ({ 
   await page.clock.install();
   await start(page);
   await page.evaluate(() => {
-    window.careTest.fixtures.git.ok = false;
-    window.careTest.respond("InstallGit", "");
+    window.careTest.fixtures.docker.ok = false;
+    window.careTest.respond("DockerPlan", { action: "open", label: "Start Rancher Desktop", detail: "", url: "", download_preview: false });
+    window.careTest.respond("OpenDocker", undefined);
   });
   await page.getByRole("button", { name: "Start setup" }).click();
   await continueTo(page, "Installing what CARE needs");
-  await page.getByRole("button", { name: "Install Git", exact: true }).click();
-  await expect(page.getByText("Your Mac may have opened an installation window.", { exact: false })).toBeVisible();
-  await page.evaluate(() => { window.careTest.fixtures.git.ok = true; });
+  await page.getByRole("button", { name: "Start Rancher Desktop", exact: true }).click();
+  await expect(forward(page)).toBeDisabled();
+  await page.evaluate(() => { window.careTest.fixtures.docker.ok = true; });
   await page.clock.fastForward(5_100);
   await expect(forward(page)).toBeEnabled();
-  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available", "Available"]);
-  const checked = await calls(page, "GitStatus");
+  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available"]);
+  const checked = await calls(page, "DockerStatus");
   await page.clock.fastForward(20_000);
-  expect(await calls(page, "GitStatus")).toBe(checked);
+  expect(await calls(page, "DockerStatus")).toBe(checked);
   await expect(page.locator("#setup-title")).toHaveText("Installing what CARE needs");
   expect(await calls(page, "SetMDNSName")).toBe(0);
   await forward(page).click();
@@ -589,64 +590,56 @@ test("platform-inapplicable steps are omitted without skipping unknown failures"
   expect(await calls(page, "WSLStatus")).toBeGreaterThanOrEqual(2);
 });
 
-for (const missing of ["docker", "git"] as const) {
-  test(`required software shows missing ${missing} in red and available software in green`, async ({ page }) => {
-    await start(page);
-    await page.evaluate((id) => { window.careTest.fixtures[id].ok = false; }, missing);
-    await page.getByRole("button", { name: "Start setup" }).click();
-    await continueTo(page, "Installing what CARE needs");
-    await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
-    const rows = page.locator(".on-data-row");
-    const incomplete = rows.filter({ hasText: "Needs setup" });
-    const ready = rows.filter({ has: page.getByText("Available", { exact: true }) });
-    await expect(rows.filter({ hasText: "Rancher Desktop" }).locator("p")).toHaveText("Runs the clinic software on this computer.");
-    await expect(rows.filter({ hasText: "Git" }).locator("p")).toHaveText("Downloads the clinic software and its updates.");
-    await expect(page.getByText(/^(Ready|Action required)$/)).toHaveCount(0);
-    await expect(incomplete).toHaveCount(1);
-    await expect(ready).toHaveCount(1);
-    for (const selector of [".on-badge", ".on-tile"]) {
-      await expect(incomplete.locator(selector)).toHaveCSS("background-color", "rgb(253, 236, 236)");
-      await expect(incomplete.locator(selector)).toHaveCSS("color", "rgb(153, 27, 27)");
-      await expect(ready.locator(selector)).toHaveCSS("background-color", "rgb(227, 247, 238)");
-      await expect(ready.locator(selector)).toHaveCSS("color", "rgb(4, 108, 78)");
-    }
-    await expect(forward(page)).toBeDisabled();
-  });
-}
+test("required software shows missing Docker in red", async ({ page }) => {
+  await start(page);
+  await page.evaluate(() => { window.careTest.fixtures.docker.ok = false; });
+  await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page, "Installing what CARE needs");
+  await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
+  const rows = page.locator(".on-data-row");
+  const incomplete = rows.filter({ hasText: "Needs setup" });
+  const ready = rows.filter({ has: page.getByText("Available", { exact: true }) });
+  await expect(rows.filter({ hasText: "Rancher Desktop" }).locator("p")).toHaveText("Runs the clinic software on this computer.");
+  await expect(page.getByText(/^(Ready|Action required)$/)).toHaveCount(0);
+  await expect(incomplete).toHaveCount(1);
+  await expect(ready).toHaveCount(0);
+  for (const selector of [".on-badge", ".on-tile"]) {
+    await expect(incomplete.locator(selector)).toHaveCSS("background-color", "rgb(253, 236, 236)");
+    await expect(incomplete.locator(selector)).toHaveCSS("color", "rgb(153, 27, 27)");
+  }
+  await expect(forward(page)).toBeDisabled();
+});
 
 test("software downloads wait for a real size and remain single-flight", async ({ page }) => {
   await start(page);
   await page.evaluate(() => {
     window.careTest.fixtures.docker.ok = false;
-    window.careTest.fixtures.git.ok = false;
     window.careTest.hold("RancherDownloadInfo");
     window.careTest.hold("InstallDocker");
   });
   await page.getByRole("button", { name: "Start setup" }).click();
   await continueTo(page, "Installing what CARE needs");
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Install them" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Install Rancher Desktop" })).toBeDisabled();
   await page.evaluate(() => window.careTest.release("RancherDownloadInfo"));
-  await page.getByRole("button", { name: "Install them" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+  await page.getByRole("button", { name: "Install Rancher Desktop" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
   await expect.poll(() => calls(page, "InstallDocker")).toBe(1);
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
   await expect(forward(page)).toBeDisabled();
-  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Working", "Waiting"]);
+  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Working"]);
   await expect(page.locator(".on-data-row .on-bad")).toHaveCount(0);
   await page.evaluate(() => window.careTest.emit("prereq-download-progress", { name: "Rancher Desktop", phase: "downloading", done: 2e6, total: 0 }));
   await expect(page.getByRole("progressbar", { name: "Rancher Desktop download progress" })).not.toHaveAttribute("aria-valuenow");
   await page.evaluate(() => window.careTest.release("InstallDocker"));
   await expect(forward(page)).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
-  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available", "Available"]);
-  expect(await calls(page, "InstallGit")).toBe(1);
+  await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available"]);
   expect(await calls(page, "RunSetup")).toBe(0);
 });
 
 for (const [platform, tool, method] of [
   ["darwin", "docker", "InstallDocker"],
   ["windows", "docker", "InstallDocker"],
-  ["windows", "git", "InstallGit"],
 ] as const) {
   test(`${platform} ${tool} download interruption explains reconnecting and retries without resetting setup`, async ({ page }) => {
     await start(page, `&platform=${platform}`);
@@ -657,7 +650,7 @@ for (const [platform, tool, method] of [
     }, { tool, method });
     await page.getByRole("button", { name: "Start setup" }).click();
     await continueTo(page, "Installing what CARE needs");
-    await page.getByRole("button", { name: tool === "docker" ? "Install them" : "Install Git", exact: true }).click();
+    await page.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
     await expect.poll(() => calls(page, method)).toBe(1);
     await page.evaluate(() => window.careTest.emit("prereq-download-progress", {
       name: "installer", phase: "downloading", done: 12e6, total: 612e6,
@@ -702,10 +695,10 @@ test("an offline Rancher size preview asks to reconnect before any download", as
   await expect(failure).toBeVisible();
   await expect(failure).toContainText("Check the internet connection, then try again.");
   await expect(failure).toContainText("Nothing has been downloaded yet.");
-  await expect(page.getByRole("button", { name: "Install them", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Install Rancher Desktop", exact: true })).toBeDisabled();
   expect(await calls(page, "InstallDocker")).toBe(0);
   await failure.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Install them", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Install Rancher Desktop", exact: true })).toBeEnabled();
   await expect(failure).toHaveCount(0);
   expect(await calls(page, "InstallDocker")).toBe(0);
 });
@@ -749,7 +742,7 @@ for (const [detail, message] of [
     }, detail);
     await page.getByRole("button", { name: "Start setup" }).click();
     await continueTo(page, "Installing what CARE needs");
-    await page.getByRole("button", { name: "Install them", exact: true }).click();
+    await page.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
     const failure = page.getByRole("alert").filter({ hasText: message });
     await expect(failure).toBeVisible();
     await expect(failure).not.toContainText(/The download was interrupted|private-hash|wrong-hash|\/private\/installer/);
@@ -877,7 +870,7 @@ test("Restart dialog live callback blocks native invocation before a rerender", 
 
 for (const item of [
   { method: "InstallWSL", button: "Install WSL 2", heading: "Getting Windows ready", fixture: "wsl" },
-  { method: "InstallDocker", button: "Install them", heading: "Installing what CARE needs", fixture: "docker" },
+  { method: "InstallDocker", button: "Install Rancher Desktop", heading: "Installing what CARE needs", fixture: "docker" },
   { method: "FixNetwork", button: "Set to Private", heading: "Setting this network to Private", fixture: "network" },
 ] as const) {
   test(`requirement Retry reruns ${item.method}, rather than just checking it`, async ({ page }) => {
@@ -1458,7 +1451,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     for (const [scenario, title, requiredActions] of [
       ["setup-space", "Room for the clinic", 0],
       ["setup-windows", "Getting Windows ready", 1],
-      ["setup-software", "Installing what CARE needs", 2],
+      ["setup-software", "Installing what CARE needs", 1],
       ["setup-cleanup", "Removing stale files from an earlier setup", 0],
       ["setup-address", "Choosing the clinic address", 0],
     ] as const) {

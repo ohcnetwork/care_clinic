@@ -83,15 +83,3 @@ func hasCompose(run proc.Runner) bool {
 	cmd.Env = run.Env
 	return cmd.Run() == nil
 }
-
-func GitCheck(run proc.Runner) Status {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
-	defer cancel()
-	cmd := proc.CommandContext(ctx, "git", "--version")
-	cmd.Env = run.Env
-	out, err := cmd.Output()
-	if err == nil {
-		return Status{OK: true, Message: strings.TrimSpace(string(out))}
-	}
-	return Status{OK: false, Message: "Git is not installed."}
-}

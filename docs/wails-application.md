@@ -84,9 +84,10 @@ distinct from stopping Docker containers.
 | Running job | What the question says |
 | --- | --- |
 | `setup` | Setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. |
-| `prereq` | The computer check's fix buttons (installing or starting Rancher Desktop, git, WSL 2, the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
+| `prereq` | The computer check's fix buttons (installing or starting Rancher Desktop, WSL 2, the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
 | `start`, `restart` | Starting can take minutes while Docker comes up; open the app again to try once more. |
 | `restore`, `uninstall`, `update`, rebuilds | Quitting can leave data or the installation half-changed; the message says which action to run again after reopening. |
+| `upgrade-line` | Check the line/update status after reopening; a safety backup precedes migration, and returning to an older line requires restore. |
 | `apply-plugins` | Reopen CARE Clinic and start CARE to recover the previous plugin configuration after an interrupted apply or rollback. |
 | `app-update` | The current version keeps working. A bundle swap already handed to macOS finishes on its own. |
 | `backup-now` | The unfinished backup is unusable; earlier backups are unaffected. |
@@ -252,7 +253,6 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | --- | --- | --- |
 | `GetState()` | `AppState` | Query. Returns embedded version, role and client URL. Only servers inspect Docker/recovery state and expose server setup/name/status. Restore-journal errors propagate; plugin-journal errors are logged and keep `plugin_recovery_pending=true` so recovery controls remain available. Never exposes the pinned PEM or certificate ownership flag. |
 | `DockerStatus()` | `DockerStatus` | Query. Checks actual Docker/Compose usability. |
-| `GitStatus()` | `DockerStatus` | Query. Uses the same `{ok, message}` shape for Git. |
 | `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. Offline/isolated peers cannot be ruled out. |
 | `NetworkStatus()` | `NetworkStatus` | Query. Platform-specific networking inspection. |
 | `FixNetwork()` | `void` | Sync. Runs the native networking repair. |
@@ -260,9 +260,7 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `InstallWSL()` | `string` | Sync. Turns on WSL 2. A non-empty result is the restart instruction, not an error. |
 | `DockerPlan()` | `ToolPlan` | Query. Describes the available Docker install/open/manual action. |
 | `RancherDownloadInfo()` | `DownloadInfo` | Server-only metadata query. HEAD request for the pinned installer returns filename and byte size before the UI asks for download confirmation. |
-| `GitPlan()` | `ToolPlan` | Query. Describes the available Git action. |
 | `InstallDocker()` | `string` | Sync. Runs prerequisite provisioning and returns its result or error. |
-| `InstallGit()` | `string` | Sync. Runs Git provisioning. |
 | `OpenDocker()` | `void` | Sync. Attempts to launch the available Docker application: Rancher Desktop on macOS/Windows, the `docker` service on Linux. |
 | `RestartPlan()` | `RestartPlan` | Query. Describes a detected prerequisite-related reboot requirement. |
 | `RestartNow()` | `void` | Sync. Attempts to enable login startup, then requests an OS restart; autostart failure is logged. |
@@ -384,11 +382,12 @@ to warn that the computer will ask for permission.
 | `CleanupFailedInstall()` | `void` | Sync. Only for incomplete setup. Keeps the clinic address and existing backups, but resets backup-folder/password/recovery configuration. The UI clears those choices only after cleanup succeeds. New setup needs fresh recovery material; old backup keys may still be needed for earlier archives. |
 | `ClinicAction(action, adminPassword)` | `void` | Job. Allow-listed action dispatch; details below. |
 | `RunUninstall(removeImages, removeBackups, removeRancher, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. The UI waits for both `uninstalled` and successful `care-done` before returning to Start or requesting desktop-app removal. |
-| `CareUpdateStatus()` | `ChannelStatus` | Query. The tracked branch, running commits, and any staged commit, read from `channel.lock`. |
-| `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves branch heads and builds a newer commit into `-next` images. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. |
-| `DismissCareUpdate()` | `void` | Sync, under the exclusive job gate with a stable-clinic check. Records staged commits as declined so the banner stops. The staged build still applies at the next normal start unless invalidated by changed plugin inputs. |
-| `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
-| `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. |
+| `CareUpdateStatus()` | `ChannelStatus` | Query. The current line, running/staged commits, pending line, support dates, and newer compatible lines, using `line.json` and the cached manifest. |
+| `CheckCareUpdate()` | `void` | Returns at once and checks in the background: fetches the release-line manifest and downloads/prepares newer same-line images under `-next` tags; also reports newer compatible lines. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. |
+| `UpgradeCareLine(id)` | `void` | Job (`upgrade-line`). Stable installed server and ready Docker required; refuses an in-flight check. Stages both images of a newer compatible line, takes a pre-update backup, then applies/migrates. Returning to an older line requires restore. |
+| `DismissCareUpdate()` | `void` | Sync, under the exclusive job gate with a stable-clinic check. Records staged commits as declined so the banner stops. The same-line staged images still apply at the next normal start unless invalidated by changed plugin inputs. |
+| `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. `blocked` explains when the clinic's cached line disallows the proposed app version. |
+| `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Enforces line app-version compatibility for an installed server and retains the single-job and closing guards. |
 | `ScanResidue()` | `ResidueReport` | Query. Role-independent. Inspects owned files, Docker resources, saved-password presence and native traces. No Docker executable means no Docker-side traces; an installed engine that cannot be inspected is an error. |
 | `PurgeResidue(confirmed)` | `ResidueReport` | Sync. Server only. Requires explicit destructive confirmation, refuses a normal installed clinic, preserves backups and returns the post-cleanup report. |
 
@@ -405,7 +404,7 @@ the handoff; it does not claim installation finished or that the running
 version changed. A `restarting` phase has no acknowledgement and remains locked
 until reopening. Unrelated completion events cannot release either guard.
 It checks automatically and supports manual retries, download progress, and
-update installation without a CARE Clinic admin password, Docker, Git, or a clinic
+update installation without a CARE Clinic admin password, Docker or a clinic
 connection. The OS may still request permission to replace the application.
 Check failures are shown without blocking role selection. While an update is
 running, conflicting role, client connection, and installation-retry actions
@@ -445,7 +444,7 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `apply-plugins` | `ApplyPlugins()` | Healthy running clinic required; no CARE Clinic admin password. Applies a staged draft with bounded readiness checks and durable configuration/image rollback on failure. |
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from the separate Storage tab's cleanable drive row. |
-| `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. |
+| `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was prepared from published images in the current release line, and a second prompt would only encourage postponing it. |
 
 Every action except `stop` then passes `ensureDockerReady()`. A stopped container
 engine would otherwise surface inside the engine as an unexplained subprocess
@@ -574,7 +573,7 @@ original text.
 | `setup-done` | `true` | Setup callback and persistence of `SetupDone` succeeded. Paired with matching job completion, opens Overview without a ready screen. |
 | `setup-failed` | `SetupFailure` | Sent before failed setup completion. Reports whether the current attempt can be retried without cleanup and whether the failed command reported a recent network/download interruption. Only the active setup consumes it; raw command diagnostics stay in the log. |
 | `uninstalled` | `true` | Normal uninstall completed its cleanup and local state removal. |
-| `care-update` | `{backend, frontend}` | A newer CARE commit has finished building and is staged. Raises the panel banner. |
+| `care-update` | `{backend, frontend, newer_line?}` | Same-line images have been staged, or a newer compatible line is available. Raises the panel update offer. |
 | `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the shared CARE Clinic update card; the controller and native job state guard conflicting actions. |
 | `care-check` | `{running, found, error?}` | Check/build activity. Only a completed, error-free check with `found=false` means up to date. |
 | `client-connect-progress` | `finding`, `connecting`, `checking`, or `opening` | Real boundaries of client connection work. Trust/cleanup is not marked complete before administrator operations finish. |

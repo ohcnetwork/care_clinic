@@ -153,16 +153,26 @@ export type PluginCatalogEntry = {
 /** Which of the two .env files an editor is pointed at. */
 export type Section = "backend" | "frontend";
 
+/** The CARE release line currently running or available to upgrade to. */
+export type LineInfo = {
+  id: string;
+  title: string;
+  supported_until?: string;
+  expired: boolean;
+};
+
 export type ChannelStatus = {
-  backend_branch: string;
-  frontend_branch: string;
+  line: LineInfo;
   backend: string;
   frontend: string;
   pending_backend: string;
   pending_frontend: string;
+  pending_line?: string;
+  newer_lines: LineInfo[];
+  recommended?: string;
 };
 
-export type CareUpdate = { backend: string; frontend: string };
+export type CareUpdate = { backend: string; frontend: string; newer_line?: string };
 
 export type CareCheck = { running: boolean; found: boolean; error?: string };
 
@@ -228,6 +238,7 @@ export type AppUpdatePhase = "downloading" | "verifying" | "installing" | "resta
 export type AppUpdateProgress = { phase: AppUpdatePhase; done: number; total: number };
 
 export type AppUpdate = {
+  blocked?: string;
   current: string;
   version: string;
   available: boolean;

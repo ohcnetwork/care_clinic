@@ -1,13 +1,14 @@
 package compose
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/ohcnetwork/care_desktop/app/internal/plugins"
+	"github.com/ohcnetwork/care_desktop/app/internal/lines"
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
@@ -23,26 +24,53 @@ func writeBuildFile(t *testing.T, dir, name, content string) {
 	}
 }
 
+func digestRef(name string, c byte) string {
+	return "ghcr.io/ohcnetwork/care-clinic-" + name + "@sha256:" + strings.Repeat(string(c), 64)
+}
+
+func lineFixture(id string, c byte) lines.Line {
+	return lines.Line{
+		ID: id,
+		Backend: lines.Image{
+			Commit:  strings.Repeat(string(c), 40),
+			Image:   digestRef("backend", c),
+			Builder: digestRef("backend-builder", c),
+		},
+		Frontend: lines.Image{
+			Commit:      strings.Repeat(string(c), 40),
+			Image:       digestRef("frontend", c),
+			Builder:     digestRef("frontend-builder", c),
+			RuntimeKeys: []string{"REACT_CARE_API_URL", "REACT_APP_TITLE"},
+			BuildEnv:    map[string]string{"REACT_MFE_REGISTERED_COMPONENTS": "UserDashboard"},
+		},
+	}
+}
+
+func publish(t *testing.T, b *Builder, m lines.Manifest) {
+	t.Helper()
+	m.Schema = lines.Schema
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeBuildFile(t, filepath.Dir(b.set.LinesURL), filepath.Base(b.set.LinesURL), string(data))
+}
+
 func builderFixture(t *testing.T) *Builder {
 	t.Helper()
 	dir := t.TempDir()
 	for name, content := range map[string]string{
 		"backend.env":       "ADDITIONAL_PLUGS='[{\"name\":\"one\",\"package_name\":\"pkg_one\"}]'\nPOSTGRES_HOST=db\n",
-		"frontend.env":      "REACT_CARE_API_URL=https://care.local\n",
+		"frontend.env":      "REACT_CARE_API_URL=https://care.local\nREACT_MFE_REGISTERED_COMPONENTS=UserDashboard\n",
 		"backup.Dockerfile": "ARG POSTGRES_IMAGE\nFROM ${POSTGRES_IMAGE}\nRUN apk add --no-cache openssl\n",
 		"caddy.Dockerfile":  "ARG CADDY_IMAGE\nFROM ${CADDY_IMAGE}\nARG CORAZA_VERSION\n",
 	} {
 		writeBuildFile(t, dir, name, content)
 	}
-	for _, name := range []string{"care", "care_fe"} {
-		commitFixture(t, gitFixture(t, filepath.Join(dir, "remotes", name)), "base")
-	}
-	return NewBuilder(proc.Runner{Dir: dir}, dir, &release.Pins{
+	b := NewBuilder(proc.Runner{Dir: dir}, dir, &release.Pins{
 		AppVersion:    "0.1.0-dev",
-		BeRepo:        filepath.Join(dir, "remotes", "care"),
-		FeRepo:        filepath.Join(dir, "remotes", "care_fe"),
-		BeRef:         "develop",
-		FeRef:         "develop",
+		LinesURL:      filepath.Join(t.TempDir(), "lines.json"),
+		DefaultLine:   "stable",
 		BackendImage:  "care:clinic",
 		FrontendImage: "care_fe:clinic",
 		BackupImage:   "care-backup:clinic",
@@ -51,18 +79,21 @@ func builderFixture(t *testing.T) *Builder {
 		CaddyImage:    "caddy:2",
 		CorazaVersion: "v2.6.1",
 	}, nil)
+	publish(t, b, lines.Manifest{Lines: []lines.Line{lineFixture("stable", 'a')}})
+	return b
+}
+
+func key(t *testing.T, plan func() (plan, error)) string {
+	t.Helper()
+	p, err := plan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p.key
 }
 
 func imageKeys(t *testing.T, b *Builder) [4]string {
 	t.Helper()
-	plugs, err := plugins.New(b.dir).AdditionalPlugs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	env, err := os.ReadFile(filepath.Join(b.dir, "frontend.env"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	backup, err := b.backupBuiltFrom()
 	if err != nil {
 		t.Fatal(err)
@@ -71,14 +102,8 @@ func imageKeys(t *testing.T, b *Builder) [4]string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	be, err := b.backendBuiltFrom(plugs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fe, err := b.frontendBuiltFrom(env)
-	if err != nil {
-		t.Fatal(err)
-	}
+	be := key(t, b.backendPlan)
+	fe := key(t, b.frontendPlan)
 	return [4]string{be, fe, backup, caddy}
 }
 
@@ -88,31 +113,44 @@ func TestImageKeysTrackBuildInputs(t *testing.T) {
 		changed [4]bool
 		mutate  func(*testing.T, *Builder)
 	}{
-		{"version", [4]bool{true, true}, func(t *testing.T, b *Builder) { b.set.AppVersion = "0.2.0-dev" }},
-		{"backend repo", [4]bool{true}, func(t *testing.T, b *Builder) { b.set.BeRepo = forkFixture(t, b.set.BeRepo) }},
-		{"backend ref", [4]bool{true}, func(t *testing.T, b *Builder) { b.set.BeRef = branchFixture(t, b.set.BeRepo) }},
-		{"frontend repo", [4]bool{false, true}, func(t *testing.T, b *Builder) { b.set.FeRepo = forkFixture(t, b.set.FeRepo) }},
-		{"frontend ref", [4]bool{false, true}, func(t *testing.T, b *Builder) { b.set.FeRef = branchFixture(t, b.set.FeRepo) }},
+		{"app version", [4]bool{}, func(t *testing.T, b *Builder) { b.set.AppVersion = "0.2.0-dev" }},
+		{"backend release", [4]bool{true}, func(t *testing.T, b *Builder) {
+			l := lineFixture("stable", 'a')
+			l.Backend = lineFixture("x", 'b').Backend
+			publish(t, b, lines.Manifest{Lines: []lines.Line{l}})
+		}},
+		{"frontend release", [4]bool{false, true}, func(t *testing.T, b *Builder) {
+			l := lineFixture("stable", 'a')
+			l.Frontend = lineFixture("x", 'b').Frontend
+			publish(t, b, lines.Manifest{Lines: []lines.Line{l}})
+		}},
 		{"plugins", [4]bool{true}, func(t *testing.T, b *Builder) {
 			writeBuildFile(t, b.dir, "backend.env", "ADDITIONAL_PLUGS='[{\"name\":\"two\",\"package_name\":\"pkg_two\"}]'\n")
 		}},
-		{"frontend env", [4]bool{false, true}, func(t *testing.T, b *Builder) {
-			writeBuildFile(t, b.dir, "frontend.env", "REACT_CARE_API_URL=https://other.local\n")
+		{"frontend runtime setting", [4]bool{}, func(t *testing.T, b *Builder) {
+			writeBuildFile(t, b.dir, "frontend.env", "REACT_CARE_API_URL=https://other.local\nREACT_APP_TITLE=Clinic\n")
+		}},
+		{"frontend build setting", [4]bool{false, true}, func(t *testing.T, b *Builder) {
+			writeBuildFile(t, b.dir, "frontend.env", "REACT_MFE_REGISTERED_COMPONENTS=Other\n")
+		}},
+		{"blank build setting", [4]bool{}, func(t *testing.T, b *Builder) {
+			writeBuildFile(t, b.dir, "frontend.env", "REACT_MFE_REGISTERED_COMPONENTS=\n")
 		}},
 		{"postgres", [4]bool{false, false, true}, func(t *testing.T, b *Builder) { b.set.PostgresImage = "postgres:18-alpine" }},
 		{"backup Dockerfile", [4]bool{false, false, true}, func(t *testing.T, b *Builder) {
 			writeBuildFile(t, b.dir, "backup.Dockerfile", "ARG POSTGRES_IMAGE\nFROM ${POSTGRES_IMAGE}\nRUN apk add openssl tar\n")
 		}},
+		{"prebuilt backup", [4]bool{false, false, true}, func(t *testing.T, b *Builder) { b.set.BackupPrebuilt = digestRef("backup", 'c') }},
 		{"caddy", [4]bool{false, false, false, true}, func(t *testing.T, b *Builder) { b.set.CaddyImage = "caddy:2.11" }},
 		{"coraza", [4]bool{false, false, false, true}, func(t *testing.T, b *Builder) { b.set.CorazaVersion = "v2.7.0" }},
 		{"caddy Dockerfile", [4]bool{false, false, false, true}, func(t *testing.T, b *Builder) {
 			writeBuildFile(t, b.dir, "caddy.Dockerfile", "ARG CADDY_IMAGE\nFROM ${CADDY_IMAGE}\nARG CORAZA_VERSION\nRUN caddy version\n")
 		}},
+		{"prebuilt caddy", [4]bool{false, false, false, true}, func(t *testing.T, b *Builder) { b.set.CaddyWafPrebuilt = digestRef("caddy", 'c') }},
 		{"runtime files", [4]bool{}, func(t *testing.T, b *Builder) {
 			writeBuildFile(t, b.dir, "backend.env", "POSTGRES_HOST=other-db\nBUCKET_KEY=custom-user\nFILE_UPLOAD_BUCKET=records\nADDITIONAL_PLUGS='[{\"name\":\"one\",\"package_name\":\"pkg_one\"}]'\n")
 			writeBuildFile(t, b.dir, "Caddyfile", "other.local:443 {}\n")
 			writeBuildFile(t, b.dir, "scripts/backup.sh", "exit 0\n")
-			writeBuildFile(t, b.dir, "minio/entrypoint.sh", "exit 0\n")
 		}},
 	}
 	for _, tt := range tests {
@@ -123,165 +161,63 @@ func TestImageKeysTrackBuildInputs(t *testing.T) {
 			after := imageKeys(t, b)
 			for i, wantChanged := range tt.changed {
 				if gotChanged := before[i] != after[i]; gotChanged != wantChanged {
-					t.Errorf("image %d changed = %v, want %v", i, gotChanged, wantChanged)
+					t.Errorf("image %d changed = %v, want %v (%s -> %s)", i, gotChanged, wantChanged, before[i], after[i])
 				}
 			}
 		})
 	}
 }
 
-func forkFixture(t *testing.T, repo string) string {
-	t.Helper()
-	fork := repo + "-fork"
-	commitFixture(t, gitFixture(t, fork), "forked")
-	return fork
-}
-
-func branchFixture(t *testing.T, repo string) string {
-	t.Helper()
-	run := proc.Runner{Dir: repo}
-	if err := run.Run("git", "checkout", "--quiet", "-b", "feature"); err != nil {
-		t.Fatal(err)
-	}
-	commitFixture(t, run, "on the feature branch")
-	if err := run.Run("git", "checkout", "--quiet", "develop"); err != nil {
-		t.Fatal(err)
-	}
-	return "feature"
-}
-
-func gitFixture(t *testing.T, repo string) proc.Runner {
-	t.Helper()
-	if !proc.Exists("git") {
-		t.Skip("git is not installed")
-	}
-	if err := os.MkdirAll(repo, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	run := proc.Runner{Dir: repo}
-	if err := run.Run("git", "init", "--quiet", "--initial-branch=develop"); err != nil {
-		t.Fatal(err)
-	}
-	return run
-}
-
-func commitFixture(t *testing.T, run proc.Runner, content string) string {
-	t.Helper()
-	writeBuildFile(t, run.Dir, "revision", content)
-	if err := run.Run("git", "add", "revision"); err != nil {
-		t.Fatal(err)
-	}
-	if err := run.Run("git", "-c", "user.name=CARE tests", "-c", "user.email=care-tests@example.invalid",
-		"commit", "--quiet", "--no-gpg-sign", "-m", content+"\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"); err != nil {
-		t.Fatal(err)
-	}
-	head, err := run.Capture("git", "rev-parse", "HEAD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return head
-}
-
-func TestSourceSupportsPinnedCommitsAndDevelopmentRefs(t *testing.T) {
-	root := t.TempDir()
-	repo := filepath.Join(root, "remote")
-	run := gitFixture(t, repo)
-	pinned := commitFixture(t, run, "pinned")
-	moving := commitFixture(t, run, "moving")
+func TestPlainImagesUseThePublishedDigest(t *testing.T) {
 	b := builderFixture(t)
-	for _, tt := range []struct {
-		ref   string
-		label string
-		head  string
-		want  string
-	}{
-		{pinned, "backend", pinned, "pinned"},
-		{"develop", "frontend", moving, "moving"},
-	} {
-		src, err := b.source(repo, tt.ref, tt.label)
-		if err != nil {
-			t.Fatal(err)
-		}
-		head, err := b.run.Capture("git", "-C", src, "rev-parse", "HEAD")
-		if err != nil || head != tt.head {
-			t.Fatalf("checkout HEAD = %q, want %q: %v", head, tt.head, err)
-		}
-		data, err := os.ReadFile(filepath.Join(src, "revision"))
-		if err != nil || string(data) != tt.want {
-			t.Fatalf("checkout content = %q, want %q: %v", data, tt.want, err)
-		}
-		stamp, err := os.ReadFile(filepath.Join(src, ".care-source"))
-		if err != nil || string(stamp) != b.sourceKey(repo, tt.ref) {
-			t.Fatalf("source stamp does not match its inputs: %q, %v", stamp, err)
-		}
-	}
-	src, err := b.source(repo, moving, "backend")
-	if err != nil {
-		t.Fatal(err)
-	}
-	head, err := b.run.Capture("git", "-C", src, "rev-parse", "HEAD")
-	if err != nil || head != moving {
-		t.Fatalf("changed source ref reused the earlier commit: %q, %v", head, err)
-	}
-	if err := os.Rename(repo, filepath.Join(root, "offline")); err != nil {
-		t.Fatal(err)
-	}
-	for _, tt := range []struct{ ref, label string }{{moving, "backend"}, {"develop", "frontend"}} {
-		if _, err := b.source(repo, tt.ref, tt.label); err != nil {
-			t.Fatalf("cached source required network access: %v", err)
-		}
+	writeBuildFile(t, b.dir, "backend.env", "POSTGRES_HOST=db\n")
+	if got := imageKeys(t, b); got[0] != digestRef("backend", 'a') || got[1] != digestRef("frontend", 'a') {
+		t.Fatalf("keys = %v", got)
 	}
 }
 
-func TestSourceInvalidatesRepositoryAndLegacyStamps(t *testing.T) {
-	root := t.TempDir()
+func TestUnpublishedLineIsAnError(t *testing.T) {
 	b := builderFixture(t)
-	for _, name := range []string{"original", "fork"} {
-		repo := filepath.Join(root, name)
-		run := gitFixture(t, repo)
-		commitFixture(t, run, name)
-		src, err := b.source(repo, "develop", "backend")
-		if err != nil {
-			t.Fatal(err)
-		}
-		data, err := os.ReadFile(filepath.Join(src, "revision"))
-		if err != nil || string(data) != name {
-			t.Fatalf("source was reused from another repository: %q, %v", data, err)
-		}
-		writeBuildFile(t, src, ".care-source", b.set.AppVersion+"+develop")
-		writeBuildFile(t, src, "revision", "stale")
-		if _, err := b.source(repo, "develop", "backend"); err != nil {
-			t.Fatal(err)
-		}
-		data, err = os.ReadFile(filepath.Join(src, "revision"))
-		if err != nil || string(data) != name {
-			t.Fatalf("legacy stamp was treated as fresh: %q, %v", data, err)
-		}
+	b.set.DefaultLine = "missing"
+	if _, err := b.backendPlan(); err == nil {
+		t.Fatal("an unpublished line produced an image")
 	}
 }
 
-func TestSourceReadFailurePreservesCheckout(t *testing.T) {
+func TestLineRequiringANewerAppIsRefused(t *testing.T) {
 	b := builderFixture(t)
-	src := filepath.Join(b.dir, "src", "backend")
-	writeBuildFile(t, src, ".care-source/keep", "keep")
-	if _, err := b.source(b.set.BeRepo, b.set.BeRef, "backend"); err == nil {
-		t.Fatal("an unreadable source stamp was ignored")
-	}
-	if _, err := os.Stat(filepath.Join(src, ".care-source", "keep")); err != nil {
-		t.Fatal("checkout was deleted after a stamp read error")
+	l := lineFixture("stable", 'a')
+	l.MinAppVersion = "9.0.0"
+	publish(t, b, lines.Manifest{Lines: []lines.Line{l}})
+	if _, err := b.frontendPlan(); err == nil || !strings.Contains(err.Error(), "9.0.0") {
+		t.Fatalf("line for a newer app was accepted: %v", err)
 	}
 }
 
-func TestFailedSourceFetchLeavesNoStamp(t *testing.T) {
-	b := builderFixture(t)
-	if !proc.Exists("git") {
-		t.Skip("git is not installed")
+func TestBuildSettingsMergeOnlyCompileTimeValues(t *testing.T) {
+	rel := lineFixture("stable", 'a').Frontend
+	merged, changed := BuildSettings(rel, map[string]string{
+		"REACT_CARE_API_URL":              "https://x",
+		"REACT_MFE_REGISTERED_COMPONENTS": "UserDashboard",
+		"REACT_CUSTOM_DESCRIPTION":        "",
+	})
+	if changed || len(merged) != 1 {
+		t.Fatalf("runtime or blank values forced a rebuild: %v %v", merged, changed)
 	}
-	if _, err := b.source(filepath.Join(b.dir, "absent-repository"), "develop", "backend"); err == nil {
-		t.Fatal("missing source was accepted")
+	merged, changed = BuildSettings(rel, map[string]string{"REACT_CUSTOM_DESCRIPTION": "Ours"})
+	if !changed || merged["REACT_CUSTOM_DESCRIPTION"] != "Ours" || merged["REACT_MFE_REGISTERED_COMPONENTS"] != "UserDashboard" {
+		t.Fatalf("merge = %v %v", merged, changed)
 	}
-	if _, err := os.Stat(filepath.Join(b.dir, "src", "backend")); !os.IsNotExist(err) {
-		t.Fatalf("incomplete checkout was retained: %v", err)
+	if rel.BuildEnv["REACT_CUSTOM_DESCRIPTION"] != "" {
+		t.Fatal("merge mutated the release")
+	}
+}
+
+func TestRenderEnvIsStableAndQuoted(t *testing.T) {
+	got := renderEnv(map[string]string{"B": "it's", "A": "x y", "C": `a"b'c`})
+	want := "A='x y'\nB=\"it's\"\nC=`a\"b'c`\n"
+	if got != want {
+		t.Fatalf("renderEnv = %q, want %q", got, want)
 	}
 }
 
@@ -303,13 +239,20 @@ case "$1 $2" in
     [ "$CARE_IMAGE_EXISTS" != yes ] || printf 'image-id\n'
     ;;
   'image inspect')
+    if [ "$3" = --format ]; then
+      [ "$CARE_REFS_LOCAL" = yes ] || exit 1
+      printf 'sha256:local\n'
+      exit 0
+    fi
     [ "$CARE_FAIL_INSPECT" != yes ] || exit 22
     printf '%s\n' "$CARE_IMAGE_KEY"
     ;;
-  'image prune') ;;
+  'image prune'|'image tag') ;;
+  pull*) [ "$CARE_FAIL_PULL" != yes ] || exit 24 ;;
   build*)
     for arg do context=$arg; done
     [ -d "$context" ] || exit 23
+    [ ! -f "$context/clinic.env" ] || cp "$context/clinic.env" "$CARE_BUILD_TRACE.env"
     ;;
   *) exit 99 ;;
 esac
@@ -318,6 +261,15 @@ esac
 		t.Fatal(err)
 	}
 	return trace
+}
+
+func readTrace(t *testing.T, trace string) string {
+	t.Helper()
+	data, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func TestEnsureDistinguishesMissingImagesFromInspectionFailures(t *testing.T) {
@@ -407,47 +359,71 @@ func TestBuildAndEnsurePropagateInputReadErrors(t *testing.T) {
 func TestBuildLabelsMatchConsumedInputs(t *testing.T) {
 	trace := dockerFixture(t)
 	b := builderFixture(t)
-	for _, source := range []struct{ label, repo, ref string }{
-		{"backend", b.set.BeRepo, b.set.BeRef},
-		{"frontend", b.set.FeRepo, b.set.FeRef},
-	} {
-		src := filepath.Join(b.dir, "src", source.label)
-		writeBuildFile(t, src, ".care-source", b.sourceKey(source.repo, source.ref))
-		writeBuildFile(t, src, "Dockerfile", "FROM scratch\n")
-		writeBuildFile(t, src, "docker/prod.Dockerfile", "FROM scratch\n")
-	}
+	writeBuildFile(t, b.dir, "frontend.env", "REACT_CARE_API_URL=https://care.local\nREACT_CUSTOM_DESCRIPTION=Our clinic\n")
 	keys := imageKeys(t, b)
 	for _, build := range []func() error{b.BuildBackend, b.BuildFrontend, b.BuildBackup, b.BuildCaddy} {
 		if err := build(); err != nil {
 			t.Fatal(err)
 		}
 	}
-	data, err := os.ReadFile(trace)
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := readTrace(t, trace)
 	for _, key := range keys {
-		if !strings.Contains(string(data), builtFromLabel+"="+key+"\n") {
+		if !strings.Contains(data, builtFromLabel+"="+key+"\n") {
 			t.Errorf("build did not label its inputs: %s", key)
 		}
 	}
-	plugs, err := plugins.New(b.dir).AdditionalPlugs()
-	if err != nil {
-		t.Fatal(err)
+	rel := lineFixture("stable", 'a')
+	for _, want := range []string{
+		"pull\n" + rel.Backend.Builder + "\n",
+		"BACKEND_BUILDER=" + rel.Backend.Builder + "\n",
+		"BACKEND_IMAGE=" + rel.Backend.Image + "\n",
+		`ADDITIONAL_PLUGS=[{"name":"one","package_name":"pkg_one"}]` + "\n",
+		"FRONTEND_BUILDER=" + rel.Frontend.Builder + "\n",
+		filepath.Join(b.dir, backendPluginsDockerfile) + "\n",
+		filepath.Join(b.dir, frontendRebuildDockerfile) + "\n",
+	} {
+		if !strings.Contains(data, want) {
+			t.Errorf("docker was not called with %q", want)
+		}
 	}
-	if !strings.Contains(string(data), "ADDITIONAL_PLUGS="+plugs+"\n") {
-		t.Fatal("backend plugin input did not reach Docker")
-	}
-	env, err := os.ReadFile(filepath.Join(b.dir, "frontend.env"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	baked, err := os.ReadFile(filepath.Join(b.dir, "src", "frontend", ".env.local"))
-	if err != nil || string(baked) != string(env) {
-		t.Fatalf("frontend build did not receive its hashed input: %v", err)
+	env := readTrace(t, trace+".env")
+	for _, want := range []string{
+		"REACT_CARE_API_URL='https://care-clinic.invalid/__CARE_CLINIC_REACT_CARE_API_URL__'\n",
+		"REACT_APP_TITLE='https://care-clinic.invalid/__CARE_CLINIC_REACT_APP_TITLE__'\n",
+		"REACT_CUSTOM_DESCRIPTION='Our clinic'\n",
+		"REACT_MFE_REGISTERED_COMPONENTS='UserDashboard'\n",
+	} {
+		if !strings.Contains(env, want) {
+			t.Errorf("frontend rebuild env lacks %q:\n%s", want, env)
+		}
 	}
 	contexts, err := filepath.Glob(filepath.Join(b.dir, ".care-buildctx-*"))
 	if err != nil || len(contexts) != 0 {
 		t.Fatalf("empty build contexts were not cleaned up: %v, %v", contexts, err)
+	}
+}
+
+func TestLocalImagesAreNotDownloadedAgain(t *testing.T) {
+	trace := dockerFixture(t)
+	t.Setenv("CARE_REFS_LOCAL", "yes")
+	b := builderFixture(t)
+	writeBuildFile(t, b.dir, "backend.env", "POSTGRES_HOST=db\n")
+	if err := b.BuildBackend(); err != nil {
+		t.Fatal(err)
+	}
+	if data := readTrace(t, trace); strings.Contains(data, "pull\n") {
+		t.Fatal("an image already on this computer was downloaded again")
+	}
+}
+
+func TestFailedDownloadIsReported(t *testing.T) {
+	dockerFixture(t)
+	t.Setenv("CARE_FAIL_PULL", "yes")
+	b := builderFixture(t)
+	if err := b.EnsureFrontendImage(); err == nil || !strings.Contains(err.Error(), "network") {
+		t.Fatalf("download failure = %v", err)
+	}
+	if ReadLock(b.dir).Frontend.Current.Image != "" {
+		t.Fatal("a failed download was recorded as installed")
 	}
 }

@@ -112,7 +112,7 @@ func (e *Clinic) applyPluginCandidate() error {
 	}
 	// A queued backend update was built with the previous plugin inputs.
 	if err := compose.ModifyLock(e.InstallDir, func(lock *compose.Lock) error {
-		lock.Backend.Next, lock.Backend.Declined = "", ""
+		lock.Backend.Next, lock.Backend.Declined = nil, ""
 		return nil
 	}); err != nil {
 		return err

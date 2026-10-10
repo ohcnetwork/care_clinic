@@ -26,8 +26,9 @@ import (
 var checking atomic.Bool
 
 type CareUpdate struct {
-	Backend  string `json:"backend"`
-	Frontend string `json:"frontend"`
+	Backend   string `json:"backend"`
+	Frontend  string `json:"frontend"`
+	NewerLine string `json:"newer_line,omitempty"`
 }
 
 type CareCheck struct {
@@ -80,11 +81,34 @@ func (a *App) checkCareUpdate() {
 		a.emit("care-check", CareCheck{Error: "CARE updates couldn't be checked. Try again, or open the log file for support."})
 		return
 	}
-	a.emit("care-check", CareCheck{Found: update.Any()})
-	if !update.Any() || !a.updatesAllowed() {
+	found := update.Any() || update.NewerLine != ""
+	a.emit("care-check", CareCheck{Found: found})
+	if !found || !a.updatesAllowed() {
 		return
 	}
-	a.emit("care-update", CareUpdate{Backend: update.Backend, Frontend: update.Frontend})
+	a.emit("care-update", CareUpdate{Backend: update.Backend, Frontend: update.Frontend, NewerLine: update.NewerLine})
+}
+
+// UpgradeCareLine moves the clinic to a newer CARE release line. It takes a
+// safety backup first; going back means restoring that backup.
+func (a *App) UpgradeCareLine(id string) (err error) {
+	defer a.logError(&err)
+	return a.run(func() error {
+		if err := a.requireSetup(); err != nil {
+			return err
+		}
+		if !checking.CompareAndSwap(false, true) {
+			return errors.New("a CARE update check is still running; wait for it to finish before changing release line")
+		}
+		defer checking.Store(false)
+		if err := a.requireStableClinic(); err != nil {
+			return err
+		}
+		if err := a.ensureDockerReady(); err != nil {
+			return err
+		}
+		return a.engine().UpgradeLine(id)
+	}, false, "upgrade-line")
 }
 
 func (a *App) isClosing() bool {
@@ -150,6 +174,9 @@ type AppUpdate struct {
 	NotesURL  string `json:"notes_url"`
 	Asset     string `json:"asset"`
 	Size      int64  `json:"size"`
+	// Blocked explains why an available version cannot be installed: the
+	// clinic's CARE release line does not support it.
+	Blocked string `json:"blocked,omitempty"`
 }
 
 type AppUpdateProgress struct {
@@ -196,6 +223,11 @@ func (a *App) CheckAppUpdate() (update AppUpdate, err error) {
 	}
 	out.Asset, out.Size = asset.Name, asset.Size
 	out.Available = newerVersion(out.Current, out.Version)
+	if out.Available {
+		if err := a.appVersionAllowed(out.Version); err != nil {
+			out.Blocked = err.Error()
+		}
+	}
 	return out, nil
 }
 
@@ -211,6 +243,9 @@ func (a *App) InstallAppUpdate() error {
 		}
 		if developmentUpdateBuild || strings.HasSuffix(a.pins.AppVersion, "-dev") {
 			return errors.New("update location unavailable: development builds cannot replace themselves; install a released copy of CARE Clinic first")
+		}
+		if err := a.appVersionAllowed(version); err != nil {
+			return err
 		}
 		if _, err := updateTarget(); err != nil {
 			return err
@@ -236,6 +271,16 @@ func (a *App) InstallAppUpdate() error {
 		a.logln("Download verified.")
 		return a.handoffAppUpdate(path, version, want)
 	}, false, "app-update")
+}
+
+// appVersionAllowed refuses an app version the clinic's CARE release line
+// does not support; the clinic must move to a newer line first.
+func (a *App) appVersionAllowed(version string) error {
+	cfg := a.loadConfig()
+	if cfg.Role != roleServer || !cfg.SetupDone {
+		return nil
+	}
+	return a.engine().LineAllowsApp(version)
 }
 
 func (a *App) quitAfterJob() {

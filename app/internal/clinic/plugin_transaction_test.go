@@ -76,11 +76,25 @@ exit 99
 	return e, trace, list
 }
 
+func queueBackendUpdate(dir, c string) error {
+	return compose.ModifyLock(dir, func(l *compose.Lock) error {
+		next := l.Backend.Current
+		next.Commit = strings.Repeat(c, 40)
+		next.Image = "fixture/backend@sha256:" + strings.Repeat(c, 64)
+		l.Backend.Next = &next
+		return nil
+	})
+}
+
 func TestPluginFailuresRestoreConfigurationAndImage(t *testing.T) {
 	for _, failure := range []string{"build", "backend-start", "migration", "sync", "worker-start", "health"} {
 		t.Run(failure, func(t *testing.T) {
 			e, trace, list := pluginFixture(t)
 			before, err := os.ReadFile(filepath.Join(e.InstallDir, "backend.env"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			lockBefore, err := os.ReadFile(filepath.Join(e.InstallDir, compose.LockFile))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -104,7 +118,10 @@ func TestPluginFailuresRestoreConfigurationAndImage(t *testing.T) {
 			if err != nil || string(after) != string(before) {
 				t.Fatalf("backend environment was not restored exactly: %v", err)
 			}
-			for _, name := range []string{"plugins.json", "channel.lock", "plugins-pending.json", pluginRecoveryFile} {
+			if lockAfter, err := os.ReadFile(filepath.Join(e.InstallDir, compose.LockFile)); err != nil || string(lockAfter) != string(lockBefore) {
+				t.Fatalf("release lock was not restored exactly: %v", err)
+			}
+			for _, name := range []string{"plugins.json", "plugins-pending.json", pluginRecoveryFile} {
 				if _, err := os.Stat(filepath.Join(e.InstallDir, name)); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("%s was not removed: %v", name, err)
 				}
@@ -130,7 +147,7 @@ func TestPluginFailuresRestoreConfigurationAndImage(t *testing.T) {
 
 func TestPluginApplyCommitsOnlyAfterHealthy(t *testing.T) {
 	e, _, list := pluginFixture(t)
-	if err := compose.WriteLock(e.InstallDir, compose.Lock{Backend: compose.Channel{Next: strings.Repeat("a", 40)}}); err != nil {
+	if err := queueBackendUpdate(e.InstallDir, "a"); err != nil {
 		t.Fatal(err)
 	}
 	if err := plugins.New(e.InstallDir).StagePlugins(list); err != nil {
@@ -159,7 +176,7 @@ func TestPluginApplyCommitsOnlyAfterHealthy(t *testing.T) {
 	if pending, err := e.PendingPluginRecovery(); err != nil || pending {
 		t.Fatalf("successful transaction still pending: %v", err)
 	}
-	if compose.ReadLock(e.InstallDir).Backend.Next != "" {
+	if compose.ReadLock(e.InstallDir).Backend.Next != nil {
 		t.Fatal("queued backend update still uses the previous plugin inputs")
 	}
 }
@@ -195,7 +212,7 @@ func TestPluginRecoveryFailureRemainsRetryableOnStart(t *testing.T) {
 
 func TestInterruptedPluginChangeRestoresExistingFiles(t *testing.T) {
 	e, _, list := pluginFixture(t)
-	if err := compose.WriteLock(e.InstallDir, compose.Lock{Backend: compose.Channel{Next: strings.Repeat("b", 40)}}); err != nil {
+	if err := queueBackendUpdate(e.InstallDir, "b"); err != nil {
 		t.Fatal(err)
 	}
 	old := []plugins.Plugin{{ID: "previous", Frontend: &plugins.Frontend{Slug: "previous", URL: "https://example.invalid/old.js"}}}

@@ -9,7 +9,6 @@ export type CheckId =
   | "residue"
   | "wsl"
   | "docker"
-  | "git"
   | "disk"
   | "mdns"
   | "clinic"
@@ -19,10 +18,9 @@ export type CheckId =
  * Which prerequisites are worth testing.
  *
  * "setup" is the first-run wizard. "running" is the same machinery pointed at a
- * clinic that is already installed and has stopped answering, so two rows drop
- * out: residue (after setup those "leftovers" are the live install) and git
- * (needed to fetch the software, not to serve it - a missing git blocks the next
- * update, it does not take the clinic down). One row is added: the clinic itself.
+ * clinic that is already installed and has stopped answering, so residue drops
+ * out (after setup those "leftovers" are the live install). One row is added:
+ * the clinic itself.
  */
 export type ChecksMode = "setup" | "running";
 
@@ -97,16 +95,13 @@ function actionFor(plan: ToolPlan, install: () => Promise<string | void>): Check
 }
 
 /**
- * The prerequisites the app can't bundle, one row each. Docker and git are
- * separate rows rather than one "runtime" row because they are fixed in
- * different ways, and a row can only carry one button.
+ * The prerequisites the app can't bundle, one row each.
  */
 export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   const inSetup = mode === "setup";
   const [residue, setResidue] = useState<Result>(WAITING);
   const [wsl, setWsl] = useState<Result | null>(null);
   const [docker, setDocker] = useState<Result>(WAITING);
-  const [git, setGit] = useState<Result>(WAITING);
   const [disk, setDisk] = useState<Result & { message: string }>({ ...WAITING, message: "" });
   const [nameCheck, setNameCheck] = useState<{ host: string; result: Result }>({ host: "", result: WAITING });
   const hostRef = useRef(host);
@@ -211,28 +206,6 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
       result = { state: "bad", how: String(e) };
     }
     setDocker(result);
-    return result;
-  }, []);
-
-  const checkGit = useCallback(async (): Promise<Result> => {
-    setGit(WAITING);
-    let result: Result;
-    try {
-      const status = await bridge.GitStatus();
-      if (status.ok) {
-        result = { state: "ok", how: "" };
-      } else {
-        const plan = await bridge.GitPlan();
-        result = {
-          state: "bad",
-          how: status.message,
-          action: actionFor(plan, () => bridge.InstallGit()),
-        };
-      }
-    } catch (e) {
-      result = { state: "bad", how: String(e) };
-    }
-    setGit(result);
     return result;
   }, []);
 
@@ -341,17 +314,16 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   const recheckAll = useCallback(async (): Promise<CheckTone> => {
     setInFlight((n) => n + 1);
     try {
-      const [r, w, d, g, s, m, c, n] = await Promise.all([
+      const [r, w, d, s, m, c, n] = await Promise.all([
         inSetup ? checkResidue() : null,
         checkWSL(),
         checkDocker(),
-        inSetup ? checkGit() : null,
         checkDisk(),
         checkMDNS(),
         inSetup ? null : checkClinic(),
         checkNetwork(),
       ]);
-      return summarise([r, w, d, g, s, m, c, n].filter((x): x is Result => x !== null));
+      return summarise([r, w, d, s, m, c, n].filter((x): x is Result => x !== null));
     } finally {
       setInFlight((n) => n - 1);
     }
@@ -360,7 +332,6 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
     checkResidue,
     checkWSL,
     checkDocker,
-    checkGit,
     checkDisk,
     checkMDNS,
     checkClinic,
@@ -395,14 +366,6 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
       detail: SOFTWARE_DESCRIPTIONS.docker,
       ...docker,
     });
-    if (inSetup) {
-      list.push({
-        id: "git",
-        title: "Git",
-        detail: SOFTWARE_DESCRIPTIONS.git,
-        ...git,
-      });
-    }
     const { message: diskMessage, ...diskResult } = disk;
     list.push({
       id: "disk",
@@ -438,7 +401,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
       });
     }
     return withPrerequisites(list);
-  }, [inSetup, clinic, disk, docker, git, host, mdns, network, residue, wsl]);
+  }, [inSetup, clinic, disk, docker, host, mdns, network, residue, wsl]);
 
   const overall = useMemo(
     () => summarise(checks.map((c) => ({ state: c.state, how: c.how }))),

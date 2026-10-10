@@ -42,7 +42,7 @@ not a second installation procedure or evidence of a separately installed
 - [Embedded versus installed material](#2-three-different-copies-of-application-material)
 - [Subprocess environment](#3-one-subprocess-environment-for-the-clinic)
 - [Setup checkpoints](#4-setup-ordered-preparation-not-a-transaction)
-- [Image freshness and source caches](#5-image-builder-freshness-is-local-evidence)
+- [Image freshness and release lines](#5-image-builder-freshness-is-local-evidence)
 - [Hostname, buckets, and proxy routes](#6-hostname-buckets-and-proxy-routing-form-one-configuration)
 - [Deployment inventory](#7-deployment-inventory-and-dependency-graph)
 - [Start, migrations, and readiness](#8-start-recovery-migration-safety-then-readiness)
@@ -69,7 +69,7 @@ flowchart TD
     Clinic --> Native["Native completion: local trust"]
     Builder --> Runner
     Backup --> Runner
-    Runner --> Tools["Docker Compose, Docker, and Git"]
+    Runner --> Tools["Docker Compose and Docker"]
     Tools --> Stack["Clinic services and persistent Docker volumes"]
 ```
 
@@ -78,7 +78,7 @@ and a small runner value, rather than a framework or a container registry.
 
 | Injected input | Meaning and limits |
 | --- | --- |
-| `InstallDir` | The unpacked runtime kit and local source/build workspace, not this repository's checkout. |
+| `InstallDir` | The unpacked runtime kit and isolated local build workspace, not this repository's checkout. |
 | `MDNSName` | The saved clinic name. An empty engine value defaults to `care`. `Host()` normalizes the label and appends `.local`; `Label()` exposes the configured name or default. |
 | `AdminPassword` | Used by administrator creation when nonempty. It is not the CARE Clinic administrator hash. |
 | `BackupCertificate` | Public encryption certificate prepared by the CARE Clinic recovery setup. The private recovery file is exported separately, never installed. |
@@ -110,13 +110,14 @@ remaining teardown files and the residue package.
 | [`status.go`](../app/internal/clinic/status.go) | Service/state text from Compose, distinct from HTTP health. |
 | [`stop.go`](../app/internal/clinic/stop.go) | Data-preserving stop and restart implemented as Stop followed by Start. |
 | [`rebuild.go`](../app/internal/clinic/rebuild.go) | Explicit backend and frontend rebuild-and-restart paths. |
-| [`compose/build.go`](../app/internal/compose/build.go) | Source checkout cache, image fingerprints, four image builds, local freshness checks, and post-rebuild dangling-image cleanup. |
+| [`compose/build.go`](../app/internal/compose/build.go) | Published image downloads/relabeling, local customization builds, image fingerprints, and dangling-image cleanup. |
 | [`compose/parallel.go`](../app/internal/compose/parallel.go) | Parallel build groups: shared cancellation, per-job log prefixes, first-error reporting, and deferred prune. |
-| [`compose/channel.go`](../app/internal/compose/channel.go) | Branch resolution through `git ls-remote` without credential prompts, and the `channel.lock` record. |
-| [`compose/update.go`](../app/internal/compose/update.go) | Staging a newer commit into the `-next` images, declining, and applying a staged build by retag. |
-| [`clinic/update.go`](../app/internal/clinic/update.go) | Channel status, the safety backup taken before anything is retagged, live update application, and applying a staged update during startup. |
-| [`compose/channel_test.go`](../app/internal/compose/channel_test.go) | Lock round-tripping, tolerance of a corrupt lock, the refusal to trust a lock whose commit is not a commit, an unresolvable ref never becoming an image key, a dropped staged build being offered again, and the invariant that an image key follows the branch head rather than the branch name. |
-| [`compose/build_test.go`](../app/internal/compose/build_test.go) | Build-input invalidation, local Git fixtures with real branches, source-stamp failures, image inspection failures, consumed build inputs, and empty-context cleanup. |
+| [`lines/lines.go`](../app/internal/lines/lines.go) | Manifest parsing, validation, caching, ordering, and app-version compatibility. |
+| [`compose/channel.go`](../app/internal/compose/channel.go) | The `line.json` current/staged image record and legacy source-checkout removal. |
+| [`compose/update.go`](../app/internal/compose/update.go) | Staging digest-pinned same-line fixes or explicit line upgrades under `-next`, declining, and applying by retag. |
+| [`clinic/update.go`](../app/internal/clinic/update.go) | Release-line status, app-version compatibility, explicit line upgrades, safety backups, and live/startup update application. |
+| [`compose/channel_test.go`](../app/internal/compose/channel_test.go) | Lock round-tripping, missing/corrupt lock tolerance, default-line selection, manifest-backed image keys, and stale staged-image recovery. |
+| [`compose/build_test.go`](../app/internal/compose/build_test.go) | Manifest-backed image selection, plugin/compiled-setting invalidation, runtime-setting reuse, image inspection failures, and isolated-context cleanup. |
 | [`compose/deployment_test.go`](../app/internal/compose/deployment_test.go) | Silo bootstrap arguments, configurable Caddy bucket routes, and Compose storage-environment wiring. |
 
 Backup-facing `clinic/backup.go`, `backupstore.go`, and
@@ -156,9 +157,9 @@ the private recovery file.
 | --- | --- | --- |
 | Desktop control panel | `app/frontend/` becomes embedded Wails web assets. | Development or desktop release packaging. The panel must work without a running clinic. |
 | Desktop Go executable | `app/` plus embedded assets and install kit become the native application. | Development or release packaging. |
-| CARE backend image | Pinned CARE backend repository/ref, its production Dockerfile, and optional backend plugins. | Setup, startup freshness checks, or explicit backend rebuild. |
-| CARE frontend image | Pinned CARE frontend repository/ref plus installed `frontend.env`, copied into `.env.local`. | Setup, startup freshness checks, or explicit frontend rebuild. This is the clinical browser application. |
-| Caddy and backup images | Installed Dockerfiles and pinned base/module inputs. | Setup or startup freshness checks. |
+| CARE backend image | Published backend runtime image by digest; optional plugins use its matching builder image. | Setup, startup freshness checks, or explicit backend rebuild. |
+| CARE frontend image | Published frontend image by digest; runtime settings from mounted `frontend.env`, or a builder-image rebuild for changed compiled settings. | Setup, startup freshness checks, or explicit frontend rebuild. This is the clinical browser application. |
+| Caddy and backup images | Optional digest-pinned prebuilt images, or installed Dockerfiles and pinned base/module inputs. | Setup or startup freshness checks. |
 
 Rebuilding the desktop control panel does not rebuild the CARE frontend
 container. Editing `frontend.env` does not change the already embedded desktop
@@ -176,7 +177,7 @@ Each call to [`Runner()`](../app/internal/clinic/clinic.go) creates a
   Other host environment values still matter, but not the Docker engine
   selection: see the next two points.
 - `PATH` uses `proc.AugmentedPath()` so GUI-launched processes can find Docker
-  and Git in their normal installation locations.
+  in its normal installation locations.
 - On macOS and Windows, `DOCKER_HOST` is pinned to Rancher Desktop's endpoint
   from `proc.DockerHost()` (`unix://$HOME/.rd/docker.sock`, or
   `npipe:////./pipe/docker_engine`) and `DOCKER_CONTEXT` is set to `default`,
@@ -195,7 +196,7 @@ arguments. `run` supports per-call environment additions; `capture` returns
 trimmed stdout without streaming stderr into the returned string;
 `captureLines` returns nonempty trimmed stdout lines. `Run` streams stdout and
 stderr through the callback, potentially concurrently. These runner methods
-do not automatically impose a timeout on a Git fetch, image build, or
+do not automatically impose a timeout on an image pull, image build, or
 migration without `Ctx`. Plugin transactions supply an apply/recovery deadline,
 and readiness inspection uses its own shorter deadline.
 
@@ -262,7 +263,7 @@ sequenceDiagram
     participant App as Wails App
     participant Config as Saved configuration
     participant Clinic as Clinic
-    participant Docker as Docker and Git
+    participant Docker as Docker
     UI->>App: RunSetup with validated operator input
     App->>Config: Save initial configuration, setup incomplete
     App->>App: Unpack kit and check ports
@@ -293,8 +294,8 @@ error. There is no implicit rollback of earlier successful steps.
 | 4 | `ApplyDomain()` | Apply the clinic host to managed settings and deployment assets. |
 | 5 | Create the backup directory with `MkdirAll(..., 0755)` | The destination may now exist even if later setup fails; its location is logged. |
 | 6 | `Backups().EnsureKeysDir()` | Prepare the keys directory before a Docker bind mount can create a root-owned source directory. |
-| 7 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The two slow image builds run while steps 8–9 continue. |
-| 8 | `Parallel(EnsureCaddy, EnsureBackup)` | Build the Caddy/WAF and cryptographic tooling images side by side. On error, the background group is cancelled and waited for before `Setup()` returns. |
+| 7 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | Image downloads and any required local customizations run while steps 8–9 continue. |
+| 8 | `Parallel(EnsureCaddy, EnsureBackup)` | Prepare the proxy/backup images side by side: pull prebuilt digests when set, otherwise build locally. On error, the background group is cancelled and waited for before `Setup()` returns. |
 | 9 | `setUpThisComputerEarly()` | Start Caddy alone (`up -d --wait --no-deps caddy`), wait up to 60 seconds for its root certificate and site certificate, then run the this-computer setup so its approvals happen now instead of after the long builds. Any failure here is logged and left to the end of `Start()`. |
 | 10 | Wait for the background group | Backend and frontend image errors surface here. |
 | 11 | Log `Setup done.` | Preparation is complete, not proof that the clinic has started or that `SetupDone` was saved. |
@@ -316,11 +317,11 @@ persists in the `caddy-data` volume. Database, Redis, and Silo containers do not
 start in this method. Docker builds
 may still download base images, modules, and packages.
 
-If a later step fails, an earlier secret, key, source checkout, image, or
+If a later step fails, an earlier secret, key, downloaded image, or
 directory can remain. A safe retry depends on the relevant component's reuse
 and ownership checks. The App retains the validated attempt in memory:
 `RetrySetup()` repeats preparation only if it did not finish, otherwise it retries
-startup directly. Completed images and source downloads can be reused, but a
+startup directly. Completed image downloads and cached build layers can be reused, but a
 failed build command may run again and download dependencies again. This is
 neither byte-level resume nor automatic retry of just one network request.
 The attempt is lost when the desktop process exits. A partial setup is not an
@@ -351,23 +352,25 @@ with different owners and lifetimes.
 
 [`compose.Builder`](../app/internal/compose/build.go) owns four built images.
 For each, `Ensure...Image` checks whether a local tag exists and carries the
-expected input fingerprint. If it is absent or stale, the builder builds the
-image locally; it does not merely pull a prebuilt CARE image with the same tag.
+expected input fingerprint. If absent or stale, the builder downloads the
+published digest-pinned image and relabels it locally, or builds a customization
+from its published builder image. Proxy/backup images retain local builds when
+their optional prebuilt pins are blank.
 
 ```mermaid
 flowchart TD
-    Inputs["Read required local build inputs"] --> Valid{"Readable and parseable?"}
+    Inputs["Read release and customization inputs"] --> Valid{"Readable and parseable?"}
     Valid -->|no| Error["Return error; do not infer a missing image"]
     Valid -->|yes| List["List local image by reference"]
     List --> Listed{"Inspection succeeded?"}
     Listed -->|no| Error
-    Listed -->|yes, absent| Build["Build image"]
+    Listed -->|yes, absent| Build["Download or customize image"]
     Listed -->|yes, present| Inspect["Inspect fingerprint label"]
     Inspect --> Key{"Label inspection succeeded?"}
     Key -->|no| Error
     Key -->|yes, matches| Reuse["Reuse local image"]
-    Key -->|yes, differs or unrecorded| Rebuild["Build replacement image"]
-    Rebuild --> Success{"Build succeeded?"}
+    Key -->|yes, differs or unrecorded| Rebuild["Download or customize replacement"]
+    Rebuild --> Success{"Preparation succeeded?"}
     Success -->|no| Error
     Success -->|yes| Prune["Best-effort dangling-image prune"]
 ```
@@ -379,7 +382,7 @@ once and returns the first failure, named after its job (`backend image: ...`).
 `Builder.Start(jobs...)` does the same in the background and returns a group to
 `Wait()` on or `Cancel()`. Each job gets its own worker builder whose runner
 carries a shared cancellable context, so the first failure kills the other jobs'
-`docker build` and `git` processes. Every log line from a job, including Docker's
+`docker pull` and `docker build` processes. Every log line from a job, including Docker's
 streamed build output, is prefixed with its label, such as `[backend]`. A panic
 inside a job becomes that job's error.
 
@@ -403,96 +406,49 @@ The fingerprint is stored in the Docker image label
 `org.opencontainers.image.base.name`. In this project that label contains the
 builder's freshness key; do not interpret it as only the name of a base image.
 
-Let `H(bytes)` mean the first 12 lowercase hexadecimal characters of SHA-256,
-and let:
+Let `H(bytes)` mean the first 12 lowercase hexadecimal characters of SHA-256.
 
-```text
-sourceKey(repo, ref) = AppVersion + "+" + ref + "+repo@" + H(repo)
-```
-
-| Image | Exact fingerprint components | Build behavior |
+| Image | Fingerprint components | Preparation behavior |
 | --- | --- | --- |
-| Backend | `sourceKey(BeRepo, BeRef)`, plus `+plugs@H(AdditionalPlugs)` only when the plugin string is nonempty. | Build `src/backend/docker/prod.Dockerfile`, tag `BackendImage`, and pass nonempty `ADDITIONAL_PLUGS` as a build argument. |
-| Frontend | `sourceKey(FeRepo, FeRef) + "+env@" + H(frontend.env bytes)`. | Copy the entire environment file to `src/frontend/.env.local`, then build that repository with tag `FrontendImage`. |
-| Backup | `PostgresImage + "+dockerfile@" + H(backup.Dockerfile bytes)`. | Pass `POSTGRES_IMAGE`, tag `BackupImage`, and use an empty context. |
-| Caddy/WAF | `CaddyImage + "+coraza@" + CorazaVersion + "+dockerfile@" + H(caddy.Dockerfile bytes)`. | Pass `CADDY_IMAGE` and `CORAZA_VERSION`, tag `CaddyWafImage`, and use an empty context. |
+| Backend | Published runtime image digest, plus `+plugs@H(AdditionalPlugs)` when plugins are configured. | Pull/relabel the runtime image; plugins use `backend-plugins.Dockerfile` with the matching published builder and runtime images. |
+| Frontend | Published runtime image digest, plus `+env@H(rendered compiled settings)` only when nonblank compiled settings differ from `build_env`. | Pull/relabel the runtime image, or use `frontend-rebuild.Dockerfile` to recompile on the published builder image. |
+| Backup | Prebuilt digest when set; otherwise `PostgresImage + "+dockerfile@" + H(backup.Dockerfile bytes)`. | Pull/relabel or build with an empty context. |
+| Caddy/WAF | Prebuilt digest when set; otherwise `CaddyImage + "+coraza@" + CorazaVersion + "+dockerfile@" + H(caddy.Dockerfile bytes)`. | Pull/relabel or build with an empty context. |
 
-Consequences worth knowing:
+Changing the desktop version no longer invalidates CARE images by itself.
+Backend plugins do; most other backend environment settings are runtime inputs.
+Frontend runtime keys and blank values do not force compilation. Compiled values
+are merged into the image's `build_env` and rendered in stable key order, so
+formatting-only changes are not fingerprint inputs. `care-clinic-configure`
+applies runtime settings from the mounted `frontend.env` at container start.
 
-- Changing the desktop app version invalidates the backend and frontend
-  fingerprints, but not automatically the backup and Caddy fingerprints.
-- Changing a source repository invalidates its source and image, even if the
-  ref text is unchanged. Legacy source stamps without the repository hash do
-  not count as fresh.
-- Changing backend plugins invalidates the backend image. Most other
-  `backend.env` values are runtime settings and do not.
-- Any byte change to `frontend.env`, including formatting, changes its hash.
-  Frontend configuration is compiled into browser-delivered assets.
-- `Caddyfile`, `scripts/backup.sh`, and `minio/entrypoint.sh` are runtime mounts,
-  not build-fingerprint inputs. Their processes must use the refreshed mounts;
-  rebuilding an unrelated image is not how their contents are delivered.
-- These are cache keys, not signatures or an audit of every source file.
-  The builder does not checksum a reused checkout against its stamped commit.
+`Caddyfile`, `scripts/backup.sh`, and `minio/entrypoint.sh` remain runtime mounts.
+These labels are cache keys, not signatures or an audit of external dependencies.
+See [images and release lines](images-and-lines.md) for the publication contract.
 
-### Source checkout cache
+### Release lines and the image lock
 
-The builder keeps source in `InstallDir/src/backend` and
-`InstallDir/src/frontend`. A `.care-source` file holds the expected source key.
+[`internal/lines`](../app/internal/lines) validates the schema-1 `lines.json`
+manifest from `CARE_LINES_URL` and caches it as `InstallDir/lines.json`.
+Initial selection uses `CARE_DEFAULT_LINE`, or the manifest's recommended line.
+The builder checks the chosen line's app-version range before selecting images.
 
-1. If the readable stamp matches after trimming, return the existing directory
-   without contacting the repository.
-2. If reading the stamp fails for a reason other than absence, return that
-   error and preserve the checkout.
-3. For a missing or stale stamp, remove the previous component checkout and
-   create its parent.
-4. Initialize a Git repository, add the configured origin, fetch the requested
-   ref with depth 1, and detach at `FETCH_HEAD`.
-5. If `release.IsCommitRef(ref)` recognizes a pinned commit, check that
-   `rev-parse HEAD` equals the requested commit, case-insensitively.
-6. Write the stamp only after successful checkout and verification. A failed
-   attempt triggers best-effort removal of the incomplete directory.
-
-A cached checkout is not fetched again merely because the branch moved
-upstream. Even explicit `BuildBackend` or `BuildFrontend` can reuse the
-matching source stamp. Release ref syntax belongs to
-[development and release](development-and-release.md).
-
-### Branch resolution and the channel lock
-
-`CARE_BE_REF`/`CARE_FE_REF` name a branch. The branch name never reaches
-`sourceKey`: it is resolved to a commit first, because the source stamp and the
-image `built-from` label are both derived from that key, and a constant branch
-name would make every cached build look current forever.
-
-[`compose/channel.go`](../app/internal/compose/channel.go) resolves a branch
-with `git ls-remote`, with the credential helper disabled and a timeout, so an
-unattended clinic can never stop on a password prompt. Only `refs/heads/` is
-queried: a tag in `CARE_BE_REF`/`CARE_FE_REF` is not a branch of verified
-commits and fails loudly rather than resolving to something unintended. The
-result is recorded in `InstallDir/channel.lock`, which is kept outside `.env`
-because `.env` is rewritten from the embedded copy on every launch.
-
-A ref that resolves to nothing is an error, not a fallback. Passing the branch
-name on as if it were a commit would produce a stable `sourceKey`, and a stable
-key is indistinguishable from an up-to-date clinic, so the failure would be
-silent and permanent. Refusing to build is recoverable; building the wrong
-thing quietly is not.
+[`compose/channel.go`](../app/internal/compose/channel.go) keeps installed state
+in `InstallDir/line.json`, outside the embedded `.env` refresh:
 
 | Field | Meaning |
 | --- | --- |
-| `ref` | The branch `.env` named when `current` was chosen. A release that switches branches invalidates `current`. |
-| `current` | The commit this clinic runs. Also the offline fallback. |
-| `next` | A commit already built into the `-next` image, waiting to be applied. |
-| `declined` | A commit the operator answered "Later" to; it stops the prompt, not the update. |
+| `line` | The clinic's current release-line id. |
+| `next_line` | A newer line staged by an explicit upgrade. |
+| `backend` / `frontend` | Each service's `current`, `next`, and `declined` record. |
+| `current` | The published image entry, including commit, runtime and builder digests; frontend entries also carry runtime keys and compiled defaults. |
+| `next` | A published image entry prepared under the local `-next` tag. |
+| `declined` | A commit whose prompt was dismissed; same-line staging remains available. |
 
-Which commit a builder resolves depends on what it is for:
-
-- Starting, setup and manual rebuilds use `current`. Startup never chases the
-  branch, so an upstream push cannot turn opening the app into a long build.
-- The background check ([`Builder.Pending()`](../app/internal/compose/build.go))
-  resolves the branch head, and writes to its own `src/<service>-next` checkout
-  and `-next` image tag so it cannot collide with a running clinic.
-- A `ref` that is already a commit is used verbatim, by both.
+Starting and manual rebuilds use the recorded current image rather than chasing
+upstream changes. A missing or corrupt lock yields an empty record and triggers
+manifest-based selection. Once current images are recorded, legacy `src/`
+checkouts and `channel.lock` are removed; no source checkout is needed.
 
 ### Staged updates
 
@@ -500,45 +456,44 @@ Which commit a builder resolves depends on what it is for:
 [`clinic/update.go`](../app/internal/clinic/update.go) carry an update from
 "found" to "running":
 
-1. The app checks hourly, starting once the clinic is actually serving. A
-   check is cheap; the build one may start is not, which is why it runs in the
-   background and nothing waits on it. Cadence and the conditions that skip a
-   check are in
-   [configuration and settings](configuration-and-settings.md).
-1. `PrepareUpdate` resolves both branch heads, skips anything equal to
-   `current` or `declined`, and builds what is left into the `-next` images
-   while the clinic keeps serving from the images it started with. No network
-   means no heads, no update, and no error. Each service records its `next`
-   commit as soon as its own image is built, so a check interrupted after the
-   frontend finished does not throw that build away. Between every stage the
-   builder re-checks whether the clinic has been abandoned, so an uninstall
-   started during a long build is not undone by the build finishing after it.
-2. The app emits `care-update`; the panel shows a banner offering to install
+1. The app checks hourly once the clinic is serving. Cadence and skip conditions
+   are in [configuration and settings](configuration-and-settings.md).
+2. `PrepareUpdate` fetches the manifest for the current line and compares image
+   digests, skipping the current image and declined commits. It downloads and
+   prepares changed services under `-next` tags while the clinic keeps serving.
+   Plugins and changed compiled frontend settings require local builder-image
+   customizations. Each service records `next` after its image is prepared, so
+   an interrupted check can retain completed work. Network/manifest failures are
+   reported as failed checks, not as an up-to-date result. The builder checks
+   abandonment between stages so removal is not undone by completed staging.
+3. The app emits `care-update`; the panel shows a banner offering to install
    now or later. Declining records `declined` and leaves the build staged.
-3. When the backend changed, a one-shot encrypted database dump named
+4. When the backend changed, a one-shot encrypted database dump named
    `care-pre-update-*.dump.enc` is taken **before** anything is retagged, on
    both the live and the startup path. Migrations from a new backend are not
    reversible; that dump is. A backup that fails leaves the update staged and
    the clinic on the images it already runs. At startup that is logged and the
    clinic opens as usual: an install that cannot write encrypted backups is a
    reason not to update, not a reason not to start.
-4. `ApplyPending` retags `-next` over the live tag. At startup this happens
-   before any container is up, so it costs a retag; applied live it is the only
-   part of an update that is not a rebuild. If the staged image has gone —
-   pruned, or removed by hand — `next` and `declined` are cleared together, so
+5. `ApplyPending` retags `-next` over the live tag. At startup this happens
+   before any container is up, so it costs a retag; applying live
+   requires container recreation. If the staged image has gone — pruned, or
+   removed by hand — `next` and `declined` are cleared together, so
    the commit is offered again by the next check instead of being remembered as
    something already refused.
 
-CARE updates do not have image-level rollback (plugin application has its own
-[rollback transaction](plugins.md#save-and-apply)). The old image is reproducible from the branch
-by commit; the database is not, which is why the safety backup is the part that
-is not optional.
+A newer compatible line is offered, never chosen by a routine same-line check.
+`UpgradeCareLine(id)` runs the `upgrade-line` job: `Clinic.UpgradeLine` stages both
+images, requires backup encryption, then uses the normal pre-update backup and
+apply/migration path. Going back requires restoring a backup. The update panel
+shows line support dates; `LineAllowsApp` checks the cached line's
+`min_app_version`/`max_app_version` before a desktop update.
 
-There is no `--no-cache` or `--pull` added to these builds. "Rebuild" means run
-the build path; Docker may reuse layers, and the source checkout may also be
-reused. A changed ref/repository/version can require a new download. Because a
-stale checkout is removed before fetching, a failed replacement fetch need not
-leave the old checkout available.
+CARE updates do not have image-level rollback (plugin application has its own
+[rollback transaction](plugins.md#save-and-apply)). Published digests identify the
+old images; the database still needs the pre-update backup. Explicit rebuilds
+use current recorded images and may reuse Docker layers; they do not select a
+new release or wipe caches.
 
 ### Dockerfile contexts and cache side effects
 
@@ -548,10 +503,10 @@ leave the old checkout available.
 into `${CADDY_IMAGE}`. Caddy's runtime configuration is not baked into it.
 
 The Caddy and backup builders create an empty `.care-buildctx-*` directory
-under the installed kit and remove it on return. Their Dockerfiles need no
-application context, so the full install directory, including keys and
-environment files, is not uploaded as their build context. Backend and
-frontend builds instead use their respective source directories.
+under the installed kit and remove it on return. The full install directory, including keys and environment files, is not
+uploaded as their build context. Plugin builds and image relabeling also use
+isolated empty contexts; a frontend customization context contains only the
+generated `clinic.env`, with runtime placeholders and compiled settings.
 
 After a successful stale-image replacement through `ensure`, the builder
 attempts Docker's dangling-image prune. Inside a parallel build group that
@@ -567,17 +522,16 @@ scope; see [cleanup and uninstall](cleanup-and-uninstall.md).
 
 ### Offline does not mean every cache is complete
 
-Freshness comparison itself uses local inputs and Docker metadata. A matching
-source stamp can support a build without another Git fetch. Neither fact
-guarantees the whole operation is offline:
+Recorded image entries and the cached manifest support offline selection.
+Freshness checks use Docker metadata, and already-present digest images need not
+be pulled again. Neither guarantees a complete offline cache:
 
-- Missing or invalidated CARE source requires access to its repository.
-- Missing build bases, build packages, or Coraza module dependencies may need
-  downloads.
-- Even when all four built images are present, Compose can still need the
-  pinned PostgreSQL, Redis, or Silo image.
-- Image tags and dependency downloads have their own availability and
-  mutability constraints.
+- Initial selection needs a downloaded or cached release-line manifest.
+- Missing CARE runtime or builder images require registry access.
+- Plugin packages, frontend build dependencies, or locally built proxy/backup
+  dependencies can require downloads.
+- Compose can still need PostgreSQL, Redis, or Silo images.
+- Background update checks fetch the manifest and report network failures.
 
 Do not promise no internet after a partial setup, a cache prune, or the removal
 of just one required image.
@@ -618,7 +572,7 @@ URL values outside the recognized forms are not a generic configuration
 migration API.
 
 Changing the domain has several downstream effects: backend runtime URLs must
-change, the frontend's baked environment must be rebuilt when stale, the proxy
+change, the frontend must be recreated to apply runtime URLs, the proxy
 must load its current configuration, and the App must handle name advertising.
 `ApplyDomain` itself neither starts mDNS nor restarts a container.
 
@@ -756,7 +710,7 @@ Ports shown as internal are not host-published by this kit.
 | `backend` | `BACKEND_IMAGE`; `bash start.sh`, `backend.env`. | `db` and `redis` healthy. | No application-data volume declared here. | API 9000 internally. |
 | `celery-worker` | `BACKEND_IMAGE`; `bash celery_worker.sh`, `backend.env`. | `db` and `redis` healthy. | No dedicated volume declared here. | No published port. |
 | `celery-beat` | `BACKEND_IMAGE`; `bash celery_beat.sh`, `backend.env`. | `db` and `redis` healthy. | No dedicated volume declared here. | No published port. |
-| `frontend` | `FRONTEND_IMAGE`; image default process, with configuration baked at build time. | `backend` started. | No host environment-file mount. | Web server 80 internally. |
+| `frontend` | `FRONTEND_IMAGE`; nginx with `care-clinic-configure` applying runtime values at container start; other settings are compiled. | `backend` started. | `frontend.env` read-only at `/care-clinic/frontend.env`. | Web server 80 internally. |
 | `caddy` | `CADDY_WAF_IMAGE`; generate WAF mode file and execute Caddy. | `backend`, `frontend`, `minio` started. | `Caddyfile` read-only; `caddy-data` at `/data`; `caddy-config` at `/config`. | Host TCP 80 to 80 and TCP 443 to 443. |
 | `backup` | `BACKUP_IMAGE`; `/bin/sh /backup.sh`, `backend.env`. | `db` healthy. | Backup script read-only; selected backup directory writable at `/backups`; `keys/` read-only; `minio-data` read-only at `/minio-data`. | No published port. |
 
@@ -1046,7 +1000,7 @@ or prevent a later bind race. Further transport details are in
 | `Stop()` | Log `Stopping CARE (data kept)...`, then Compose `stop`. | Does not remove containers, volumes, images, keys, settings, or native trust. A stop error propagates. |
 | `Restart()` | Call `Stop`; if successful, call the full `Start`. | This is not Compose `restart`: it includes recovery, freshness checks, migrations, Caddy recreation, and health. Stop failure prevents Start. |
 | `RebuildBackend()` | Recover pending restore work; explicitly build backend; stop/verify workers; start/wait backend; migrate once; sync frontend plugin rows (warning only); start/wait worker and scheduler. | No administrator creation, whole-stack HTTP wait, Caddy refresh, native setup, or `FinishRestore` call in this method. |
-| `RebuildFrontend()` | Recover pending restore work; explicitly build frontend; start/wait frontend. | Does not run migrations, stop workers, perform the full health wait, or refresh Caddy. |
+| `RebuildFrontend()` | Recover pending restore work; prepare the current frontend image; force-recreate/start/wait frontend so runtime settings are re-read. | Does not run migrations, stop workers, perform the full health wait, or refresh Caddy. |
 | `RebuildAll()` | Recover pending restore work; explicitly build backend and frontend in parallel while CARE keeps running; then `Restart()` (`compose stop`, then the full `Start()` sequence: image freshness, migrations, plugin sync, whole stack, Caddy refresh, health wait, restore finish). | Restarting stopped containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`; containers whose env files or images changed are recreated by `up`. It does not rebuild the backup or Caddy images unless their inputs changed, and it does not refresh the installed kit itself; the `rebuild-all` action does that first. |
 
 The backend and frontend rebuild methods use Compose waits of 300 seconds per selected startup
@@ -1060,10 +1014,10 @@ succeeded, backend-startup or migration failure leaves workers deliberately
 stopped. If worker resumption itself fails, the method returns that error and
 does not pretend the rebuild is complete.
 
-An explicit frontend build reads the current `frontend.env` and rewrites the
-source checkout's `.env.local`. It may still reuse both the source stamp and
-Docker build layers; explicit rebuild is not an upstream-update or cache-wipe
-operation.
+An explicit frontend rebuild reads `frontend.env`, reuses the published image
+when compiled settings match, or recompiles using the builder image when they
+differ. It force-recreates the container to apply runtime values. Docker layers
+may be reused; this is not an upstream-update or cache-wipe operation.
 
 ## 10. Invariants, diagnostic clues, and test boundaries
 
@@ -1073,8 +1027,8 @@ operation.
    path, image pins, backup destination, and derived storage settings.
 2. Preparing the kit, starting services, and saving `SetupDone` are different
    checkpoints owned by different layers.
-3. An image inspection failure is not evidence of an absent image; a source
-   stamp read failure is not permission to delete a checkout.
+3. An image inspection failure is not evidence of an absent image; invalid
+   manifest/build inputs must not be treated as a successful freshness check.
 4. Backend migrations require a verified worker/scheduler stop, and failed
    migration or administrator creation must not resume them.
 5. The full-stack startup phase is followed by a forced Caddy refresh and a
@@ -1083,7 +1037,7 @@ operation.
    recovery and completion hooks rather than discarding its journal.
 7. Silo retains the `minio` identity across Compose, environment, routing,
    health, and volume mounts.
-8. Docker data volumes, exported backups, and source/image caches are different
+8. Docker data volumes, exported backups, and image/build caches are different
    resources with different retention rules.
 
 ### Common failure interpretation
@@ -1091,7 +1045,7 @@ operation.
 | Symptom | Read it as |
 | --- | --- |
 | `Setup done.` followed by failure | Preparation finished; Start or final App persistence still failed. Investigate partial setup, not only the last image build. |
-| Backend input or fingerprint error | Installed inputs, source selection, or Docker inspection is unavailable; do not delete a cache just because inspection failed. |
+| Backend input or fingerprint error | Installed inputs, release-line selection, or Docker inspection is unavailable; do not delete a cache just because inspection failed. |
 | Worker still running or state count mismatch | The migration guard intentionally refused to proceed. Fix process/daemon state before retrying. |
 | Migration/admin startup error | Core services may be up, but workers are intentionally held stopped. Avoid bypassing the engine with a raw all-services startup. |
 | Caddy refresh error | Current mounts/environment could not be applied to the proxy. A prior container/image is not proof that the configuration took effect. |
@@ -1103,8 +1057,8 @@ operation.
 
 The lifecycle tests use fixture files and fake executables to inspect exact
 arguments, environment propagation, and ordering without a real clinic.
-Builder tests also create local Git repositories to exercise shallow fetches,
-commit verification, and reuse after the fixture origin becomes unavailable.
+Builder tests use local manifest fixtures and fake Docker runners to exercise
+published-image reuse, plugin builds, compiled/runtime settings, and staged updates.
 POSIX shell fixtures are skipped on Windows where noted in the source.
 
 Deployment tests distinguish three levels: a fake Silo/`mc` bootstrap,

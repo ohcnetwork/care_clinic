@@ -72,7 +72,7 @@ settings may be forgotten.
 | Pause the clinic | `ClinicAction("stop", ...)` delegates to `Clinic.Stop()`. | Compose stops services. | Containers, all volumes, images/cache, installed files, backups, keys, saved settings, and native configuration. |
 | Remove an installed clinic | `RunUninstall(...)` delegates to `Clinic.Uninstall(options)`. | Live project containers, volumes, and networks; native changes; installed files. Optional known images/cache and owned backup files. Optional Rancher Desktop removal (see below). App also handles autostart and saved state. | Backups when not selected for removal; images/cache when not selected; Rancher Desktop when not selected; normal diagnostic logs. |
 | Recover from failed first setup | `CleanupFailedInstall()` delegates to a specific `Clinic.Uninstall` option set. | Partial project resources, native changes, installed files, saved secret/config. A matching exported certificate is removed only if it is unused and the final file-deletion phase is reached. | Downloaded images/cache and backup data. Required backup certificates remain. |
-| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue(confirmed)`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker/Git installations, and unrelated user files are not an OS-package uninstall target. |
+| Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue(confirmed)`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker installations, and unrelated user files are not an OS-package uninstall target. |
 
 ### Removing the desktop app
 
@@ -219,7 +219,7 @@ A successful removal cannot be inferred from just an absent container.
 | Networks | Docker network inventory filtered by the project label. | An unused-looking project network still counts as old installation state. |
 | Known images | Exact repository/tag strings derived from the current release pins. | A matching tag is not proof of exclusive ownership; another project may use it. Older or differently named images are not exhaustively discovered. |
 | Docker build cache | Docker builder's eligible unused cache, not a clinic-labeled inventory. | Removing it affects build performance for other projects using that builder. |
-| Installed kit | App-selected absolute directory ending in `care-clinic/install`, with additional deletion guards. | Contains runtime files, source checkouts, keys, and potentially restore working material. It is not interchangeable with a repository checkout. |
+| Installed kit | App-selected absolute directory ending in `care-clinic/install`, with additional deletion guards. | Contains runtime files, image/line records, keys, and potentially restore working material; older installs may still have legacy source checkouts. It is not interchangeable with a repository checkout. |
 | Local backup certificate | `keys/backup-cert.pem` in the installed kit. | Public encryption material only; it cannot decrypt backups. |
 | Exported backup certificate | `backup-cert.pem` in the effective backup directory. | Public ownership marker for recognizing this clinic's backup directory. |
 | Backup files | The backup package's validated inventory in the configured backup location. | Selecting backup removal must not mean recursively deleting arbitrary neighboring files. |
@@ -248,7 +248,7 @@ shared project identity important.
 
 ### What is not an automatic cleanup target
 
-The engine does not uninstall Rancher Desktop, Docker Engine, Git, the desktop binary, or
+The engine does not uninstall Rancher Desktop, Docker Engine, the desktop binary, or
 unrelated packages. It does not search every folder for copied backups,
 remove certificates from other devices, or prove that no clinical data
 exists elsewhere. It also does not own arbitrary volumes/networks merely

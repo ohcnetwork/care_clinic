@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/compose"
 )
 
 func (e *Clinic) pruneBuildCache() error {
@@ -23,6 +25,31 @@ func (e *Clinic) uninstallImages() []string {
 	}
 }
 
+// publishedImages are the CARE images this clinic downloaded by digest.
+func (e *Clinic) publishedImages() []string {
+	lock := compose.ReadLock(e.InstallDir)
+	var refs []string
+	add := func(r compose.Release) {
+		for _, ref := range []string{r.Image, r.Builder} {
+			if ref != "" && !slices.Contains(refs, ref) {
+				refs = append(refs, ref)
+			}
+		}
+	}
+	for _, c := range []compose.Channel{lock.Backend, lock.Frontend} {
+		add(c.Current)
+		if c.Next != nil {
+			add(*c.Next)
+		}
+	}
+	for _, ref := range []string{e.Pins.CaddyWafPrebuilt, e.Pins.BackupPrebuilt} {
+		if ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
 func (e *Clinic) removeImages() error {
 	available, err := e.captureLines("docker", "images", "--format", "{{.Repository}}:{{.Tag}}")
 	if err != nil {
@@ -34,6 +61,14 @@ func (e *Clinic) removeImages() error {
 			if err := e.removeImage(tag); err != nil {
 				failed = append(failed, err)
 			}
+		}
+	}
+	for _, ref := range e.publishedImages() {
+		if _, err := e.capture("docker", "image", "inspect", "--format", "{{.Id}}", ref); err != nil {
+			continue
+		}
+		if err := e.removeImage(ref); err != nil {
+			failed = append(failed, err)
 		}
 	}
 	if err := e.pruneBuildCache(); err != nil {

@@ -1,0 +1,16 @@
+{
+  "$comment": "Maintained CARE release lines, oldest first. CI builds the newest commit of each branch into images and renders lines.json from this file (images/scripts/render-lines.mjs). See docs/images-and-lines.md.",
+  "recommended": "preview",
+  "registry": "ghcr.io/ohcnetwork",
+  "lines": [
+    {
+      "id": "preview",
+      "title": "CARE preview",
+      "backend": { "repo": "ohcnetwork/care", "branch": "ENG-737" },
+      "frontend": { "repo": "ohcnetwork/care_fe", "branch": "bodhi/questionnaire-actions" },
+      "min_app_version": "",
+      "max_app_version": "",
+      "supported_until": ""
+    }
+  ]
+}

@@ -7,8 +7,8 @@ import type { DiskStatus, DockerStatus, NetworkStatus, ResidueReport, RestartPla
 import type { RequirementPage, StepState } from "./setup-model";
 
 export type SoftwareStatus = {
-  docker: DockerStatus; git: DockerStatus;
-  dockerPlan: ToolPlan | null; gitPlan: ToolPlan | null;
+  docker: DockerStatus;
+  dockerPlan: ToolPlan | null;
 };
 type Values = {
   space: DiskStatus;
@@ -61,12 +61,10 @@ export function useSetupChecks() {
             return ok;
           }
           case "software": {
-            const [docker, git] = await Promise.all([bridge.DockerStatus(), bridge.GitStatus()]);
-            const [dockerPlan, gitPlan] = await Promise.all([
-              docker.ok ? null : bridge.DockerPlan(), git.ok ? null : bridge.GitPlan(),
-            ]);
-            const ok = docker.ok && git.ok;
-            update("software", { value: { docker, git, dockerPlan, gitPlan }, state: ok ? "ready" : "blocked", error: "" });
+            const docker = await bridge.DockerStatus();
+            const dockerPlan = docker.ok ? null : await bridge.DockerPlan();
+            const ok = docker.ok;
+            update("software", { value: { docker, dockerPlan }, state: ok ? "ready" : "blocked", error: "" });
             return ok;
           }
           case "cleanup": {

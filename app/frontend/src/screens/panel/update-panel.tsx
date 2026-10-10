@@ -1,13 +1,17 @@
 import { Download, Monitor, RefreshCw, ScrollText, Stethoscope } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import type { AppUpdateController } from "@/hooks/use-app-update";
 import { bridge, onCareEvent } from "@/lib/bridge";
 import { errorText, megabytes } from "@/lib/format";
 import { useCare } from "@/state/care-store";
-import type { CareCheck, ChannelStatus } from "@/types";
+import type { CareCheck, ChannelStatus, LineInfo } from "@/types";
 import { usePanelRequirements } from "./panel-requirements";
 import { PanelBadge, PanelLogButton, PanelNotice, PanelPageHeader, usePanelTask } from "./panel-ui";
 import { usePanelUpdateLock } from "./panel-update-lock";
@@ -29,10 +33,11 @@ export function UpdatePanel({ appUpdate }: { appUpdate: AppUpdateController }) {
 }
 
 function CareSoftwareCard() {
-  const { log, busy, busyLabel, restorePending, careUpdate, applyCareUpdate, dismissCareUpdate } = useCare();
+  const { log, busy, busyLabel, restorePending, careUpdate, applyCareUpdate, upgradeCareLine, dismissCareUpdate } = useCare();
   const requirements = usePanelRequirements();
   const updateLock = usePanelUpdateLock();
   const [status, setStatus] = useState<ChannelStatus | null>(null);
+  const [upgradeTarget, setUpgradeTarget] = useState<LineInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [checkedAt, setCheckedAt] = useState(0);
@@ -109,10 +114,25 @@ function CareSoftwareCard() {
     if (locked || updateLock.isActive()) return;
     void action.run(applyCareUpdate, "Couldn't start the CARE update. Try again, or open the log file for support.");
   };
-  const pending = !!(careUpdate?.backend || careUpdate?.frontend || status?.pending_backend || status?.pending_frontend);
+  const pending = !!(careUpdate?.backend || careUpdate?.frontend || status?.pending_backend || status?.pending_frontend || status?.pending_line);
   const backendUpdate = !!(careUpdate?.backend || status?.pending_backend);
-  const applying = busy && busyLabel === "Updating CARE";
+  const upgrading = busy && busyLabel === "Upgrading CARE";
+  const applying = busy && (busyLabel === "Updating CARE" || upgrading);
+  const newerLines = [...(status?.newer_lines ?? [])];
+  if (careUpdate?.newer_line && !newerLines.some((line) => line.id === careUpdate.newer_line)
+    && careUpdate.newer_line !== status?.line.id) {
+    newerLines.push({ id: careUpdate.newer_line, title: careUpdate.newer_line, expired: false });
+  }
+  const pendingLine = status?.pending_line
+    ? newerLines.find((line) => line.id === status.pending_line)?.title ?? status.pending_line : "";
   const locked = busy || updateLock.active || requirements.working || restorePending || action.working;
+
+  const upgrade = () => {
+    if (!upgradeTarget || locked || checking || updateLock.isActive()) return;
+    const id = upgradeTarget.id;
+    setUpgradeTarget(null);
+    void action.run(() => upgradeCareLine(id), "Couldn't start the CARE upgrade. Try again, or open the log file for support.");
+  };
 
   return <section className="panel-card panel-card-pad panel-update-card" aria-label="CARE software">
     <div className="panel-update-head">
@@ -129,11 +149,37 @@ function CareSoftwareCard() {
       </PanelBadge>
       <Button aria-label="Check CARE software updates" disabled={checking || locked} onClick={() => void check()}>Check now</Button>
     </div>
+    {status?.line ? <PanelNotice tone={status.line.expired ? "warning" : "neutral"} title={status.line.title}>
+      {status.line.supported_until ? `Supported until ${status.line.supported_until}. ` : ""}
+      {status.line.expired ? "This release line is no longer supported. Upgrade to a newer CARE version." : "Current CARE release line."}
+    </PanelNotice> : null}
+    {newerLines.length > 0 ? <PanelNotice tone="ok" title="Newer CARE version available">
+      {newerLines.map((line) => <div className="panel-actions" key={line.id}>
+        <span className="panel-grow">{line.title}{status?.recommended === line.id ? " · Recommended" : ""}</span>
+        <Button variant="primary" disabled={locked || checking || loading} onClick={() => setUpgradeTarget(line)}>
+          Upgrade to {line.title}
+        </Button>
+      </div>)}
+    </PanelNotice> : null}
+    <AlertDialog open={!!upgradeTarget} onOpenChange={(open) => { if (!open) setUpgradeTarget(null); }}>
+      <AlertDialogContent>
+        <AlertDialogTitle>Upgrade to {upgradeTarget?.title}?</AlertDialogTitle>
+        <AlertDialogDescription>
+          An encrypted safety backup is taken first. CARE will be offline for a few minutes while the upgrade installs and migrates your records.
+          Going back requires restoring that backup. Keep this computer on and CARE Clinic open.
+        </AlertDialogDescription>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Not now</AlertDialogCancel>
+          <AlertDialogAction disabled={locked || checking} onClick={upgrade}>Upgrade CARE</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     {applying ? <div className="panel-update-progress" role="status">
-      <h3>Installing the CARE software update…</h3>
+      <h3>{upgrading ? "Upgrading the CARE release line…" : "Installing the CARE software update…"}</h3>
       <Progress aria-label="CARE software update" />
       <p className="panel-small">Keep this computer on and CARE Clinic open. Staff may be signed out briefly.</p>
     </div> : pending ? <PanelNotice tone="ok" title="An update is ready">
+      {pendingLine ? `Release line ${pendingLine} is ready to install. ` : ""}
       {backendUpdate ? "Staff will be signed out briefly while it installs. " : "CARE will reload when the update is applied. "}
       If you choose Later, it will be applied the next time the clinic starts.
       <div className="panel-actions">
@@ -213,15 +259,15 @@ function ClinicApplicationCard({ controller }: { controller: AppUpdateController
         <PanelLogButton />
       </>}>
       {problemDetail}
-    </PanelNotice> : update?.available ? <PanelNotice tone="ok" title={`CARE Clinic ${update.version} is available`}>
-      Downloads and installs the new version. Your computer may ask for permission.
-      {system === "running" ? " Your clinic keeps running." : ""}
+    </PanelNotice> : update?.available ? <PanelNotice tone={update.blocked ? "warning" : "ok"} title={`CARE Clinic ${update.version} is available`}>
+      {update.blocked ? <span role="alert">{update.blocked}</span> : <>Downloads and installs the new version. Your computer may ask for permission.
+      {system === "running" ? " Your clinic keeps running." : ""}</>}
       <div className="panel-actions">
         {update.notes_url ? <Button disabled={action.working} onClick={() => void action.run(() => bridge.OpenURL(update.notes_url),
           "Couldn't open what's new. Try again when this computer is connected to the internet.")}>
           <ScrollText aria-hidden="true" />What&apos;s new
         </Button> : null}
-        <Button variant="primary" disabled={disabled || checking} onClick={() => void install()}>
+        <Button variant="primary" disabled={!!update.blocked || disabled || checking} onClick={() => void install()}>
           <Download aria-hidden="true" />Update CARE Clinic
         </Button>
       </div>

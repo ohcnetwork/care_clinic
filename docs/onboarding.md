@@ -36,7 +36,9 @@ The bundled `deployments/frontend.env` enables the dashboard override:
 REACT_MFE_REGISTERED_COMPONENTS=UserDashboard
 ```
 
-This is a **build-time setting**. New installations include it when building CARE. Existing installations preserve their installed `frontend.env`; add `UserDashboard` to that file's existing registration list and rebuild the CARE frontend. Keep other registered components; `*` already includes the dashboard. Saving plugin settings alone does not rebuild the frontend.
+This is a **build-time setting**. The published frontend defaults include it for new installations. A differing
+installed value uses the published frontend builder image for recompilation; see
+[images and release lines](images-and-lines.md). Existing installations preserve their installed `frontend.env`; add `UserDashboard` to that file's existing registration list and rebuild the CARE frontend. Keep other registered components; `*` already includes the dashboard. Saving plugin settings alone does not rebuild the frontend.
 
 The selected CARE frontend must support manifest `overrides`, registration of `UserDashboard`, and passing the original component as `__base`. Without registration, the plugin remains available manually through **Facility Setup** but cannot redirect the dashboard automatically.
 

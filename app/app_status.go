@@ -60,7 +60,6 @@ func (a *App) GetState() (state AppState, err error) {
 }
 
 func (a *App) DockerStatus() prereq.Status   { return prereq.DockerCheck(a.engine().Runner()) }
-func (a *App) GitStatus() prereq.Status      { return prereq.GitCheck(a.engine().Runner()) }
 func (a *App) RancherDesktopInstalled() bool { return prereq.RancherDesktopInstalled() }
 func (a *App) ClinicHealth() health.Health   { return health.Ping() }
 
@@ -83,7 +82,6 @@ func (a *App) InstallWSL() (string, error) {
 }
 
 func (a *App) DockerPlan() prereq.ToolPlan { return a.provisioner().DockerPlan() }
-func (a *App) GitPlan() prereq.ToolPlan    { return a.provisioner().GitPlan() }
 
 func (a *App) RancherDownloadInfo() (info prereq.DownloadInfo, err error) {
 	defer a.logError(&err)
@@ -98,16 +96,6 @@ func (a *App) InstallDocker() (string, error) {
 	err := a.withLabeledJob(jobPrereq, func() error {
 		var err error
 		result, err = a.provisioner().InstallDocker()
-		return err
-	})
-	return result, err
-}
-
-func (a *App) InstallGit() (string, error) {
-	var result string
-	err := a.withLabeledJob(jobPrereq, func() error {
-		var err error
-		result, err = a.provisioner().InstallGit()
 		return err
 	})
 	return result, err

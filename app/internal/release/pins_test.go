@@ -15,19 +15,39 @@ func deploymentPins(t *testing.T) []byte {
 	return data
 }
 
-func TestDeploymentSourcesAcceptBranchesAndCommits(t *testing.T) {
+func TestDeploymentNamesAReleaseLine(t *testing.T) {
 	data := string(deploymentPins(t))
 	pins, err := Load([]byte(data))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pins.BeRef == "" || pins.FeRef == "" {
-		t.Fatal("deployment sources name no ref to follow")
+	if pins.LinesURL == "" || pins.DefaultLine == "" {
+		t.Fatal("deployment names no release line to follow")
 	}
-	pinned := strings.Replace(data, "CARE_BE_REF="+pins.BeRef,
-		"CARE_BE_REF=a749b92794ac175db8839d3d75ca36402a196282", 1)
-	if _, err := Load([]byte(pinned)); err != nil {
-		t.Fatalf("pinned source was rejected: %v", err)
+	digest := "ghcr.io/ohcnetwork/care-clinic-caddy@sha256:" + strings.Repeat("a", 64)
+	for _, tt := range []struct {
+		name, from, to string
+		ok             bool
+	}{
+		{"http lines", "CARE_LINES_URL=" + pins.LinesURL, "CARE_LINES_URL=http://example.com/lines.json", false},
+		{"bad line", "CARE_DEFAULT_LINE=" + pins.DefaultLine, "CARE_DEFAULT_LINE=../x", false},
+		{"prebuilt caddy", "CADDY_WAF_PREBUILT=", "CADDY_WAF_PREBUILT=" + digest, true},
+		{"tagged caddy", "CADDY_WAF_PREBUILT=", "CADDY_WAF_PREBUILT=caddy:latest", false},
+		{"tagged backup", "BACKUP_PREBUILT=", "BACKUP_PREBUILT=postgres:17", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			changed := strings.Replace(data, tt.from+"\n", tt.to+"\n", 1)
+			if changed == data {
+				t.Fatalf("fixture %q not found", tt.from)
+			}
+			got, err := Load([]byte(changed))
+			if (err == nil) != tt.ok {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if tt.ok && got.CaddyWafPrebuilt != digest {
+				t.Fatal("prebuilt image was not read")
+			}
+		})
 	}
 }
 

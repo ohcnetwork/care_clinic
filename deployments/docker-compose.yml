@@ -83,6 +83,9 @@ services:
   frontend:
     image: ${FRONTEND_IMAGE:?FRONTEND_IMAGE not set - .env is missing from this directory}
     restart: unless-stopped
+    volumes:
+      # Settings the image writes into the app bundle each time it starts.
+      - ./frontend.env:/care-clinic/frontend.env:ro
     depends_on:
       - backend
 

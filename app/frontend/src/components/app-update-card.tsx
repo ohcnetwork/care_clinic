@@ -57,15 +57,15 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
       {update?.available && !active ? (
         <div className="mt-3.5 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-brand-bg px-4 py-[13px] text-[12.5px] text-brand-ink">
           <span className="min-w-[180px] flex-1">
-            Downloads {update.asset}, verifies its checksum, and installs the update.
+            {update.blocked ? <span role="alert">{update.blocked}</span> : <>Downloads {update.asset}, verifies its checksum, and installs the update.
             CARE Clinic closes briefly, replaces this installed copy, and reopens.
             Your computer may ask for permission. Clinic data and settings are kept;
-            a running clinic is not stopped.
+            a running clinic is not stopped.</>}
           </span>
           {update.notes_url ? (
             <Button onClick={() => void bridge.OpenURL(update.notes_url)}>Release notes</Button>
           ) : null}
-          <Button variant="primary" disabled={blocked || checking || active} onClick={() => void install()}>
+          <Button variant="primary" disabled={!!update.blocked || blocked || checking || active} onClick={() => void install()}>
             Update CARE Clinic
           </Button>
         </div>

@@ -40,7 +40,6 @@ func (pr *Provisioner) logln(s string) {
 const (
 	rancherPageURL   = "https://rancherdesktop.io/"
 	dockerEnginePage = "https://docs.docker.com/engine/install/"
-	gitPageURL       = "https://git-scm.com/downloads"
 
 	dockerReadyTimeout    = 8 * time.Minute
 	rancherLaunchGrace    = 15 * time.Second
@@ -126,33 +125,6 @@ func dockerName() string {
 		return "Docker"
 	}
 	return "Rancher Desktop"
-}
-
-func (pr *Provisioner) GitPlan() ToolPlan {
-	if GitCheck(pr.run).OK {
-		return ToolPlan{URL: gitPageURL}
-	}
-	p := ToolPlan{Action: ActionInstall, Label: "Install Git", URL: gitPageURL}
-	switch runtime.GOOS {
-	case "darwin":
-		p.Detail = "Asks macOS to install its developer command line tools, which include Git. " +
-			"A system window will appear - choose Install."
-	case "windows":
-		p.Detail = "Downloads Git for Windows and installs it. " +
-			"Windows will ask for permission. Keep this computer connected to the internet."
-	case "linux":
-		pm := linuxPackageManager()
-		if pm == "" {
-			p.Action, p.Label = ActionManual, "Get Git"
-			p.Detail = "Install git with your distribution's package manager."
-			return p
-		}
-		p.Detail = "Installs git with " + pm + ". You'll be asked for your password."
-	default:
-		p.Action, p.Label = ActionManual, "Get Git"
-		p.Detail = "Install git for this system."
-	}
-	return p
 }
 
 func (pr *Provisioner) InstallDocker() (string, error) {
@@ -330,44 +302,6 @@ func (pr *Provisioner) afterWindowsDockerInstall() error {
 			"open Rancher Desktop, then run the check again (%w)", err)
 	}
 	return nil
-}
-
-func (pr *Provisioner) InstallGit() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		pr.logln("Asking macOS to install its command line tools (this includes Git)...")
-		if err := pr.run.Run("xcode-select", "--install"); err != nil {
-			return "", fmt.Errorf("could not start the macOS command line tools installer "+
-				"(it may already be installing): %w", err)
-		}
-		return "macOS is installing its command line tools, which include Git.\n\n" +
-			"Choose Install in the window macOS just opened and wait for it to finish, " +
-			"then choose Check again.", nil
-	case "windows":
-		d := gitWindowsDownload(pr.pins)
-		exe, err := pr.download(d)
-		if err != nil {
-			return "", err
-		}
-		defer func() { _ = os.Remove(exe) }()
-		pr.logln("Running the Git for Windows installer. Windows will ask for permission...")
-		if err := pr.runElevated(exe, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOCANCEL", "/SP-"); err != nil {
-			return "", fmt.Errorf("could not install Git for Windows: %w", err)
-		}
-		pr.logln("Git installed.")
-		return "Git is installed.\n\nChoose Check again to continue.", nil
-	case "linux":
-		pm := linuxPackageManager()
-		if pm == "" {
-			return "", fmt.Errorf("no supported package manager found - install git from %s", gitPageURL)
-		}
-		pr.logln("Installing git with " + pm + "...")
-		if err := elevate.Run(linuxInstallCommand(pm, "git"), true); err != nil {
-			return "", err
-		}
-		return "Git is installed.\n\nChoose Check again to continue.", nil
-	}
-	return "", fmt.Errorf("installing git isn't supported on %s - install it from %s", runtime.GOOS, gitPageURL)
 }
 
 func (pr *Provisioner) OpenDocker() error {

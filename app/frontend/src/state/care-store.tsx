@@ -63,6 +63,7 @@ const ACTION_LABELS: Record<string, string> = {
   "apply-plugins": "Applying plugins",
   "backup-now": "Backing up",
   update: "Updating CARE",
+  "upgrade-line": "Upgrading CARE",
   "free-space": "Freeing space",
 };
 
@@ -114,6 +115,7 @@ type CareStore = {
   trouble: boolean;
   careUpdate: CareUpdate | null;
   applyCareUpdate: () => Promise<void>;
+  upgradeCareLine: (id: string) => Promise<void>;
   dismissCareUpdate: () => Promise<void>;
   installAppUpdate: () => Promise<void>;
   acknowledgeAppUpdate: () => boolean;
@@ -215,7 +217,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const appUpdateHandoffRef = useRef(false);
 
   // Three things stand between "health check failed" and alarming the operator.
-  // Stopping the clinic is a legitimate thing to do, Docker takes about a minute
+  // Stopping the clinic is an intentional action, Docker takes about a minute
   // to come up after a reboot, and a container restarting shouldn't raise an
   // alarm that is still on screen after it recovers.
   const stoppedOnPurposeRef = useRef(false);
@@ -373,7 +375,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   }, [log]);
 
   const runAction = useCallback(
-    async (action: string, adminPassword = "") => {
+    async (action: string, adminPassword = "", lineId?: string) => {
       if (busyRef.current) {
         setOperationError(describeOperationError(action, "something else is still running"));
         return false;
@@ -408,7 +410,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
       setOperationError(null);
       log(`\n$ care ${action}`);
       try {
-        await bridge.ClinicAction(action, adminPassword);
+        if (action === "upgrade-line" && lineId) await bridge.UpgradeCareLine(lineId);
+        else await bridge.ClinicAction(action, adminPassword);
         return true;
       } catch (e) {
         log(`error: ${errorText(e)}`);
@@ -424,6 +427,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
 
   const applyCareUpdate = useCallback(async () => {
     await runAction("update");
+  }, [runAction]);
+
+  const upgradeCareLine = useCallback(async (id: string) => {
+    await runAction("upgrade-line", "", id);
   }, [runAction]);
 
   const installAppUpdate = useCallback(async () => {
@@ -890,7 +897,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
         if (code !== 0) {
           setOperationError(describeOperationError(label ?? "operation", lastErrorRef.current));
           if (label === "stop") stoppedOnPurposeRef.current = stopIntentBeforeRef.current;
-        } else if (label === "update") {
+        } else if (label === "update" || label === "upgrade-line") {
           setCareUpdate(null);
         }
         activeActionRef.current = "";
@@ -1027,6 +1034,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       trouble,
       careUpdate,
       applyCareUpdate,
+      upgradeCareLine,
       dismissCareUpdate,
       installAppUpdate,
       acknowledgeAppUpdate,
@@ -1056,7 +1064,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
     [
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
       run, setupReset, startInstall, resumeInstall, retryInstall, restartSetup, openPanel,
-      tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
+      tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, upgradeCareLine, dismissCareUpdate,
       installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
       refresh, reloadBackups, syncAutostart,
       runAction, setAutostart, restore, restoreFile, uninstall, log,

@@ -12,7 +12,7 @@ A CARE plugin is up to two independent pieces that share a name.
 
 | Part | What it is | How CARE loads it | When a change takes effect |
 | --- | --- | --- | --- |
-| Backend | A Django app, installed with pip. | CARE's `docker/prod.Dockerfile` reads the `ADDITIONAL_PLUGS` build argument and pip-installs `package_name + version` for each entry. At startup `plug_config.py` reads the same JSON: each `name` is appended to `INSTALLED_APPS`, `api/<name>/` is mounted on `<name>.urls`, and `configs` becomes `settings.PLUGIN_CONFIGS[name]`. Plugins read their settings from there first, then from environment variables, then from their defaults. | Only after the backend image is rebuilt. |
+| Backend | A Django app, installed with pip. | CARE Clinic uses [`backend-plugins.Dockerfile`](../deployments/backend-plugins.Dockerfile) on the published backend builder image to run CARE's `install_plugins.py` with `ADDITIONAL_PLUGS`, then copies the resulting virtual environment into the matching runtime image. At startup `plug_config.py` reads the same JSON: each `name` is appended to `INSTALLED_APPS`, `api/<name>/` is mounted on `<name>.urls`, and `configs` becomes `settings.PLUGIN_CONFIGS[name]`. Plugins read their settings from there first, then from environment variables, then from their defaults. | Only after the backend image is rebuilt. |
 | Frontend | A Vite module-federation remote (`remoteEntry.js`), hosted anywhere. | care_fe's `PluginEngine` calls `GET /api/v1/plug_config/`, registers each row's `meta.url` as a federation remote under the row's `slug`, and loads its `./manifest`. The manifest contributes components, overrides, routes, and translations. Each row's `meta` is published to the plugin as `window.__CARE_PLUGIN_RUNTIME__.meta[slug]`. | Next page load. No rebuild needed. |
 
 `PlugConfig` is a plain `slug` + `meta` JSON table in CARE (`care/users/models.py`). CARE's own `/admin/apps` page edits the same rows. The backend never reads this table; it exists only to tell the frontend what to load.
@@ -116,7 +116,7 @@ flowchart TD
 | Plugin model and storage | [`internal/plugins/plugins.go`](../app/internal/plugins/plugins.go) | `Plugin`, `Backend`, `Frontend`, `CatalogEntry`; `Catalog()`, `Prepare()`, `Manager.ReadPlugins/SavePlugins/FrontendRows`; `ADDITIONAL_PLUGS` dotenv editing. |
 | Inactive drafts | [`internal/plugins/pending.go`](../app/internal/plugins/pending.go) | Validate, stage and consume plugin attempts without changing active configuration on save. |
 | Engine steps | [`internal/clinic/plugins.go`](../app/internal/clinic/plugins.go), [`plugin_transaction.go`](../app/internal/clinic/plugin_transaction.go), [`plugin_health.go`](../app/internal/clinic/plugin_health.go) | Candidate build/sync, durable apply/rollback, and bounded container/endpoint readiness. |
-| Image freshness | [`internal/compose/build.go`](../app/internal/compose/build.go) | `BackendImageCurrent` compares the backend image label with the source ref plus a hash of `ADDITIONAL_PLUGS`. |
+| Image freshness | [`internal/compose/build.go`](../app/internal/compose/build.go) | `BackendImageCurrent` compares the backend image label with the published runtime image digest plus a hash of `ADDITIONAL_PLUGS`. |
 | Startup and rebuild hooks | [`start.go`](../app/internal/clinic/start.go), [`rebuild.go`](../app/internal/clinic/rebuild.go) | Sync frontend rows after migrations; a failure is only a warning. |
 | Bindings | [`app_plugins.go`](../app/app_plugins.go), [`app_actions.go`](../app/app_actions.go) | `ReadPlugins`, `SavePlugins`, `PluginCatalog`; the `apply-plugins` action. |
 | Panel | [`plugin-table.tsx`](../app/frontend/src/screens/panel/plugin-table.tsx) | Catalog picker, custom plugin editor, settings editors, save. |
@@ -181,11 +181,12 @@ Overview first if it is stopped. `ApplyPlugins`:
    clinic's HTTPS `/ping/` endpoint for 30 continuous seconds.
 2. Pins the currently running backend image under a safety tag and atomically
    saves a private `plugin-recovery.json`. It preserves the exact previous
-   `backend.env`, `plugins.json` (including absence), `channel.lock`, container
+   `backend.env`, `plugins.json` (including absence), `line.json`, container
    metadata, and affected frontend registration rows, including manual rows
    sharing a candidate slug.
 3. Writes the candidate configuration. Changed backend inputs trigger a
-   rebuild, worker stop, backend start, migrations, frontend sync, and service
+   local plugin build on the published backend builder image, worker stop, backend
+   start, migrations, frontend sync, and service
    startup. A queued backend update built with old plugin inputs is invalidated.
    Frontend-only changes just sync registrations, without restarting services.
 4. Requires another 30 seconds of continuous container and endpoint health

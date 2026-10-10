@@ -111,7 +111,7 @@ for the native checks and limitations.
 ## During installation
 
 Installation shows real log-backed stages, including preparing settings,
-building CARE, setting up this computer, starting the clinic and preparing the
+preparing CARE images, setting up this computer, starting the clinic and preparing the
 database. The progress indicator is indeterminate: there is no measured overall
 percentage or guaranteed remaining time. The old visible "earlier", "now" and
 "latest" tags are not shown; current/completed stage information remains
@@ -126,12 +126,12 @@ opens Overview only after both the saved setup-success event and matching
 successful job completion arrive. A failure keeps the failure screen, relevant
 guidance and logs instead of entering the panel.
 
-Initial installation needs internet to download source and image dependencies.
+Initial installation needs internet to download the release-line manifest, images, and any local customization dependencies.
 Recognized connection failures show **The download was interrupted**, ask the
 operator to reconnect, and do not suggest updating CARE Clinic as the remedy.
 Keep CARE Clinic open and choose **Try again** to retry the same unfinished
 installation. The clinic address, backup folder, admin password and saved
-recovery files are kept; completed source downloads and images can be reused.
+recovery files are kept; completed image downloads and cached build layers can be reused.
 Preparation that already succeeded is not repeated after a startup failure.
 This is not byte-level download resumption.
 
@@ -294,7 +294,10 @@ and recovery codes do not change the CARE web login after initial setup.
 
 ### Updates and running work
 
-CARE updates stage backend/frontend builds from the configured branch. A failed
+CARE updates download and stage backend/frontend images within the current release line.
+The Updates tab shows the current line and offers an explicit upgrade to a newer
+compatible line, after a safety backup. Desktop updates outside the line's app-version
+range are blocked. See [images and release lines](images-and-lines.md). A failed
 check remains a retryable failure, not "Up to date". Installing a staged CARE
 update can interrupt service.
 

@@ -21,6 +21,7 @@ care_desktop/
 |   |-- configuration-and-settings.md
 |   |-- plugins.md
 |   |-- clinic-lifecycle.md
+|   |-- images-and-lines.md
 |   |-- backups-and-restore.md
 |   |-- cleanup-and-uninstall.md
 |   |-- native-integrations.md
@@ -38,6 +39,10 @@ care_desktop/
 |   |-- frontend/
 |   |-- install/
 |   `-- internal/
+|-- images/
+|   |-- lines.source.json
+|   |-- frontend/
+|   `-- scripts/
 |-- deployments/
 |   |-- .env
 |   |-- backend.env
@@ -46,6 +51,8 @@ care_desktop/
 |   |-- Caddyfile
 |   |-- backup.Dockerfile
 |   |-- caddy.Dockerfile
+|   |-- backend-plugins.Dockerfile
+|   |-- frontend-rebuild.Dockerfile
 |   |-- scripts/backup.sh
 |   |-- minio/entrypoint.sh
 |   `-- setup/index.html
@@ -75,7 +82,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_setup_check.go`](../app/app_setup_check.go) | Review preflight and the same checks repeated under RunSetup's exclusive lock. | [Setup configuration order](configuration-and-settings.md#setup-configuration-order). |
 | [`app_recovery.go`](../app/app_recovery.go) | Recovery-key/code export and verification, replacement, CARE Clinic password changes and offline reset. | [Recovery materials](backups-and-restore.md#3-backup-recovery-file-and-care-clinic-admin-recovery). |
 | [`app_setup_retry.go`](../app/app_setup_retry.go) | Retained setup attempt, failure metadata, non-destructive retry validation and preparation/startup boundary. | [Installation retries](desktop-workflows.md#during-installation). |
-| [`app_update.go`](../app/app_update.go) | CARE branch-update status/check/dismiss, the background update watcher, and the GitHub-release desktop updater. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
+| [`app_update.go`](../app/app_update.go) | CARE line-update status/check/dismiss and explicit upgrades, the background update watcher, and the GitHub-release desktop updater. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
 | [`app_selfupdate.go`](../app/app_selfupdate.go) | macOS bundle verification/replacement and post-exit reopening. | [Wails application](wails-application.md). |
 | [`app_status.go`](../app/app_status.go) | State/health/tool/network queries, provisioning controls, name/password/folder validation, pre-setup naming. | [Wails application](wails-application.md), [native integrations](native-integrations.md). |
 | [`app_ui.go`](../app/app_ui.go) | Native URL/folder/log actions and login-startup controls. | [Wails application](wails-application.md). |
@@ -153,12 +160,19 @@ app/internal/
 |   `-- thiscomputer_test.go
 |-- compose/
 |   |-- build.go
+|   |-- channel.go
+|   |-- channel_test.go
+|   |-- update.go
 |   |-- build_test.go
 |   |-- deployment_test.go
 |   |-- parallel.go
 |   `-- parallel_test.go
 |-- health/
 |   `-- health.go
+|-- lines/
+|   |-- lines.go
+|   |-- lines_test.go
+|   `-- contract_test.go
 |-- plugins/
 |   |-- catalog.yml
 |   |-- plugins.go
@@ -231,11 +245,12 @@ app/internal/
 | --- | --- | --- |
 | [`internal/clinic`](../app/internal/clinic) | Orders operations across the domains; no Wails dependency. | [Clinic lifecycle](clinic-lifecycle.md), [cleanup](cleanup-and-uninstall.md), [backup callbacks](backups-and-restore.md), [local device access](native-integrations.md). |
 | [`internal/backup`](../app/internal/backup) | Backup inventory, recovery files/public certificates, decryption, staged replacement, journal recovery. | [Backups and restore](backups-and-restore.md). |
-| [`internal/compose`](../app/internal/compose) | Infrastructure and CARE image building, source checkout, freshness inputs. | [Clinic lifecycle](clinic-lifecycle.md). |
+| [`internal/compose`](../app/internal/compose) | Published image downloads/relabeling, local customizations, freshness inputs, and line update staging. | [Clinic lifecycle](clinic-lifecycle.md). |
 | [`internal/health`](../app/internal/health) | HTTP readiness and port availability. | [Native integrations](native-integrations.md). |
 | [`internal/plugins`](../app/internal/plugins) | Active plugin list (`plugins.json`), inactive draft (`plugins-pending.json`), catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
-| [`internal/prereq`](../app/internal/prereq) | Docker/Git detection, action plans, Rancher Desktop provisioning and preconfiguration, and readiness waits. | [Native integrations](native-integrations.md). |
-| [`internal/release`](../app/internal/release) | Validated release manifest and source/image identity. | [Development and release](development-and-release.md#release-identity-and-pins). |
+| [`internal/lines`](../app/internal/lines) | Release-line manifest parsing, validation, cache, line ordering and app-version compatibility. | [Images and release lines](images-and-lines.md). |
+| [`internal/prereq`](../app/internal/prereq) | Docker detection, action plans, Rancher Desktop provisioning and preconfiguration, and readiness waits. | [Native integrations](native-integrations.md). |
+| [`internal/release`](../app/internal/release) | Validated desktop release pins, line selection and image identity. | [Development and release](development-and-release.md#release-identity-and-pins). |
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
 | [`internal/storage`](../app/internal/storage) | Storage thresholds, backup-space estimates, policy/status reporting and backup-run state. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
 | [`sys/diskspace`](../app/internal/sys/diskspace) | Platform filesystem free-space measurements. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
@@ -329,7 +344,7 @@ app/frontend/
 | [`backups-tab.tsx`](../app/frontend/src/screens/panel/backups-tab.tsx), [`restore-backup-dialog.tsx`](../app/frontend/src/screens/panel/restore-backup-dialog.tsx) | Actual policy/destination, backup operations, restore consent and cancelled/stale preflight handling. |
 | [`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx), [`admin-recovery.tsx`](../app/frontend/src/screens/panel/admin-recovery.tsx) | Fixed 15-minute UI unlock, sensitive-state clearing, password/recovery controls and protected administration. |
 | [`remove-screen.tsx`](../app/frontend/src/screens/remove-screen.tsx) | The screen the Windows uninstaller opens: server uninstall, client disconnect or unfinished-setup cleanup, then exit. |
-| [`update-panel.tsx`](../app/frontend/src/screens/panel/update-panel.tsx) | The password-free Updates tab: CARE branch status and the desktop release updater. |
+| [`update-panel.tsx`](../app/frontend/src/screens/panel/update-panel.tsx) | The password-free Updates tab: CARE release-line status, explicit line upgrades and the compatibility-aware desktop release updater. |
 | [`env-editor.tsx`](../app/frontend/src/screens/panel/env-editor.tsx) | Concurrent environment reads, draft changes, writes and apply action. |
 | [`env-file.ts`](../app/frontend/src/lib/env-file.ts) | Line-based environment parsing, value quoting, change application. |
 | [`env-schema.ts`](../app/frontend/src/screens/panel/env-schema.ts) | Key/file ownership, friendly field constraints, managed-value notes. |
@@ -345,17 +360,28 @@ See [Wails API](wails-application.md) and [configuration](configuration-and-sett
 
 | Source | Runtime purpose |
 | --- | --- |
-| [`deployments/.env`](../deployments/.env) | Release version, image names/bases, upstream repos and refs. |
+| [`deployments/.env`](../deployments/.env) | Release version, image names/bases, manifest URL/default line, optional prebuilt proxy/backup digests. |
 | [`docker-compose.yml`](../deployments/docker-compose.yml) | Services, dependencies, mounts, health checks, fixed project and network identity. |
 | [`backend.env`](../deployments/backend.env) | Initial CARE/backend/backup-related settings; installed copy becomes clinic-specific. |
-| [`frontend.env`](../deployments/frontend.env) | Initial CARE frontend build settings; installed copy is preserved. |
+| [`frontend.env`](../deployments/frontend.env) | Initial runtime and compiled CARE frontend settings; installed copy is preserved. |
 | [`Caddyfile`](../deployments/Caddyfile) | HTTPS/local CA, reverse proxy, storage routes, public root bootstrap, WAF behavior. |
 | [`caddy.Dockerfile`](../deployments/caddy.Dockerfile) | Builds the proxy with the Coraza module. |
 | [`backup.Dockerfile`](../deployments/backup.Dockerfile) | Tools and permissions required by backup/restore helper containers. |
+| [`backend-plugins.Dockerfile`](../deployments/backend-plugins.Dockerfile) | Adds plugins using the published backend builder/runtime images. |
+| [`frontend-rebuild.Dockerfile`](../deployments/frontend-rebuild.Dockerfile) | Recompiles changed non-runtime settings using the published frontend builder/runtime images. |
 | [`scripts/backup.sh`](../deployments/scripts/backup.sh) | Scheduled/manual backup modes, encryption, writer locking, publication and retention. |
 | [`minio/entrypoint.sh`](../deployments/minio/entrypoint.sh) | Starts Silo, waits for readiness, configures credentials and buckets under the retained storage-service identity. |
 
 Generated public trust files and restore/build working files belong to the installed copy, not the source kit.
+
+## Published CARE images and release lines
+
+[`images/`](../images) contains `lines.source.json`, the frontend runtime wrapper
+and runtime-key defaults, and scripts that prepare, verify and render publication
+metadata. Clinic machines download digest-pinned images; they do not check out
+CARE sources. The image publication workflow is still to be created separately
+from desktop CI. See [images and release lines](images-and-lines.md) for the file
+inventory and publication contract.
 
 ## Build and automation
 

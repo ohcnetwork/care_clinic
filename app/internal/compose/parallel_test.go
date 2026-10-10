@@ -14,26 +14,26 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
 
-type lines struct {
+type logLines struct {
 	mu  sync.Mutex
 	all []string
 }
 
-func (l *lines) add(s string) {
+func (l *logLines) add(s string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.all = append(l.all, s)
 }
 
-func (l *lines) snapshot() []string {
+func (l *logLines) snapshot() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return slices.Clone(l.all)
 }
 
-func parallelFixture(t *testing.T) (*Builder, *lines) {
+func parallelFixture(t *testing.T) (*Builder, *logLines) {
 	t.Helper()
-	log := &lines{}
+	log := &logLines{}
 	dir := t.TempDir()
 	return NewBuilder(proc.Runner{Dir: dir, Log: log.add}, dir, &release.Pins{}, log.add), log
 }

@@ -444,7 +444,7 @@ func TestOnboardingValidationDeduplicatesIssuesWithoutWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	for _, name := range []string{"docker", "git"} {
+	for _, name := range []string{"docker"} {
 		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
 			t.Fatal(err)
 		}

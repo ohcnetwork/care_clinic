@@ -49,9 +49,8 @@ func (a *App) validateSetup(name, password, backupDir string) []SetupIssue {
 		add("windows", message, wsl.Message)
 	}
 	docker := a.DockerStatus()
-	git := a.GitStatus()
-	if !docker.OK || !git.OK {
-		add("software", "The required software is no longer ready.", docker.Message+" "+git.Message)
+	if !docker.OK {
+		add("software", "The required software is no longer ready.", docker.Message)
 	}
 	if docker.OK {
 		report, err := a.scanResidue()

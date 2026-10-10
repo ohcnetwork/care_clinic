@@ -1,29 +1,43 @@
 package compose
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 
+	"github.com/compose-spec/compose-go/v2/dotenv"
+	"github.com/ohcnetwork/care_desktop/app/internal/lines"
 	"github.com/ohcnetwork/care_desktop/app/internal/plugins"
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+)
+
+const (
+	backendPluginsDockerfile  = "backend-plugins.Dockerfile"
+	frontendRebuildDockerfile = "frontend-rebuild.Dockerfile"
+	// PlaceholderPrefix marks a frontend setting the image fills in at start.
+	// It is URL-shaped so CARE's build-time validation accepts it for settings
+	// that must be URLs; images/frontend/configure matches the same pattern.
+	PlaceholderPrefix = "https://care-clinic.invalid/__CARE_CLINIC_"
 )
 
 type Builder struct {
 	Log  func(string)
 	Stop func() bool
 
-	dir string // install dir: the build context for the backup and Caddy images
+	dir string // install dir: holds the lock, manifest cache and Dockerfiles
 	set *release.Pins
 	run proc.Runner
 
 	pending bool
-	refs    map[string]string
+	staged  map[string]Release
 
 	owner   *Builder
 	groups  atomic.Int32
@@ -31,13 +45,21 @@ type Builder struct {
 }
 
 func NewBuilder(run proc.Runner, dir string, set *release.Pins, log func(string)) *Builder {
-	return &Builder{Log: log, dir: dir, set: set, run: run, refs: map[string]string{}}
+	return &Builder{Log: log, dir: dir, set: set, run: run}
 }
 
+// Pending returns a builder for the "-next" images of a staged update.
 func (b *Builder) Pending() *Builder {
 	next := NewBuilder(b.run, b.dir, b.set, b.Log)
 	next.pending = true
 	next.Stop = b.Stop
+	return next
+}
+
+// staging returns a Pending builder that builds the given releases.
+func (b *Builder) staging(releases map[string]Release) *Builder {
+	next := b.Pending()
+	next.staged = releases
 	return next
 }
 
@@ -48,65 +70,7 @@ func (b *Builder) suffixed(name string) string {
 	return name
 }
 
-func (b *Builder) ref(service, repo, configured string) string {
-	key := service + "\x00" + repo + "\x00" + configured
-	if got, ok := b.refs[key]; ok {
-		return got
-	}
-	got := b.pickRef(service, repo, configured)
-	b.refs[key] = got
-	return got
-}
-
-func (b *Builder) pickRef(service, repo, configured string) string {
-	if release.IsCommitRef(configured) {
-		return configured
-	}
-	lock := ReadLock(b.dir).Get(service)
-	onBranch := lock.Ref == configured && release.IsCommitRef(lock.Current)
-	if !b.pending && onBranch {
-		return lock.Current
-	}
-	if sha := head(b.run, repo, configured); sha != "" {
-		return sha
-	}
-	if onBranch {
-		b.logln("Couldn't reach the CARE " + service + " repository - keeping the version already installed.")
-		return lock.Current
-	}
-	return ""
-}
-
-func (b *Builder) resolved(service, repo, configured string) (string, error) {
-	ref := b.ref(service, repo, configured)
-	if !release.IsCommitRef(ref) {
-		return "", fmt.Errorf("couldn't work out which CARE %s commit %q points at; check the network connection and that the branch exists in %s", service, configured, repo)
-	}
-	return ref, nil
-}
-
 func (b *Builder) stopped() bool { return b.Stop != nil && b.Stop() }
-
-func (b *Builder) BackendRef() string {
-	return b.ref(Backend, b.set.BeRepo, b.set.BeRef)
-}
-
-func (b *Builder) FrontendRef() string {
-	return b.ref(Frontend, b.set.FeRepo, b.set.FeRef)
-}
-
-func (b *Builder) recordBuilt(service, configured, ref string) error {
-	return b.updateLock(service, func(c *Channel) {
-		if b.pending {
-			c.Next = ref
-			return
-		}
-		c.Ref, c.Current = configured, ref
-		if c.Next == ref {
-			c.Next, c.Declined = "", ""
-		}
-	})
-}
 
 func (b *Builder) logln(s string) {
 	if b.Log != nil {
@@ -114,136 +78,276 @@ func (b *Builder) logln(s string) {
 	}
 }
 
-func (b *Builder) source(repo, ref, label string) (string, error) {
-	dir := filepath.Join(b.dir, "src", label)
-	stamp := filepath.Join(dir, ".care-source")
-	want := b.sourceKey(repo, ref)
+func (b *Builder) linesSource() string { return lines.Source(b.set.LinesURL) }
 
-	if got, err := os.ReadFile(stamp); err == nil {
-		if strings.TrimSpace(string(got)) == want {
-			b.logln("Using the CARE " + label + " source already downloaded (" + ref + ").")
-			return dir, nil
-		}
-	} else if !os.IsNotExist(err) {
-		return "", err
+// LineID is the release line this clinic follows.
+func (b *Builder) LineID() string {
+	if id := ReadLock(b.dir).Line; id != "" {
+		return id
 	}
-	if err := os.RemoveAll(dir); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return "", err
-	}
-	ready := false
-	defer func() {
-		if !ready {
-			_ = os.RemoveAll(dir)
-		}
-	}()
-	b.logln("Downloading the CARE " + label + " source (" + ref + ")...")
-	if err := b.run.Run("git", "init", "--quiet", "--", dir); err != nil {
-		return "", err
-	}
-	if err := b.run.Run("git", "-C", dir, "remote", "add", "--", "origin", repo); err != nil {
-		return "", err
-	}
-	if err := b.run.Run("git", "-C", dir, "fetch", "--depth", "1", "--", "origin", ref); err != nil {
-		return "", err
-	}
-	if err := b.run.Run("git", "-C", dir, "checkout", "--detach", "FETCH_HEAD"); err != nil {
-		return "", err
-	}
-	if release.IsCommitRef(ref) {
-		head, err := b.run.Capture("git", "-C", dir, "rev-parse", "HEAD")
-		if err != nil {
-			return "", err
-		}
-		if !strings.EqualFold(head, ref) {
-			return "", fmt.Errorf("CARE %s checkout is %s, expected %s", label, head, ref)
-		}
-	}
-	if err := os.WriteFile(stamp, []byte(want), 0o644); err != nil {
-		return "", err
-	}
-	ready = true
-	return dir, nil
+	return b.set.DefaultLine
 }
 
-func (b *Builder) sourceKey(repo, ref string) string {
-	return b.set.AppVersion + "+" + ref + "+repo@" + shortHash([]byte(repo))
+// target picks the release a service should run, and the line it came from
+// when it was not already recorded in the lock.
+func (b *Builder) target(service string) (Release, string, error) {
+	if rel, ok := b.staged[service]; ok {
+		return rel, "", nil
+	}
+	c := ReadLock(b.dir).Get(service)
+	if b.pending {
+		if c.Next == nil {
+			return Release{}, "", fmt.Errorf("no CARE %s update is staged", service)
+		}
+		return *c.Next, "", nil
+	}
+	if c.Current.Image != "" {
+		return c.Current, "", nil
+	}
+	id := b.LineID()
+	m, err := lines.Load(b.dir, b.linesSource())
+	if err != nil {
+		return Release{}, "", fmt.Errorf("couldn't download the list of CARE releases; check the network connection: %w", err)
+	}
+	l, ok := m.Line(id)
+	if !ok {
+		return Release{}, "", fmt.Errorf("CARE release line %q is not published", id)
+	}
+	if err := l.SupportsApp(b.set.AppVersion); err != nil {
+		return Release{}, "", err
+	}
+	if service == Frontend {
+		return l.Frontend, id, nil
+	}
+	return l.Backend, id, nil
 }
 
-func (b *Builder) BuildBackend() error {
+func (b *Builder) recordCurrent(service string, rel Release, line string) error {
+	if b.pending {
+		return nil
+	}
+	err := b.updateLock(func(l *Lock) {
+		c := l.Get(service)
+		c.Current = rel
+		if c.Next != nil && c.Next.Image == rel.Image {
+			c.Next, c.Declined = nil, ""
+		}
+		l.Set(service, c)
+		if l.Line == "" && line != "" {
+			l.Line = line
+		}
+	})
+	if err == nil {
+		removeLegacySource(b.dir)
+	}
+	return err
+}
+
+// BackendRef is the CARE backend commit this builder targets.
+func (b *Builder) BackendRef() string {
+	rel, _, _ := b.target(Backend)
+	return rel.Commit
+}
+
+// FrontendRef is the CARE frontend commit this builder targets.
+func (b *Builder) FrontendRef() string {
+	rel, _, _ := b.target(Frontend)
+	return rel.Commit
+}
+
+type plan struct {
+	service string
+	rel     Release
+	line    string
+	tag     string
+	key     string
+	build   func() error
+}
+
+func (b *Builder) backendPlan() (plan, error) {
 	plugs, err := plugins.New(b.dir).AdditionalPlugs()
 	if err != nil {
-		return err
+		return plan{}, err
 	}
-	ref, err := b.resolved(Backend, b.set.BeRepo, b.set.BeRef)
+	rel, line, err := b.target(Backend)
 	if err != nil {
-		return err
+		return plan{}, err
 	}
-	key, err := b.backendBuiltFrom(plugs)
-	if err != nil {
-		return err
+	p := plan{service: Backend, rel: rel, line: line, tag: b.suffixed(b.set.BackendImage), key: rel.Image}
+	if plugs == "" {
+		p.build = func() error { return b.relabel(rel.Image, p.tag, p.key, "backend") }
+		return p, nil
 	}
-	src, err := b.source(b.set.BeRepo, ref, b.suffixed(Backend))
-	if err != nil {
-		return err
-	}
-	tag := b.suffixed(b.set.BackendImage)
-	b.logln("Building the backend image (" + tag + ")... (several minutes)")
-	df := filepath.Join(src, "docker", "prod.Dockerfile")
-	args := []string{"build", "-f", df, "-t", tag,
-		"--label", builtFromLabel + "=" + key}
-	if plugs != "" {
-		b.logln("Building with plugins (ADDITIONAL_PLUGS set)")
-		args = append(args, "--build-arg", "ADDITIONAL_PLUGS="+plugs)
-	}
-	args = append(args, src)
-	if err := b.run.Run("docker", args...); err != nil {
-		return err
-	}
-	return b.recordBuilt(Backend, b.set.BeRef, ref)
+	p.key += "+plugs@" + shortHash([]byte(plugs))
+	p.build = func() error { return b.buildBackendPlugins(rel, plugs, p.tag, p.key) }
+	return p, nil
 }
 
-func (b *Builder) EnsureBackendImage() error {
-	plugs, err := plugins.New(b.dir).AdditionalPlugs()
+func (b *Builder) buildBackendPlugins(rel Release, plugs, tag, key string) error {
+	if err := b.pull(rel.Builder); err != nil {
+		return err
+	}
+	if err := b.pull(rel.Image); err != nil {
+		return err
+	}
+	ctx, cleanup, err := emptyBuildContext(b.dir)
 	if err != nil {
 		return err
 	}
-	key, err := b.backendBuiltFrom(plugs)
-	if err != nil {
-		return err
-	}
-	return b.ensure(b.suffixed(b.set.BackendImage), key, Backend, b.BuildBackend)
+	defer cleanup()
+	b.logln("Adding plugins to the backend image (" + tag + ")... (a few minutes)")
+	return b.run.Run("docker", "build", "-f", filepath.Join(b.dir, backendPluginsDockerfile),
+		"--build-arg", "BACKEND_BUILDER="+rel.Builder,
+		"--build-arg", "BACKEND_IMAGE="+rel.Image,
+		"--build-arg", "ADDITIONAL_PLUGS="+plugs,
+		"--label", builtFromLabel+"="+key,
+		"-t", tag, ctx)
 }
 
-func (b *Builder) BackendImageCurrent() (bool, error) {
-	plugs, err := plugins.New(b.dir).AdditionalPlugs()
+func (b *Builder) rebuild(p plan, err error) error {
+	if err != nil {
+		return err
+	}
+	if err := p.build(); err != nil {
+		return err
+	}
+	return b.recordCurrent(p.service, p.rel, p.line)
+}
+
+func (b *Builder) ensurePlan(p plan, err error) error {
+	if err != nil {
+		return err
+	}
+	if err := b.ensure(p.tag, p.key, p.service, p.build); err != nil {
+		return err
+	}
+	return b.recordCurrent(p.service, p.rel, p.line)
+}
+
+func (b *Builder) current(p plan, err error) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	want, err := b.backendBuiltFrom(plugs)
+	got, ok, err := b.builtFrom(p.tag)
 	if err != nil {
 		return false, err
 	}
-	got, ok, err := b.builtFrom(b.suffixed(b.set.BackendImage))
-	if err != nil {
-		return false, err
-	}
-	return ok && got == want, nil
+	return ok && got == p.key, nil
 }
 
-func (b *Builder) backendBuiltFrom(plugs string) (string, error) {
-	ref, err := b.resolved(Backend, b.set.BeRepo, b.set.BeRef)
+// BuildBackend recreates the backend image even when it looks current.
+func (b *Builder) BuildBackend() error { return b.rebuild(b.backendPlan()) }
+
+func (b *Builder) EnsureBackendImage() error { return b.ensurePlan(b.backendPlan()) }
+
+func (b *Builder) BackendImageCurrent() (bool, error) { return b.current(b.backendPlan()) }
+
+func (b *Builder) frontendPlan() (plan, error) {
+	data, err := os.ReadFile(filepath.Join(b.dir, "frontend.env"))
 	if err != nil {
-		return "", err
+		return plan{}, err
 	}
-	out := b.sourceKey(b.set.BeRepo, ref)
-	if plugs != "" {
-		out += "+plugs@" + shortHash([]byte(plugs))
+	env, err := dotenv.Parse(bytes.NewReader(data))
+	if err != nil {
+		return plan{}, fmt.Errorf("frontend.env: %w", err)
 	}
-	return out, nil
+	rel, line, err := b.target(Frontend)
+	if err != nil {
+		return plan{}, err
+	}
+	p := plan{service: Frontend, rel: rel, line: line, tag: b.suffixed(b.set.FrontendImage), key: rel.Image}
+	merged, changed := BuildSettings(rel, env)
+	if !changed {
+		p.build = func() error { return b.relabel(rel.Image, p.tag, p.key, "frontend") }
+		return p, nil
+	}
+	p.key += "+env@" + shortHash([]byte(renderEnv(merged)))
+	p.build = func() error { return b.buildFrontend(rel, merged, p.tag, p.key) }
+	return p, nil
 }
+
+// BuildSettings merges the clinic's compile-time frontend settings into the
+// release's, reporting whether they differ so the bundle must be rebuilt.
+// Settings the image applies at start, and blank values, never force a rebuild.
+func BuildSettings(rel Release, env map[string]string) (map[string]string, bool) {
+	merged := make(map[string]string, len(rel.BuildEnv))
+	for k, v := range rel.BuildEnv {
+		merged[k] = v
+	}
+	changed := false
+	for k, v := range env {
+		if v == "" || slices.Contains(rel.RuntimeKeys, k) {
+			continue
+		}
+		if cur, ok := merged[k]; !ok || cur != v {
+			merged[k] = v
+			changed = true
+		}
+	}
+	return merged, changed
+}
+
+func (b *Builder) buildFrontend(rel Release, merged map[string]string, tag, key string) error {
+	if err := b.pull(rel.Builder); err != nil {
+		return err
+	}
+	if err := b.pull(rel.Image); err != nil {
+		return err
+	}
+	ctx, cleanup, err := emptyBuildContext(b.dir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	env := make(map[string]string, len(merged)+len(rel.RuntimeKeys))
+	for k, v := range merged {
+		env[k] = v
+	}
+	for _, k := range rel.RuntimeKeys {
+		env[k] = PlaceholderPrefix + k + "__"
+	}
+	if err := os.WriteFile(filepath.Join(ctx, "clinic.env"), []byte(renderEnv(env)), 0o644); err != nil {
+		return err
+	}
+	b.logln("Rebuilding the frontend with this clinic's build settings (" + tag + ")... (a few minutes)")
+	return b.run.Run("docker", "build", "-f", filepath.Join(b.dir, frontendRebuildDockerfile),
+		"--build-arg", "FRONTEND_BUILDER="+rel.Builder,
+		"--build-arg", "FRONTEND_IMAGE="+rel.Image,
+		"--label", builtFromLabel+"="+key,
+		"-t", tag, ctx)
+}
+
+// renderEnv writes a dotenv file with stable ordering.
+func renderEnv(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out strings.Builder
+	for _, k := range keys {
+		out.WriteString(k + "=" + quoteEnv(env[k]) + "\n")
+	}
+	return out.String()
+}
+
+func quoteEnv(v string) string {
+	v = strings.NewReplacer("\r", "", "\n", " ").Replace(v)
+	switch {
+	case !strings.Contains(v, "'"):
+		return "'" + v + "'"
+	case !strings.Contains(v, `"`):
+		return `"` + strings.ReplaceAll(v, `\`, `\\`) + `"`
+	}
+	return "`" + strings.ReplaceAll(v, "`", "") + "`"
+}
+
+// BuildFrontend recreates the frontend image even when it looks current.
+func (b *Builder) BuildFrontend() error { return b.rebuild(b.frontendPlan()) }
+
+func (b *Builder) EnsureFrontendImage() error { return b.ensurePlan(b.frontendPlan()) }
+
+func (b *Builder) FrontendImageCurrent() (bool, error) { return b.current(b.frontendPlan()) }
 
 func emptyBuildContext(parent string) (dir string, cleanup func(), err error) {
 	dir, err = os.MkdirTemp(parent, ".care-buildctx-")
@@ -253,7 +357,45 @@ func emptyBuildContext(parent string) (dir string, cleanup func(), err error) {
 	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
+const relabelDockerfile = "ARG IMAGE\nFROM ${IMAGE}\n"
+
+// relabel tags a published image locally, recording where it came from.
+func (b *Builder) relabel(src, tag, key, label string) error {
+	if err := b.pull(src); err != nil {
+		return err
+	}
+	ctx, cleanup, err := emptyBuildContext(b.dir)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	df := filepath.Join(ctx, "Dockerfile")
+	if err := os.WriteFile(df, []byte(relabelDockerfile), 0o644); err != nil {
+		return err
+	}
+	b.logln("Preparing the " + label + " image (" + tag + ")...")
+	return b.run.Run("docker", "build", "-f", df,
+		"--build-arg", "IMAGE="+src,
+		"--label", builtFromLabel+"="+key,
+		"-t", tag, ctx)
+}
+
+// pull downloads a published image unless it is already on this computer.
+func (b *Builder) pull(ref string) error {
+	if _, err := b.run.Capture("docker", "image", "inspect", "--format", "{{.Id}}", ref); err == nil {
+		return nil
+	}
+	b.logln("Downloading " + ref + "...")
+	if err := b.run.Run("docker", "pull", ref); err != nil {
+		return fmt.Errorf("couldn't download %s; check the network connection: %w", ref, err)
+	}
+	return nil
+}
+
 func (b *Builder) BuildBackup() error {
+	if src := b.set.BackupPrebuilt; src != "" {
+		return b.relabel(src, b.set.BackupImage, src, "backup")
+	}
 	key, err := b.backupBuiltFrom()
 	if err != nil {
 		return err
@@ -280,6 +422,9 @@ func (b *Builder) EnsureBackupImage() error {
 }
 
 func (b *Builder) backupBuiltFrom() (string, error) {
+	if b.set.BackupPrebuilt != "" {
+		return b.set.BackupPrebuilt, nil
+	}
 	df, err := os.ReadFile(filepath.Join(b.dir, "backup.Dockerfile"))
 	if err != nil {
 		return "", err
@@ -288,6 +433,9 @@ func (b *Builder) backupBuiltFrom() (string, error) {
 }
 
 func (b *Builder) BuildCaddy() error {
+	if src := b.set.CaddyWafPrebuilt; src != "" {
+		return b.relabel(src, b.set.CaddyWafImage, src, "Caddy + WAF")
+	}
 	key, err := b.caddyBuiltFrom()
 	if err != nil {
 		return err
@@ -307,6 +455,9 @@ func (b *Builder) BuildCaddy() error {
 }
 
 func (b *Builder) caddyBuiltFrom() (string, error) {
+	if b.set.CaddyWafPrebuilt != "" {
+		return b.set.CaddyWafPrebuilt, nil
+	}
 	df, err := os.ReadFile(filepath.Join(b.dir, "caddy.Dockerfile"))
 	if err != nil {
 		return "", err
@@ -320,55 +471,6 @@ func (b *Builder) EnsureCaddyImage() error {
 		return err
 	}
 	return b.ensure(b.set.CaddyWafImage, key, "caddy", b.BuildCaddy)
-}
-
-func (b *Builder) BuildFrontend() error {
-	env, err := os.ReadFile(filepath.Join(b.dir, "frontend.env"))
-	if err != nil {
-		return err
-	}
-	ref, err := b.resolved(Frontend, b.set.FeRepo, b.set.FeRef)
-	if err != nil {
-		return err
-	}
-	key, err := b.frontendBuiltFrom(env)
-	if err != nil {
-		return err
-	}
-	src, err := b.source(b.set.FeRepo, ref, b.suffixed(Frontend))
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(src, ".env.local"), env, 0o644); err != nil {
-		return err
-	}
-	tag := b.suffixed(b.set.FrontendImage)
-	b.logln("Building the frontend image (" + tag + ")... (a few minutes)")
-	if err := b.run.Run("docker", "build", "-t", tag,
-		"--label", builtFromLabel+"="+key, src); err != nil {
-		return err
-	}
-	return b.recordBuilt(Frontend, b.set.FeRef, ref)
-}
-
-func (b *Builder) frontendBuiltFrom(env []byte) (string, error) {
-	ref, err := b.resolved(Frontend, b.set.FeRepo, b.set.FeRef)
-	if err != nil {
-		return "", err
-	}
-	return b.sourceKey(b.set.FeRepo, ref) + "+env@" + shortHash(env), nil
-}
-
-func (b *Builder) EnsureFrontendImage() error {
-	env, err := os.ReadFile(filepath.Join(b.dir, "frontend.env"))
-	if err != nil {
-		return err
-	}
-	key, err := b.frontendBuiltFrom(env)
-	if err != nil {
-		return err
-	}
-	return b.ensure(b.suffixed(b.set.FrontendImage), key, Frontend, b.BuildFrontend)
 }
 
 func shortHash(b []byte) string {
@@ -389,8 +491,8 @@ func (b *Builder) ensure(tag, want, label string, build func() error) error {
 	case got == want:
 		return nil
 	}
-	b.logln("The " + label + " image was built from " + quoteOrUnknown(got) +
-		", but this release expects " + want + " - rebuilding.")
+	b.logln("The " + label + " image came from " + quoteOrUnknown(got) +
+		", but this release expects " + want + " - replacing it.")
 	if err := build(); err != nil {
 		return err
 	}

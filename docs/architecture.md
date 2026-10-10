@@ -11,7 +11,7 @@ not when the question is asked, and it is not an ordinary role switch.
 Server mode owns the stack and advertises the clinic's `.local` name. Client
 mode connects to the address shown on the server, removes what an earlier CARE
 left on the computer, installs certificate trust through native OS approval,
-verifies HTTPS, and opens the clinical browser application. It does not provision Docker/Git or advertise mDNS. See
+verifies HTTPS, and opens the clinical browser application. It does not provision Docker or advertise mDNS. See
 [native bootstrap and its trust-on-first-use limitation](native-integrations.md#native-client-setup-and-trust-on-first-use).
 Multiple separately named servers are valid; this is not a network-wide
 single-clinic enforcement system.
@@ -104,11 +104,12 @@ decides. Actual OS privilege prompts still belong to the native integrations.
 | Package | Question it answers |
 | --- | --- |
 | `backup` | Which backups and keys exist, and how can data be safely restored? |
-| `compose` | Which images need building, and from which exact inputs? |
+| `compose` | Which published images or local customizations are needed, and from which exact inputs? |
+| `lines` | Which release lines, digest-pinned images and app-version ranges does the manifest publish? |
 | `health` | Is the clinic HTTP endpoint responding, and is the HTTPS port usable? |
 | `plugins` | Which plugin configuration is active, and which validated draft is staged for application? |
-| `prereq` | Are Docker and Git usable, and how can the user obtain or start them? Supplies the Docker engine through Rancher Desktop on macOS/Windows and native Docker Engine on Linux. |
-| `release` | Which version, sources, and image references does this executable ship? |
+| `prereq` | Is Docker usable, and how can the user obtain or start it? Supplies the Docker engine through Rancher Desktop on macOS/Windows and native Docker Engine on Linux. |
+| `release` | Which version, release-line settings, and image references does this executable ship? |
 | `residue` | What resources from an earlier installation remain? |
 
 ### OS primitives: `internal/sys`
@@ -192,7 +193,7 @@ See [the job protocol](wails-application.md#concurrency-and-job-protocol) for co
 | Fixed installation location | Avoid unsupported file-sharing, removable-drive, cloud-sync, and path-layout combinations. | Moving the executable or kit is not a way to move Docker's patient-data volumes. |
 | Separate release pins from clinic settings | Reproducibility and operator customization have different owners. | Change `deployments/.env` for shipped versions; use installed environment files for clinic configuration. |
 | Preserve editable environments during kit refresh | App upgrades must not erase operator settings. | New defaults in a template are not automatically merged into an existing clinic's preserved file. |
-| Full source commits for releases | A moving branch must not silently change an installed clinic. | Development refs require a `-dev` version; release packaging has stricter checks. |
+| Digest-pinned CARE images and release lines | An upstream change must not silently replace a running clinic. | `line.json` records current and staged images; fixes are staged within a line and newer lines require an explicit upgrade. See [images and lines](images-and-lines.md). |
 | Local image freshness fingerprints | Decide whether a build is necessary from explicit inputs and local images. | New build inputs must participate in the freshness contract. |
 | Named Docker volumes and stable project identity | Data ownership must survive working-directory changes. | Renaming services or volumes is a data migration decision, not cosmetic cleanup. |
 | Atomic file replacement | A partially written configuration can turn a recoverable failure into an unbootable app. | Use the shared primitive; retain its error handling and platform-specific replacement. |

@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"runtime"
-	"strings"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 )
@@ -26,10 +25,9 @@ func downloadError(err error) error {
 }
 
 const (
-	rancherReleases    = "https://github.com/rancher-sandbox/rancher-desktop/releases/download/v"
-	gitWindowsReleases = "https://github.com/git-for-windows/git/releases/download/v"
-	dockerLinuxStatic  = "https://download.docker.com/linux/static/stable/"
-	composeReleases    = "https://github.com/docker/compose/releases/download/v"
+	rancherReleases   = "https://github.com/rancher-sandbox/rancher-desktop/releases/download/v"
+	dockerLinuxStatic = "https://download.docker.com/linux/static/stable/"
+	composeReleases   = "https://github.com/docker/compose/releases/download/v"
 )
 
 type Download struct {
@@ -89,16 +87,6 @@ func rancherDownload(p *release.Pins, goos, goarch string) (Download, error) {
 			goos, goarch, rancherPageURL)
 	}
 	return Download{Name: name, URL: rancherReleases + p.RancherVersion + "/" + name, SHA256: sum}, nil
-}
-
-func gitWindowsDownload(p *release.Pins) Download {
-	base, build, _ := strings.Cut(p.GitWindowsVersion, ".windows.")
-	name := "Git-" + base
-	if build != "1" {
-		name += "." + build
-	}
-	name += "-64-bit.exe"
-	return Download{Name: name, URL: gitWindowsReleases + p.GitWindowsVersion + "/" + name, SHA256: p.GitWindowsSHA256}
 }
 
 func linuxArch(goarch string) (string, bool) {

@@ -13,7 +13,7 @@ import type { DownloadInfo, PrereqDownloadProgress, ResidueReport } from "@/type
 import { INSTALL_MIN_FREE, SOFTWARE_DESCRIPTIONS, type RequirementPage } from "./setup-model";
 import type { SetupChecks } from "./use-setup-checks";
 
-export type RequirementAction = "windows" | "software" | "docker" | "git" | "cleanup" | "network";
+export type RequirementAction = "windows" | "software" | "docker" | "cleanup" | "network";
 
 export function RequirementStep({ page, checks, busy, tool, download, actionError, actionNote, cleanupBefore, onAction, onCheck, onRestart }: {
   page: RequirementPage;
@@ -52,6 +52,11 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
   const ready = check.state === "ready";
   const checking = check.state === "waiting" || check.state === "checking";
   const disk = checks.space.value;
+  const software = checks.software.value;
+  const softwareStatus = software?.docker;
+  const softwareActive = tool === "docker";
+  const softwarePlan = software?.dockerPlan;
+  const softwareTone = softwareStatus?.ok ? "ok" : tool ? "" : "bad";
   const settingsDrive = !!disk && /settings/.test(disk.how);
   const footer = (label = "Check again") => <Button disabled={busy} onClick={onCheck}><RefreshCw aria-hidden="true" />{label}</Button>;
 
@@ -90,34 +95,25 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
       ) : page === "software" ? (
         <>
           <div className="on-card">
-            {(["docker", "git"] as const).map((id) => {
-              const software = checks.software.value;
-              const status = software?.[id];
-              const name = id === "docker" ? engine : "Git";
-              const active = tool === id;
-              const plan = id === "docker" ? software?.dockerPlan : software?.gitPlan;
-              const tone = status?.ok ? "ok" : tool ? "" : "bad";
-              return <div className="on-data-row" key={id}>
-                <span className={tone === "bad" ? "on-tile on-bad" : "on-tile"}>{active ? <Spinner /> : status?.ok ? <Check /> : <Download />}</span>
-                <div className="on-grow"><strong>{name}</strong>
-                  <p>{SOFTWARE_DESCRIPTIONS[id]}</p>
-                  {active ? <p role="status">{download?.phase === "downloading" ? `${diskSize(download.done)}${download.total > 0 ? ` of ${diskSize(download.total)}` : ""} downloaded`
-                    : download?.phase === "verifying" ? "Checking the downloaded file"
-                    : download?.phase === "complete" ? "Downloaded — installing now"
-                    : plan?.action === "open" ? "Starting — this can take a minute" : "Preparing the installation"}</p> : null}
-                  {active && download ? <Progress className="on-progress" aria-label={`${name} download progress`} value={download.total > 0 ? Math.max(0, Math.min(100, download.done / download.total * 100)) : null} /> : null}
-                </div>
-                <StatusBadge tone={tone}>{active ? "Working" : status?.ok ? "Available" : tool ? "Waiting" : "Needs setup"}</StatusBadge>
-              </div>;
-            })}
+            <div className="on-data-row">
+              <span className={softwareTone === "bad" ? "on-tile on-bad" : "on-tile"}>{softwareActive ? <Spinner /> : softwareStatus?.ok ? <Check /> : <Download />}</span>
+              <div className="on-grow"><strong>{engine}</strong>
+                <p>{SOFTWARE_DESCRIPTIONS.docker}</p>
+                {softwareActive ? <p role="status">{download?.phase === "downloading" ? `${diskSize(download.done)}${download.total > 0 ? ` of ${diskSize(download.total)}` : ""} downloaded`
+                  : download?.phase === "verifying" ? "Checking the downloaded file"
+                  : download?.phase === "complete" ? "Downloaded — installing now"
+                  : softwarePlan?.action === "open" ? "Starting — this can take a minute" : "Preparing the installation"}</p> : null}
+                {softwareActive && download ? <Progress className="on-progress" aria-label={`${engine} download progress`} value={download.total > 0 ? Math.max(0, Math.min(100, download.done / download.total * 100)) : null} /> : null}
+              </div>
+              <StatusBadge tone={softwareTone}>{softwareActive ? "Working" : softwareStatus?.ok ? "Available" : tool ? "Waiting" : "Needs setup"}</StatusBadge>
+            </div>
           </div>
           {!ready && !tool ? <Callout title={checks.software.value?.dockerPlan?.action === "open" ? `${engine} isn't running, so the clinic can't be installed` : "Install the software CARE needs"}>
             {checks.software.value?.dockerPlan?.action === "open" ? "Starting it takes about a minute."
               : <>Keep this computer connected to the internet. Your computer may ask for permission. {previewNeeded ? downloadInfo ? `${engine} download: ${diskSize(downloadInfo.size)}.` : sizeError ? "The download size couldn't be checked." : "Checking the download size…" : ""}</>}
-            {platform === "darwin" && !checks.software.value?.git.ok ? <p style={{ marginTop: 8 }}>For Git, your Mac will show its own window — choose Install. Once it's done, choose Continue here.</p> : null}
             <div className="on-actions">
               <Button variant="primary" disabled={busy || !!previewNeeded && !downloadInfo} onClick={() => onAction("software")}>
-                {checks.software.value?.dockerPlan?.action === "open" ? `Start ${engine}` : checks.software.value?.dockerPlan?.action === "manual" ? `Get ${engine}` : checks.software.value?.docker.ok ? "Install Git" : "Install them"}
+                {checks.software.value?.dockerPlan?.action === "open" ? `Start ${engine}` : checks.software.value?.dockerPlan?.action === "manual" ? `Get ${engine}` : `Install ${engine}`}
               </Button>
               {footer()}
             </div>

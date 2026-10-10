@@ -22,6 +22,7 @@ application's own user or API documentation.
 | [Wails application and API](wails-application.md) | Process startup, background jobs, concurrency, authorization, all bound methods, and events. |
 | [Configuration and settings](configuration-and-settings.md) | The installed directory, persisted configuration, environment files, plugins, and settings changes. |
 | [Plugins](plugins.md) | How CARE loads backend and frontend plugins, the `catalog.yml` format, and how CARE Clinic installs and syncs them. |
+| [CARE images and release lines](images-and-lines.md) | Published images, runtime and compiled settings, release-line manifests, and explicit line upgrades. |
 | [Clinic lifecycle and deployment](clinic-lifecycle.md) | Setup, image builds, starting, migrations, service relationships, and stopping. |
 | [Backups and restore](backups-and-restore.md) | Encryption, key preservation, scheduling, retention, staged restore, and interruption recovery. |
 | [Cleanup and uninstall](cleanup-and-uninstall.md) | What each removal operation deletes or preserves, ownership checks, and partial-cleanup recovery. |
@@ -48,7 +49,7 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | "What happens if restore or uninstall is interrupted?" | [Backups and restore](backups-and-restore.md) and [cleanup and uninstall](cleanup-and-uninstall.md). |
 | "How do I add a plugin to the catalog?" | [Plugins](plugins.md#adding-a-catalog-entry). |
 | "The app works here but not on another device." | [Native integrations](native-integrations.md). |
-| "How do staff computers connect without Docker or Git?" | [Native client setup and initial trust](native-integrations.md#native-client-setup-and-trust-on-first-use). |
+| "How do staff computers connect without Docker?" | [Native client setup and initial trust](native-integrations.md#native-client-setup-and-trust-on-first-use). |
 | "This client previously hosted CARE and now cannot reach another server." | [Client recovery and earlier-install cleanup](client-recovery.md). |
 | "How do I reproduce the installed version?" | [Release identity](development-and-release.md#release-identity-and-pins). |
 | "How do I release a new version?" | [Release runbook](releases.md). |

@@ -28,15 +28,16 @@ const cases = [
   {name: "manual release"},
   {name: "version bump", pins: change("CARE_CLINIC_VERSION", "1.2.3"), version: "1.2.3"},
   {name: "invalid version", pins: change("CARE_CLINIC_VERSION", "01.2.3"), fails: true},
-  {name: "branch backend", pins: change("CARE_BE_REF", "develop")},
-  {name: "branch frontend", pins: change("CARE_FE_REF", "develop")},
-  {name: "empty backend ref", pins: change("CARE_BE_REF", ""), fails: true},
-  {name: "backend ref with spaces", pins: change("CARE_BE_REF", "not a ref"), fails: true},
+  {name: "another line", pins: change("CARE_DEFAULT_LINE", "v3.1")},
+  {name: "empty line", pins: change("CARE_DEFAULT_LINE", ""), fails: true},
+  {name: "line with spaces", pins: change("CARE_DEFAULT_LINE", "not a line"), fails: true},
+  {name: "plain-text manifest", pins: change("CARE_LINES_URL", "http://example.com/lines.json"), fails: true},
+  {name: "missing manifest", pins: change("CARE_LINES_URL", ""), fails: true},
   {name: "development version", pins: change("CARE_CLINIC_VERSION", version + "-dev"), fails: true},
   {name: "missing version", pins: pins.replace(/^CARE_CLINIC_VERSION=.*\n/m, ""), fails: true},
   {name: "duplicate version", pins: pins + "\nCARE_CLINIC_VERSION=" + version + "\n", fails: true},
   {name: "empty duplicate version", pins: pins + "\nCARE_CLINIC_VERSION=\n", fails: true},
-  {name: "duplicate frontend", pins: pins + "\nCARE_FE_REF=\n", fails: true},
+  {name: "duplicate line", pins: pins + "\nCARE_DEFAULT_LINE=\n", fails: true},
 ];
 for (const test of cases) {
   let output = "";

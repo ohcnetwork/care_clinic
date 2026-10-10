@@ -4,7 +4,6 @@ import type { SetupPage, SetupRecoveryStatus } from "@/types";
 export const INSTALL_MIN_FREE = 30 * 2 ** 30;
 export const SOFTWARE_DESCRIPTIONS = {
   docker: "Runs the clinic software on this computer.",
-  git: "Downloads the clinic software and its updates.",
 };
 
 export type RequirementPage = "space" | "windows" | "software" | "cleanup" | "network";

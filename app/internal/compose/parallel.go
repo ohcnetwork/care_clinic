@@ -95,6 +95,7 @@ func (b *Builder) worker(ctx context.Context, label string) *Builder {
 	w.run.Log = prefixed(label, b.run.Log)
 	w.Stop = b.Stop
 	w.pending = b.pending
+	w.staged = b.staged
 	w.owner = b
 	return w
 }

@@ -12,7 +12,6 @@ type Results = { [K in Method]: Awaited<ReturnType<Host[K]>> };
 type Fixtures = {
   disk: DiskStatus;
   docker: DockerStatus;
-  git: DockerStatus;
   wsl: NetworkStatus;
   network: NetworkStatus;
   restart: RestartPlan;
@@ -119,7 +118,6 @@ export function installTestHost() {
   const fixtures: Fixtures = {
     disk: { ok: true, message: "212 GB free", how: "", free: 212 * 2 ** 30, need: 30 * 2 ** 30 },
     docker: { ok: true, message: "" },
-    git: { ok: true, message: "" },
     wsl: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     restart: { needed: false, title: "Restart Windows to finish", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
@@ -144,7 +142,7 @@ export function installTestHost() {
       backup: backupSpace, last_run: { state: "ok", reason: "", at: now - 3_600, need_bytes: 0, free_bytes: 0, message: "" },
       newest_backup_at: now - 3_600, stale: false,
     },
-    channel: { backend_branch: "main", frontend_branch: "main", backend: "preview-backend-current", frontend: "preview-frontend-current", pending_backend: "", pending_frontend: "" },
+    channel: { line: { id: "2026.1", title: "CARE 2026.1", expired: false }, newer_lines: [], backend: "preview-backend-current", frontend: "preview-frontend-current", pending_backend: "", pending_frontend: "" },
     autostart: true,
     importedBackup: { path: `${backupDir}/${exampleBackup.db_dump}`, dir: backupDir, db_dump: exampleBackup.db_dump, files_archive: exampleBackup.files_archive, label: exampleBackup.label, encrypted: true },
     recoveryFile: "/test-fixtures/recovery/CARE-backup-recovery.pem",
@@ -179,7 +177,7 @@ export function installTestHost() {
     fixtures.network.applicable = true;
     fixtures.network.ok = false;
   }
-  if (scenario === "setup-software") { fixtures.docker.ok = false; fixtures.git.ok = false; }
+  if (scenario === "setup-software") { fixtures.docker.ok = false; }
   if (scenario === "setup-cleanup") fixtures.residue = { clean: false, traces: [
     { id: "containers", label: "Containers and volumes from the earlier clinic", detail: "" },
     { id: "images", label: "Images Rancher Desktop downloaded", detail: "" },
@@ -219,7 +217,7 @@ export function installTestHost() {
     fixtures.storage.level = "critical";
     fixtures.storage.headline = "Space for the clinic is running low.";
   }
-  if (scenario === "panel-requirements") { fixtures.docker.ok = false; fixtures.git.ok = false; }
+  if (scenario === "panel-requirements") { fixtures.docker.ok = false; }
   if (scenario === "panel-update") fixtures.channel.pending_backend = "preview-backend-next";
   const available = ["available", "downloading", "installing", "verifying", "restarting", "installer", "failed", "download-failed", "unavailable"].includes(scenario);
   let update: AppUpdate = {
@@ -235,6 +233,7 @@ export function installTestHost() {
   const emit = (event: string, ...data: unknown[]) => {
     listeners.get(event)?.forEach((handler) => handler(...data));
   };
+  let stagedLine: ChannelStatus["line"] | null = null;
   let stagedPlugins: CarePlugin[] | null = null;
   const finishJob = (action: string, error?: string) => {
     if (action === "apply-plugins") {
@@ -246,13 +245,20 @@ export function installTestHost() {
       const title = action === "restore" ? "Restore didn't finish" : action === "backup-now" ? "Backup didn't finish" : "CARE couldn't finish that";
       if (action !== "setup") emit("care-error", title, error);
     } else {
-      if (["start", "restart", "update", "restore"].includes(action)) {
+      if (["start", "restart", "update", "upgrade-line", "restore"].includes(action)) {
         fixtures.health = { active: true, code: 200, detail: "" };
         fixtures.clinicStatus = "backend\nfrontend\ndb\nbackup";
       }
       if (action === "stop") { fixtures.health.active = false; fixtures.clinicStatus = ""; }
       if (action === "restore") state.restore_pending = false;
-      if (action === "update") {
+      if (action === "upgrade-line" && stagedLine) {
+        fixtures.channel.line = stagedLine;
+        fixtures.channel.newer_lines = fixtures.channel.newer_lines.filter((line) => line.id !== stagedLine!.id);
+        fixtures.channel.pending_line = "";
+        fixtures.channel.recommended = "";
+        stagedLine = null;
+      }
+      if (action === "update" || action === "upgrade-line") {
         fixtures.channel.backend = fixtures.channel.pending_backend || fixtures.channel.backend;
         fixtures.channel.frontend = fixtures.channel.pending_frontend || fixtures.channel.frontend;
         fixtures.channel.pending_backend = "";
@@ -302,11 +308,11 @@ export function installTestHost() {
     if (state.role !== "server") throw new Error("This operation requires the server role.");
   };
   const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-  const softwarePlan = (id: "docker" | "git"): ToolPlan => ({
-    action: "install", label: `Install ${id === "docker" ? "Rancher Desktop" : "Git"}`,
-    detail: "Simulated installation only.", url: "", download_preview: id === "docker",
+  const softwarePlan = (): ToolPlan => ({
+    action: "install", label: "Install Rancher Desktop",
+    detail: "Simulated installation only.", url: "", download_preview: true,
   });
-  const installSoftware = async (id: "docker" | "git") => {
+  const installSoftware = async (id: "docker") => {
     requireServer();
     for (const phase of ["connecting", "downloading", "verifying", "complete"] as const) {
       emit("prereq-download-progress", { name: id, phase, done: phase === "downloading" ? 263e6 : 612e6, total: 612e6 });
@@ -368,7 +374,6 @@ export function installTestHost() {
       };
     },
     DockerStatus: async () => ({ ...fixtures.docker }),
-    GitStatus: async () => ({ ...fixtures.git }),
     WSLStatus: async () => ({ ...fixtures.wsl }),
     NetworkStatus: async () => ({ ...fixtures.network }),
     DiskStatus: async () => ({ ...fixtures.disk }),
@@ -431,13 +436,24 @@ export function installTestHost() {
     AutostartEnabled: async () => fixtures.autostart,
     SetAutostart: async (value: boolean) => { fixtures.autostart = value; },
     WasAutostartLaunched: async () => false,
-    CareUpdateStatus: async () => ({ ...fixtures.channel }),
+    CareUpdateStatus: async () => structuredClone(fixtures.channel),
+    UpgradeCareLine: async (id: string) => {
+      requireServer();
+      if (state.restore_pending) throw new Error("a restore is unfinished");
+      const line = fixtures.channel.newer_lines.find((line) => line.id === id);
+      if (!line) throw new Error("unknown CARE release line");
+      stagedLine = { ...line };
+      fixtures.channel.pending_line = id;
+      fixtures.channel.pending_backend = "preview-backend-upgraded";
+      fixtures.channel.pending_frontend = "preview-frontend-upgraded";
+      acceptJob("upgrade-line");
+    },
     CheckCareUpdate: async () => {
       emit("care-check", { running: true, found: false });
       window.setTimeout(() => {
-        const update = { backend: fixtures.channel.pending_backend, frontend: fixtures.channel.pending_frontend };
-        emit("care-check", { running: false, found: !!(update.backend || update.frontend) });
-        if (update.backend || update.frontend) emit("care-update", update);
+        const update = { backend: fixtures.channel.pending_backend, frontend: fixtures.channel.pending_frontend, newer_line: fixtures.channel.newer_lines[0]?.id };
+        emit("care-check", { running: false, found: !!(update.backend || update.frontend || update.newer_line) });
+        if (update.backend || update.frontend || update.newer_line) emit("care-update", update);
       }, 150);
     },
     DismissCareUpdate: async () => { logs.push("Test only: the update was deferred until next start."); },
@@ -555,11 +571,9 @@ export function installTestHost() {
       fixtures.setupStarted = false;
       fixtures.residue = { clean: true, traces: [] };
     },
-    DockerPlan: async () => softwarePlan("docker"),
-    GitPlan: async () => softwarePlan("git"),
+    DockerPlan: async () => softwarePlan(),
     RancherDownloadInfo: async () => ({ name: "Rancher Desktop preview", size: 612e6 }),
     InstallDocker: () => installSoftware("docker"),
-    InstallGit: () => installSoftware("git"),
     OpenDocker: async () => { requireServer(); fixtures.docker.ok = true; },
     InstallWSL: async () => { requireServer(); fixtures.wsl.ok = true; return ""; },
     FixNetwork: async () => { requireServer(); fixtures.network.ok = true; },
@@ -576,7 +590,7 @@ export function installTestHost() {
       const result: SetupIssue[] = [];
       if (!fixtures.disk.ok || !fixtures.disk.need) result.push({ step: "space", message: "Space has run low since you checked." });
       if (fixtures.wsl.applicable && (!fixtures.wsl.ok || fixtures.restart.needed)) result.push({ step: "windows", message: "Windows still needs to restart." });
-      if (!fixtures.docker.ok || !fixtures.git.ok) result.push({ step: "software", message: "The required software is no longer ready." });
+      if (!fixtures.docker.ok) result.push({ step: "software", message: "The required software is no longer ready." });
       if (!fixtures.residue.clean) result.push({ step: "cleanup", message: "Something from the earlier setup is back." });
       if (fixtures.network.applicable && !fixtures.network.ok) result.push({ step: "network", message: "This network is set to Public again." });
       if (fixtures.addressTaken || await methods.ValidateDomain(name)) result.push({ step: "address", message: "The clinic address needs another look." });

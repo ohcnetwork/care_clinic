@@ -20,7 +20,7 @@ import type { DownloadInfo, PrereqDownloadProgress, RestartPlan, ToolPlan } from
 import { PanelBadge, PanelLogButton, PanelNotice } from "./panel-ui";
 import { usePanelUpdateLock } from "./panel-update-lock";
 
-type CheckId = "wsl" | "docker" | "git" | "network" | "disk" | "address" | "clinic";
+type CheckId = "wsl" | "docker" | "network" | "disk" | "address" | "clinic";
 type CheckState = "ready" | "bad" | "unknown" | "waiting";
 type Fix = {
   label: string;
@@ -38,10 +38,10 @@ export type PanelCheck = {
 };
 
 const TITLES: Record<CheckId, string> = {
-  wsl: "WSL 2", docker: "Rancher Desktop", git: "Git", network: "Network profile",
+  wsl: "WSL 2", docker: "Rancher Desktop", network: "Network profile",
   disk: "Enough free space", address: "Clinic address", clinic: "Clinic software",
 };
-const CORE = new Set<CheckId>(["wsl", "docker", "git", "network"]);
+const CORE = new Set<CheckId>(["wsl", "docker", "network"]);
 
 function useChecks() {
   const { platform, mdnsName, busy, busyLabel, operationError, restorePending, runAction, refresh, setTab, log } = useCare();
@@ -63,22 +63,18 @@ function useChecks() {
   const busyRef = useRef(busy);
   busyRef.current = busy;
 
-  const toolFix = useCallback((id: "docker" | "git", plan?: ToolPlan): Fix | undefined => {
+  const toolFix = useCallback((plan?: ToolPlan): Fix | undefined => {
     if (!plan || !plan.action) return undefined;
     if (plan.action === "manual") return plan.url ? {
-      label: `Open ${id === "docker" ? "Rancher Desktop" : "Git"} download page`,
-      run: () => bridge.OpenURL(plan.url),
+      label: "Open Rancher Desktop download page", run: () => bridge.OpenURL(plan.url),
     } : undefined;
-    if (plan.action === "open") return id === "docker"
-      ? {
-        label: "Start Rancher Desktop", run: () => bridge.OpenDocker(),
-        progress: "Starting Rancher Desktop — this can take a minute.",
-      }
-      : undefined;
+    if (plan.action === "open") return {
+      label: "Start Rancher Desktop", run: () => bridge.OpenDocker(),
+      progress: "Starting Rancher Desktop — this can take a minute.",
+    };
     return {
-      label: `Install ${id === "docker" ? "Rancher Desktop" : "Git"}`,
-      run: () => id === "docker" ? bridge.InstallDocker() : bridge.InstallGit(),
-      preview: id === "docker" && plan.download_preview,
+      label: "Install Rancher Desktop", run: () => bridge.InstallDocker(),
+      preview: plan.download_preview,
     };
   }, []);
 
@@ -91,9 +87,8 @@ function useChecks() {
     };
     setChecking(true);
     const work = async () => {
-      const [docker, git, wsl, network, space, address, health, reboot] = await Promise.all([
+      const [docker, wsl, network, space, address, health, reboot] = await Promise.all([
         read("Rancher Desktop check", () => bridge.DockerStatus()),
-        read("Git check", () => bridge.GitStatus()),
         platform === "windows" ? read("WSL check", () => bridge.WSLStatus()) : undefined,
         platform === "windows" ? read("network check", () => bridge.NetworkStatus()) : undefined,
         read("space check", () => bridge.DiskStatus()),
@@ -102,19 +97,16 @@ function useChecks() {
         platform === "windows" ? read("restart check", () => bridge.RestartPlan()) : undefined,
       ]);
       for (const [name, status] of [
-        ["Rancher Desktop", docker], ["Git", git], ["WSL 2", wsl],
+        ["Rancher Desktop", docker], ["WSL 2", wsl],
         ["Network", network], ["Space", space], ["Address", address],
       ] as const) {
         if (status && !status.ok && status.message) log(`${name}: ${status.message}`);
       }
       if (health && !health.active && health.detail) log(`clinic health: ${health.detail}`);
-      const [dockerPlan, gitPlan] = await Promise.all([
-        docker && !docker.ok ? read("Rancher Desktop plan", () => bridge.DockerPlan()) : undefined,
-        git && !git.ok ? read("Git plan", () => bridge.GitPlan()) : undefined,
-      ]);
+      const dockerPlan = docker && !docker.ok ? await read("Rancher Desktop plan", () => bridge.DockerPlan()) : undefined;
       const unknown = (id: CheckId): PanelCheck => ({
         id, title: TITLES[id], state: "unknown",
-        detail: id === "docker" || id === "git" ? SOFTWARE_DESCRIPTIONS[id]
+        detail: id === "docker" ? SOFTWARE_DESCRIPTIONS[id]
           : "Couldn't check this. Check again, or share the log file with support.",
       });
       const next: PanelCheck[] = [];
@@ -135,14 +127,9 @@ function useChecks() {
       next.push(!docker ? unknown("docker") : {
         id: "docker", title: TITLES.docker, state: docker.ok ? "ready" : "bad",
         detail: SOFTWARE_DESCRIPTIONS.docker,
-        action: docker.ok ? undefined : toolFix("docker", dockerPlan),
+        action: docker.ok ? undefined : toolFix(dockerPlan),
         blocked: next.some((check) => check.id === "wsl" && check.state !== "ready")
           ? "Finish the WSL 2 step first." : undefined,
-      });
-      next.push(!git ? unknown("git") : {
-        id: "git", title: TITLES.git, state: git.ok ? "ready" : "bad",
-        detail: SOFTWARE_DESCRIPTIONS.git,
-        action: git.ok ? undefined : toolFix("git", gitPlan),
       });
       if (platform === "windows" && (!network || network.applicable)) {
         next.push(!network ? unknown("network") : {

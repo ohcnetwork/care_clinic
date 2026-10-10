@@ -22,7 +22,7 @@ flowchart LR
 
 | Layer | Owner | Purpose |
 | --- | --- | --- |
-| `deployments/.env` | Maintainer | Desktop version, upstream repositories/commits, and image pins. |
+| `deployments/.env` | Maintainer | Desktop version, release-line manifest URL/default line, and image pins. |
 | Other `deployments/` files | Maintainer | The Compose stack, initial environment templates, proxy and helper programs. |
 | `app/install/` | Build process | Staging for Go embedding; not the place for source edits. |
 | Embedded `installFS` | Desktop executable | Immutable copy of the kit used by that build. |
@@ -35,7 +35,7 @@ flowchart LR
 
 [`configPath()`](../app/app_config.go) starts with Go's `os.UserConfigDir()`, falls back to `os.UserHomeDir()` on failure, requires an absolute result, and appends `care-clinic/config.json`.
 
-[`installDir()`](../app/app_installdir.go) normally places `install` beside that configuration file. On Windows, when an absolute home directory is available, the installed kit instead lives under the user's home directory. This avoids making the potentially roaming application-configuration directory the normal home for source checkouts and Docker bind mounts.
+[`installDir()`](../app/app_installdir.go) normally places `install` beside that configuration file. On Windows, when an absolute home directory is available, the installed kit instead lives under the user's home directory. This avoids making the potentially roaming application-configuration directory the normal home for Docker bind mounts and installed configuration.
 
 | Platform | Typical configuration file | Typical installed kit |
 | --- | --- | --- |
@@ -52,7 +52,8 @@ The installed kit contains the following recognizable parts:
 ```text
 install/
 |-- .env
-|-- channel.lock
+|-- line.json                 # current/staged published image records
+|-- lines.json                # cached release-line manifest
 |-- docker-compose.yml
 |-- backend.env
 |-- frontend.env
@@ -62,6 +63,8 @@ install/
 |-- Caddyfile
 |-- backup.Dockerfile
 |-- caddy.Dockerfile
+|-- backend-plugins.Dockerfile
+|-- frontend-rebuild.Dockerfile
 |-- scripts/
 |   `-- backup.sh
 |-- minio/
@@ -70,14 +73,14 @@ install/
     `-- backup-cert.pem
 ```
 
-Image building and restore add their own working material. See the relevant guides for source-checkout and restore-staging paths. Patient database and object-storage data live in Docker volumes, not in this source/configuration tree. Keys and configuration are nevertheless sensitive and must not be treated as disposable cache.
+Image building and restore add their own working material. See the relevant guides for isolated image-build contexts and restore-staging paths. Patient database and object-storage data live in Docker volumes, not in this source/configuration tree. Keys and configuration are nevertheless sensitive and must not be treated as disposable cache.
 
 ## Persisted `Config`
 
 Entering actual setup persists the choice to host a clinic (**Server**); attempting
 a connection persists the choice to use a clinic (**Client**). The Start screen
 itself only navigates and does not save a role. Clients retain the clinic address and use native certificate
-bootstrap, without provisioning Docker/Git or advertising mDNS. Role selection
+bootstrap, without provisioning Docker or advertising mDNS. Role selection
 is not an ordinary settings toggle; it remains locked until successful uninstall.
 Failed-install cleanup/retry preserves it. The one exception is the **Back**
 button on the setup and client screens, which undoes a choice nothing has been
@@ -192,7 +195,13 @@ no longer available, the UI explains the destructive
 
 Its preservation allow-list contains exactly `backend.env` and `frontend.env`: existing copies are not overwritten. Other kit files are refreshed from the executable. This includes `.env`, so the shipped pins do not become an independently editable runtime release mechanism.
 
-This is why the commit a clinic currently runs is kept in `channel.lock` rather than in `.env`. `channel.lock` is not part of the embedded tree, so the refresh neither creates nor overwrites it; it is removed with the installed kit during uninstall. A corrupt or missing lock is treated as "nothing known yet" rather than an error: the clinic resolves the branch again. So is a lock naming something that is not a commit, which is the one case where "nothing known yet" is a guess worth making rather than a value worth trusting.
+The clinic's line id and current/staged published images are kept in `line.json`,
+not `.env`. It is not embedded, so kit refresh does not overwrite it; uninstall
+removes it with the installed kit. A missing or corrupt lock is treated as an
+empty record and selects images from the release-line manifest. `lines.json`
+caches that manifest for offline selection and status. Recording current images
+removes the legacy source checkouts and lock. See [images and release
+lines](images-and-lines.md).
 
 Writes go through a process-wide mutex and a temporary file renamed into place, because the background check and an operator pressing "Install now" can reach the lock at the same time, and a half-written lock would lose the record of what the clinic is running.
 
@@ -233,7 +242,7 @@ privilege prompts and from the CARE web login after initial setup. See
 
 `WriteEnv` checks the administrator password and stable-clinic state under the exclusive lock. It validates syntax using `compose-go/dotenv`, then atomically writes the selected file as `0600`.
 
-This syntax check is not full application-specific validation. The friendly editor adds field-level constraints; a direct caller can submit settings the dotenv parser accepts but CARE later rejects. The backend also uses this same syntax parser for the frontend file, although the CARE frontend ultimately consumes its environment through its own build tooling.
+This syntax check is not full application-specific validation. The friendly editor adds field-level constraints; a direct caller can submit settings the dotenv parser accepts but CARE later rejects. The backend also uses this same syntax parser for the frontend file, although CARE frontend runtime values are read by `care-clinic-configure` at container start and compiled settings go through the frontend builder.
 
 ## Applying settings
 
@@ -274,7 +283,11 @@ sequenceDiagram
     end
 ```
 
-A backend change uses Start to reapply configuration; Start also accounts for a changed CARE frontend environment through image freshness. A frontend-only change uses the narrower frontend rebuild action.
+A backend change uses Start to reapply configuration; Start also checks compiled
+frontend image freshness. A frontend-only change uses the narrower frontend rebuild
+action, which force-recreates the frontend container. Runtime frontend changes
+do not recompile assets; changed compiled settings use the published builder
+image. See [images and release lines](images-and-lines.md).
 
 `WriteEnv` alone does not restart a container or rebuild an image. Saving a file and applying it are two operations. The editor only requests the apply action after its write loop and reload.
 
@@ -352,8 +365,11 @@ configuration layer. Friendly controls replace their own keys, and the support
 editor can add or change other permitted keys. Before saving, both paths read
 the latest files and merge only the operator's edits.
 
-Frontend values are copied into CARE's `.env.local` when its image is built.
-They take effect after applying the changes and rebuilding the frontend.
+Frontend runtime values are read from mounted `frontend.env` when the container
+starts; apply them by recreating the frontend. Nonblank compiled values differing
+from the published image's `build_env` trigger a local rebuild on its builder
+image. Blank compiled values use the published defaults. The runtime key list
+and parser limits are in [images and release lines](images-and-lines.md).
 Clearing an optional friendly control removes its assignment and lets CARE's
 default apply. In the support editor, an explicitly blank `KEY=` stays blank;
 blank and missing values can behave differently depending on the CARE setting.
@@ -392,8 +408,8 @@ The **Updates** tab shows both update mechanisms without a CARE Clinic admin pas
 
 | Card | Shows | Actions |
 | --- | --- | --- |
-| CARE | The tracked branch, the commits in use, and checking, up-to-date, staged-update or failed-check state. | Check now; retry a failed check; install a staged update now. |
-| CARE Clinic | The installed version against the newest published GitHub release, with its notes. | Download the verified installer for this platform and launch it. |
+| CARE | Current release line, support date, running/staged commits, newer compatible lines, and check status. | Check now; retry; install staged fixes; explicitly upgrade to a newer line after a safety backup. |
+| CARE Clinic | Installed and newest published GitHub versions, notes, and any line-compatibility block. | Download and launch the verified installer only when the current line permits its app version. |
 
 CARE Clinic's shared controller remains guarded after native completion while
 an installer/restart handoff is unresolved. Only a completed external-installer
@@ -403,14 +419,14 @@ update the running version or claim the external installer succeeded.
 Interrupted picker/preflight work is invalidated rather than resumed when the
 guard is released; see [the update protocol](wails-application.md).
 
-The panel also raises a banner when a CARE update finishes building, so operators need not keep the Updates tab open. Declining the banner is not declining the update: it stops the prompt for that commit, and the staged build is applied at the next start, when no clinic is running and applying it costs a retag instead of a restart.
+The panel also raises a banner when a same-line CARE update finishes staging, so operators need not keep the Updates tab open. Declining the banner is not declining the update: it stops the prompt for that commit, and the staged images are applied at the next start, when no clinic is running and applying it costs a retag instead of a restart.
 
 The app checks hourly, but only while the clinic is actually serving. Until then it re-examines every thirty seconds and checks nothing, because a check competing with the start it is racing helps nobody. A clinic that later stops serving drops back to that thirty-second wait, so a check is never made against a clinic that is down. The loop ends only when the app closes, the desktop is switched to a client, or the clinic is being removed. These desktops stay on for weeks, so a check that only ran at launch would leave a verified fix unreachable until somebody restarted the app.
 
 "Check now" does not start a second check when one is already running; it joins
 the one in flight. The card follows the `care-check` event, so it reports
 automatic and requested checks. "Checking" lasts until any found commit has
-finished building, not only until the branch head is resolved. Checks are
+finished downloading/customizing, not only until the manifest is fetched. Checks are
 skipped without a working network, during setup/removal, and while another job
 holds the clinic. Reported failures carry `care-check.error` and appear with a
 friendly retry action; they never become a false "Up to date" result. An offline

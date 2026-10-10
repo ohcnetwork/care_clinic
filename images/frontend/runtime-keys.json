@@ -1,0 +1,11 @@
+{
+  "REACT_CARE_API_URL": "",
+  "REACT_APP_TITLE": "CARE",
+  "REACT_APP_META_DESCRIPTION": "Revolutionizing EMR with AI: Open Healthcare Network develops free, open-source tools to enhance efficiency in global healthcare delivery. Our EMR system is recognized as a Digital Public Good by the United Nations.",
+  "REACT_RECAPTCHA_SITE_KEY": "",
+  "REACT_SBOM_BASE_URL": "https://sbom.ohc.network",
+  "REACT_GITHUB_URL": "https://github.com/ohcnetwork",
+  "REACT_OHCN_URL": "https://ohc.network?ref=care",
+  "REACT_DEFAULT_PAYMENT_TERMS": "",
+  "REACT_ALLOWED_LOCALES": "en,hi,ta,ml,mr,kn"
+}

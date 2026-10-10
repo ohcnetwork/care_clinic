@@ -315,24 +315,21 @@ function SetupWizard({ form, patch, update, onBusy }: {
         await loadRecovery();
         setDone((prev) => ({ ...prev, backup: false, admin: false }));
       } else {
-        const runTool = async (id: "docker" | "git", plan: ToolPlan | null) => {
+        const runTool = async (id: "docker", plan: ToolPlan | null) => {
           if (!plan || !plan.action) throw new Error(`No supported action for ${id}.`);
           setTool(id);
           setDownload(null);
           if (plan.action === "manual") {
             await bridge.OpenURL(plan.url);
-            setActionNote(`Follow the instructions that opened to install ${id === "docker" ? engine : "Git"}, then check again.`);
-          } else if (id === "docker") {
+            setActionNote(`Follow the instructions that opened to install ${engine}, then check again.`);
+          } else {
             if (plan.action === "open") await bridge.OpenDocker();
             else await bridge.InstallDocker();
-          } else {
-            await bridge.InstallGit();
-            if (care.platform === "darwin") setActionNote("Your Mac may have opened an installation window. Choose Install there. CARE checks again automatically.");
           }
         };
         let status = requirements.current.current.software.value;
         if (!status) throw new Error("The required software has not been checked.");
-        if (!status.docker.ok && action !== "git") {
+        if (!status.docker.ok) {
           await runTool("docker", status.dockerPlan);
           await requirements.check("software");
           status = requirements.current.current.software.value;
@@ -343,7 +340,6 @@ function SetupWizard({ form, patch, update, onBusy }: {
             return;
           }
         }
-        if (status && !status.git.ok && action !== "docker") await runTool("git", status.gitPlan);
       }
       setTool("");
       const ok = await requirements.check(target);
@@ -467,7 +463,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
   const titles: Record<SetupPage, [string, string]> = {
     space: ["Room for the clinic", "Check the space available for the clinic software and records before continuing."],
     windows: ["Getting Windows ready", "Windows needs two changes before CARE can run, and CARE makes both for you. This is the first."],
-    software: ["Installing what CARE needs", `CARE needs ${engine} and Git. Keep this computer connected and awake — you can leave it running and come back.`],
+    software: ["Installing what CARE needs", `CARE needs ${engine}. Keep this computer connected and awake — you can leave it running and come back.`],
     cleanup: ["Removing stale files from an earlier setup", "CARE checks for files or settings from an earlier setup before installing a new clinic here."],
     network: ["Setting this network to Private", "The second of the two Windows changes. Staff computers, phones and tablets open CARE from here."],
     address: ["Choosing the clinic address", "Staff type this into their browser to open CARE. Short and easy to say out loud works best."],

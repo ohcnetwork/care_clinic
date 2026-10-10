@@ -46,7 +46,6 @@ declare global {
           ConnectClient(address: string): Promise<void>;
           DisconnectClient(): Promise<void>;
           DockerStatus(): Promise<DockerStatus>;
-          GitStatus(): Promise<DockerStatus>;
           MDNSStatus(name: string): Promise<NameStatus>;
           NetworkStatus(): Promise<NetworkStatus>;
           FixNetwork(): Promise<void>;
@@ -54,9 +53,7 @@ declare global {
           InstallWSL(): Promise<string>;
           DockerPlan(): Promise<ToolPlan>;
           RancherDownloadInfo(): Promise<DownloadInfo>;
-          GitPlan(): Promise<ToolPlan>;
           InstallDocker(): Promise<string>;
-          InstallGit(): Promise<string>;
           OpenDocker(): Promise<void>;
           ScanResidue(): Promise<ResidueReport>;
           PurgeResidue(confirmed: boolean): Promise<ResidueReport>;
@@ -120,6 +117,7 @@ declare global {
           RemoveApp(): Promise<void>;
           AutostartEnabled(): Promise<boolean>;
           SetAutostart(on: boolean): Promise<void>;
+          UpgradeCareLine(id: string): Promise<void>;
           CareUpdateStatus(): Promise<ChannelStatus>;
           CheckCareUpdate(): Promise<void>;
           DismissCareUpdate(): Promise<void>;

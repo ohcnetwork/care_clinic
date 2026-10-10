@@ -205,25 +205,26 @@ test("storage read failure retains explicitly old readings and can be retried", 
 test("requirements stay absent when healthy, recheck throughout panel lifetime, and fix once", async ({ page }) => {
   await page.clock.install();
   await openPanel(page);
-  await expect.poll(() => calls(page, "GitStatus")).toBeGreaterThan(0);
+  await expect.poll(() => calls(page, "DockerStatus")).toBeGreaterThan(0);
   await expect(overview(page).getByRole("region", { name: "What the clinic needs" })).toHaveCount(0);
   await page.evaluate(() => {
-    window.careTest.fixtures.git = { ok: false, message: "/private/git not found: exit status 127" };
+    window.careTest.fixtures.docker = { ok: false, message: "engine not running: exit status 127" };
+    window.careTest.respond("DockerPlan", { action: "open", label: "Start Rancher Desktop", detail: "", url: "", download_preview: false });
   });
   await page.clock.fastForward(60_100);
   const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
-  await expect(requirements).toContainText("Git needs setup");
+  await expect(requirements).toContainText("Rancher Desktop needs setup");
   await expect(requirements).not.toContainText("exit status");
   await page.evaluate(() => {
-    window.careTest.hold("InstallGit");
-    window.careTest.respond("InstallGit", "");
+    window.careTest.hold("OpenDocker");
+    window.careTest.respond("OpenDocker", undefined);
   });
-  await requirements.getByRole("button", { name: "Install Git", exact: true }).dblclick();
-  await expect.poll(() => calls(page, "InstallGit")).toBe(1);
+  await requirements.getByRole("button", { name: "Start Rancher Desktop", exact: true }).dblclick();
+  await expect.poll(() => calls(page, "OpenDocker")).toBe(1);
   await expect(section(page, "Backups")).toBeDisabled();
   await page.evaluate(() => {
-    window.careTest.fixtures.git.ok = true;
-    window.careTest.release("InstallGit");
+    window.careTest.fixtures.docker.ok = true;
+    window.careTest.release("OpenDocker");
   });
   await expect(requirements).toHaveCount(0);
   await expect(section(page, "Backups")).toBeEnabled();
@@ -234,9 +235,7 @@ test("Rancher download confirmation cancels without installation", async ({ page
   const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
   await expect(requirements).toBeVisible();
   await expect(requirements).toContainText("Rancher Desktop needs setup");
-  await expect(requirements).toContainText("Git needs setup");
   await expect(requirements.getByText("Runs the clinic software on this computer.", { exact: true })).toBeVisible();
-  await expect(requirements.getByText("Downloads the clinic software and its updates.", { exact: true })).toBeVisible();
   await expect(requirements.getByText(/^(Ready|Action required)$/)).toHaveCount(0);
   await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
@@ -272,7 +271,7 @@ for (const stage of ["preview", "download"] as const) {
     expect(await calls(page, "InstallDocker")).toBe(stage === "preview" ? 0 : 1);
     await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Download and install", exact: true }).click();
-    await expect(requirements).toContainText("Rancher Desktop available");
+    await expect(requirements).toHaveCount(0);
     await expect(failure).toHaveCount(0);
     expect(await calls(page, "InstallDocker")).toBe(stage === "preview" ? 1 : 2);
     expect(await page.evaluate(() => ({
@@ -656,4 +655,62 @@ test("a failed storage read does not present old backup health or location as cu
   await expect(backup).not.toContainText("saved to");
   await expect(backup).toContainText("Saved");
   await expect(page.locator(".panel-banner")).toContainText("from the last successful check");
+});
+
+
+test("release-line upgrades confirm the safety backup and stay busy until the job finishes", async ({ page }) => {
+  await openPanel(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.channel.line = { id: "2026.1", title: "CARE 2026.1", supported_until: "2026-09-30", expired: true };
+    window.careTest.fixtures.channel.newer_lines = [{ id: "2026.2", title: "CARE 2026.2", expired: false }];
+    window.careTest.fixtures.channel.recommended = "2026.2";
+    window.careTest.fixtures.finishJobs = false;
+  });
+  await section(page, "Updates").click();
+  await software(page).getByRole("button", { name: "Check CARE software updates" }).click();
+  await expect(software(page)).toContainText("Supported until 2026-09-30");
+  await expect(software(page)).toContainText("no longer supported");
+  await expect(software(page)).toContainText("Recommended");
+  const upgrade = software(page).getByRole("button", { name: "Upgrade to CARE 2026.2", exact: true });
+  await upgrade.click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText("encrypted safety backup is taken first");
+  await expect(dialog).toContainText("offline for a few minutes");
+  await expect(dialog).toContainText("Going back requires restoring that backup");
+  await dialog.getByRole("button", { name: "Not now", exact: true }).click();
+  expect(await calls(page, "UpgradeCareLine")).toBe(0);
+  await upgrade.click();
+  await dialog.getByRole("button", { name: "Upgrade CARE", exact: true }).dblclick();
+  await expect.poll(() => calls(page, "UpgradeCareLine")).toBe(1);
+  expect(await page.evaluate(() => window.careTest.calls.find((call) => call.method === "UpgradeCareLine")?.args)).toEqual(["2026.2"]);
+  await expect(software(page)).toContainText("Upgrading the CARE release line");
+  await expect(upgrade).toBeDisabled();
+  await expect(software(page).getByRole("button", { name: "Check CARE software updates" })).toBeDisabled();
+  await page.evaluate(() => window.careTest.finishJob("upgrade-line"));
+  await expect(software(page)).toContainText("CARE 2026.2");
+  await expect(software(page)).not.toContainText("no longer supported");
+  await expect(software(page)).not.toContainText("Newer CARE version available");
+  await expect(software(page).getByRole("button", { name: "Check CARE software updates" })).toBeEnabled();
+});
+
+test("pending release lines appear alongside normal patch updates", async ({ page }) => {
+  await openPanel(page, "panel-update");
+  await page.evaluate(() => { window.careTest.fixtures.channel.pending_line = "2026.2"; });
+  await section(page, "Updates").click();
+  await software(page).getByRole("button", { name: "Check CARE software updates" }).click();
+  await expect(software(page)).toContainText("Release line 2026.2 is ready to install");
+  await expect(software(page).getByRole("button", { name: "Install now", exact: true })).toBeEnabled();
+});
+
+test("unsupported CARE lines block the application install and display the reason", async ({ page }) => {
+  await openPanel(page);
+  await page.evaluate(() => window.careTest.setUpdate({
+    current: "0.1.5", version: "0.2.0", available: true, asset: "clinic.zip", size: 10,
+    notes_url: "", blocked: "Upgrade the clinic's CARE release line before installing CARE Clinic 0.2.0.",
+  }));
+  await section(page, "Updates").click();
+  await desktop(page).getByRole("button", { name: "Check CARE Clinic updates" }).click();
+  await expect(desktop(page)).toContainText("Upgrade the clinic's CARE release line before installing");
+  await expect(desktop(page).getByRole("button", { name: "Update CARE Clinic", exact: true })).toBeDisabled();
+  expect(await calls(page, "InstallAppUpdate")).toBe(0);
 });

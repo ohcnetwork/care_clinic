@@ -20,7 +20,7 @@ actually prove.
 **CARE Clinic is the native Wails application.** First run persists a Server
 or Client role, without an ordinary role-switching control. Server mode
 installs and manages the clinic; Client mode connects to an existing clinic and
-performs native certificate setup without Docker, Git, or mDNS advertising.
+performs native certificate setup without Docker or mDNS advertising.
 The **CARE frontend** is the clinical web application served through Caddy and
 opened in a browser, including browsers on other devices. Trusting a certificate
 or adding a hosts entry on the server computer does not configure every browser
@@ -44,7 +44,7 @@ This guide describes the current source rather than historical design boards.
 - [Certificate trust and device bootstrap](#certificate-trust-and-device-bootstrap)
 - [LAN names and mDNS](#lan-names-and-mdns)
 - [Windows network repair](#windows-network-repair)
-- [Docker and Git prerequisites](#docker-and-git-prerequisites)
+- [Docker prerequisites](#docker-prerequisites)
 - [Disk space and storage monitoring](#disk-space-and-storage-monitoring)
 - [Health and port checks](#health-and-port-checks)
 - [Login startup and restart detection](#login-startup-and-restart-detection)
@@ -104,7 +104,7 @@ environment, browser, or architecture is supported or has been integration-teste
 | Concern | macOS | Windows | Linux |
 | --- | --- | --- | --- |
 | Child process windows | Console-hiding helper is a no-op. | `HideWindow` and `CREATE_NO_WINDOW` prevent ordinary child-console flashes. OS approval dialogs still appear. | Console-hiding helper is a no-op. |
-| GUI PATH repair | Login-shell PATH, then Homebrew and standard executable directories. | Docker and Git installation directories, then inherited PATH; no login-shell probe. | Login-shell PATH, then the same Unix directory list, including Homebrew paths even if absent. |
+| GUI PATH repair | Login-shell PATH, then Homebrew and standard executable directories. | Docker installation directories and legacy Git PATH entries, then inherited PATH; no login-shell probe. | Login-shell PATH, then the same Unix directory list, including Homebrew paths even if absent. |
 | Batched administrator approval | AppleScript `do shell script ... with administrator privileges`. | One elevated PowerShell child through `Start-Process -Verb RunAs`. | `pkexec sh -c`; requires the relevant policy/desktop support. |
 | Server hosts file | `/etc/hosts`. | `%WINDIR%\System32\drivers\etc\hosts`; path helper falls back to `C:\Windows`. | `/etc/hosts`. |
 | Local certificate installation | After the confirmation: when the hosts entry also needs elevation, put the System keychain install in that same elevated batch and fall back to the login keychain only if trust is still unverified; otherwise try the login keychain first. | After the confirmation, try machine `Root` through `certutil`, then elevation. | After the confirmation, try system anchors/bundle update, then elevation. |
@@ -115,7 +115,6 @@ environment, browser, or architecture is supported or has been integration-teste
 | Login startup | Per-user LaunchAgent plist. | Per-user `HKCU` Run value. | Per-user `.desktop` autostart file under `~/.config`. |
 | Restart detection/action | No pending-restart detection; `Now` returns an unsupported error. | Two registry-key probes; restart action schedules `shutdown /r` after five seconds. | No pending-restart detection; `Now` returns an unsupported error. |
 | Automated Docker setup | Download the pinned, architecture-selected Rancher Desktop DMG and verify its SHA-256. | Download the pinned Rancher Desktop MSI, verify its SHA-256, and run it. | Download Docker's pinned static engine and Compose plugin, verify their SHA-256, install them with a systemd unit, `groupadd`, and `usermod`. |
-| Automated Git setup | Launch Command Line Tools installer with `xcode-select --install`. | Download the pinned Git for Windows installer, verify its SHA-256, and run it silently. | Supported package manager, otherwise a manual plan. |
 
 Other `GOOS` values are not a general supported-platform promise. For example,
 some helpers have default branches, but `atomicfile` only supplies replacement
@@ -129,7 +128,7 @@ Source: [proc.go](../app/internal/sys/proc/proc.go),
 
 ### Why one process wrapper exists
 
-Docker, Git, platform utilities, and installers need a predictable working
+Docker, platform utilities, and installers need a predictable working
 directory and environment when launched from a GUI. They also need to avoid
 flashing console windows on Windows. The wrapper centralizes these mechanics
 without deciding whether a particular command is an installation, a diagnostic,
@@ -183,7 +182,8 @@ construction; see the integration point in [app.go](../app/app.go).
 - On Windows it prepends
   `%LOCALAPPDATA%\Programs\Rancher Desktop\resources\resources\win32\bin`,
   `C:\Program Files\Rancher Desktop\resources\resources\win32\bin`,
-  `C:\Program Files\Git\bin`, and `C:\Program Files\Git\cmd`.
+  and the legacy search entries `C:\Program Files\Git\bin` and
+  `C:\Program Files\Git\cmd`. These PATH entries do not make Git a prerequisite.
 - The existing PATH is appended. The login-shell result, when available, precedes
   the augmented path. There is no directory-existence check or deduplication.
 
@@ -672,8 +672,8 @@ does not require deleting that directory.
 
 On a staff computer, install CARE Clinic, select **Client** at first run, and
 enter the clinic's `.local` address shown on the server. The saved role is not a
-routine toggle between hosting and connecting. Clients do not provision Docker
-or Git, run the server stack, or advertise a clinic over mDNS; their operating
+routine toggle between hosting and connecting. Clients do not provision Docker,
+run the server stack, or advertise a clinic over mDNS; their operating
 system still needs to resolve the server's address.
 
 The address field accepts a bare clinic label, `name.local`, or an HTTP/HTTPS
@@ -1333,7 +1333,7 @@ batched teardown: it inspects first and returns the step only when rules exist,
 so a full teardown can request one approval for every change. See
 [one approval per operation](#one-approval-per-operation-not-per-item).
 
-## Docker and Git prerequisites
+## Docker prerequisites
 
 Sources: [check.go](../app/internal/prereq/check.go) and
 [provision.go](../app/internal/prereq/provision.go).
@@ -1351,7 +1351,6 @@ Each explicit probe uses `cmdTimeout = 5 * time.Second` and
 | --- | --- | --- |
 | `DockerCheck` | `docker version --format "{{.Server.Os}}/{{.Server.Version}}"` succeeds; server OS is Linux or empty; `docker compose version` succeeds. On failure, "not installed" is decided by `rancherDesktopInstalled` alone, not by the `docker` binary being missing: on macOS `~/.rd/bin/docker` only appears once Rancher Desktop's first start finishes, so an installed but still-starting Rancher Desktop reports "running, but Docker is not answering yet" instead. | No minimum Docker version, capacity, virtualization, or registry-access test. Empty OS output is accepted by the helper. |
 | `hasCompose` | Compose v2-style subcommand can run. | Does not validate the clinic's Compose files or pull images. |
-| `GitCheck` | `git --version` succeeds. | Any failure yields the generic "Git is not installed" status, even if another execution error caused it. |
 | `dockerDaemonUp` | A bounded `docker version` request for the server version succeeds. | Used to choose an action; not the complete OS/Compose readiness check. |
 
 `DockerCheck` distinguishes a not-found executable using error-message substrings,
@@ -1386,8 +1385,6 @@ requests show an error and require retry, rather than guessing a size.
 - Otherwise Docker gets an install plan, or a manual plan on an unsupported
   platform, including Linux on an architecture other than x86_64/aarch64 or
   without `systemctl`.
-- Git uses installation plans where implemented; Linux without a supported
-  package manager gets manual guidance.
 
 Plan selection is deliberately small. For example, an already-running daemon
 with the wrong container mode or missing Compose can still lead to an install
@@ -1683,21 +1680,9 @@ group may not apply to the current desktop process until logout/login. An error
 at this stage can mean Docker is installed but not usable by this session, not
 that every installation step was rolled back.
 
-**Git**
-
-- macOS launches `xcode-select --install` and returns instructions to finish the
-  separate system dialog. It does not use Homebrew or wait for all tools to
-  finish installing.
-- Windows downloads the pinned Git for Windows installer (`GIT_WINDOWS_VERSION`),
-  verifies it against `GIT_WINDOWS_SHA256`, and runs it elevated with
-  `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-`, which keeps Git's
-  default of adding `Git\cmd` to PATH. The app itself finds it through
-  `proc.AugmentedPath`, which already lists `C:\Program Files\Git\cmd`.
-- Linux installs `git` with the selected package manager under elevation.
-
-Manual information URLs come from `dockerHelpURL()`: `https://rancherdesktop.io/`
-on macOS and Windows, `https://docs.docker.com/engine/install/` on Linux. Git
-uses `https://git-scm.com/downloads`.
+Git is not a clinic prerequisite and has no setup action. Manual Docker guidance
+uses `https://rancherdesktop.io/` on macOS and Windows and
+`https://docs.docker.com/engine/install/` on Linux.
 
 ### Waiting, downloads, and side effects
 
@@ -1761,8 +1746,6 @@ Installers the app downloads from the internet are pinned in
 | `RANCHER_MACOS_ARM64_SHA256` | `Rancher.Desktop-<version>.aarch64.dmg` |
 | `RANCHER_MACOS_X86_64_SHA256` | `Rancher.Desktop-<version>.x86_64.dmg` |
 | `RANCHER_WINDOWS_SHA256` | `Rancher.Desktop.Setup.<version>.msi` |
-| `GIT_WINDOWS_VERSION` | Git for Windows tag without the `v`, e.g. `2.55.0.windows.5`, from `github.com/git-for-windows/git`. |
-| `GIT_WINDOWS_SHA256` | `Git-<X.Y.Z>[.<N>]-64-bit.exe`; the `.<N>` is omitted for `.windows.1`. |
 | `DOCKER_LINUX_VERSION` | Docker Engine static release from `download.docker.com/linux/static/stable/`. |
 | `DOCKER_LINUX_X86_64_SHA256`, `DOCKER_LINUX_AARCH64_SHA256` | `<arch>/docker-<version>.tgz` |
 | `COMPOSE_LINUX_VERSION` | Docker Compose release from `github.com/docker/compose`, without the `v`. |
@@ -1771,21 +1754,21 @@ Installers the app downloads from the internet are pinned in
 URLs are derived from these values in
 [`downloads.go`](../app/internal/prereq/downloads.go). The installers are
 linked from upstream, never re-hosted, so CARE does not redistribute them.
-Everything else stays with the operating system: macOS Git comes from Apple's
-`xcode-select`, Linux Git from the distribution's package manager (Git
-publishes no Linux binaries), and WSL 2 from `wsl --install`.
+WSL 2 remains an operating-system component installed through `wsl --install`.
+Git is neither checked nor provisioned for clinic operation.
 
-The release workflow's `prerequisites` job downloads every pinned installer and
-fails the release if any URL is gone or any SHA-256 differs. A test runs that
-job's script against a stubbed `fetch` and checks it verifies exactly the URLs
-the app would download. See the [release runbook](releases.md#bump-a-pinned-prerequisite)
+The desktop release workflow's prerequisite verification is not yet aligned
+with this configuration: its checked-in script still expects the removed Git
+installer pins. It must be adapted before releasing; see the
+[release migration caveat](releases.md). The existing script contract test uses
+a stubbed `fetch`. See the [release runbook](releases.md#bump-a-pinned-prerequisite)
 for bumping a version.
 
 Readiness checks do not download tools or request elevation. Installation
 normally needs internet access to vendor/package sources, and may need native
 approval, additional OS components, login renewal, or restart. Opening an
 already-installed tool is different from downloading one. These helpers do not
-establish whether subsequent clinic image pulls, repository clones, or external
+establish whether subsequent clinic image pulls or external
 services are reachable; see [Clinic lifecycle](clinic-lifecycle.md).
 
 ## Disk space and storage monitoring
@@ -2086,7 +2069,7 @@ For the rest of the repository, use [Repository map](repository-map.md).
 
 | Source file | Role |
 | --- | --- |
-| [prereq/check.go](../app/internal/prereq/check.go) | Five-second Docker/Git readiness probes, container-mode/Compose checks, and operator advice. |
+| [prereq/check.go](../app/internal/prereq/check.go) | Five-second Docker readiness probes, container-mode/Compose checks, and operator advice. |
 | [prereq/provision.go](../app/internal/prereq/provision.go) | Tool plans, platform installers/openers, Docker waits, vendor downloads, and stall/progress handling. |
 | [prereq/provision_test.go](../app/internal/prereq/provision_test.go) | POSIX Docker-command fixture verifies environment preservation and bounded up/down/hung daemon probing; skipped on Windows. |
 | [health/health.go](../app/internal/health/health.go) | Local insecure HTTPS readiness, wait loop, Compose-aware port preflight, and optional listener naming. |

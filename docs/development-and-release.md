@@ -2,7 +2,9 @@
 
 [Documentation index](README.md)
 
-This guide explains how backend source becomes a desktop application and how that desktop application later builds the clinic. Those are separate build systems.
+This guide explains how desktop source becomes an application and how that
+application prepares the clinic from published images. CARE image publication
+is a separate CI build system; see [images and release lines](images-and-lines.md).
 
 ## The different builds
 
@@ -11,12 +13,15 @@ This guide explains how backend source becomes a desktop application and how tha
 | Desktop frontend | `app/frontend/src/`, package lock, Vite configuration | `app/frontend/dist/` | Developer or release build. |
 | Desktop executable | `app/*.go`, `app/internal/`, Go dependencies, both embedded trees | Wails application under `app/build/bin/` | Developer or release build. |
 | Installer/package | Wails application, platform metadata, optional signing configuration | macOS `.dmg` or Windows NSIS setup executable | Release workflow. |
-| Clinic infrastructure images | Deployment Dockerfiles and base-image/module pins | Backup and Caddy/Coraza images | Clinic setup or when their inputs change. |
-| CARE backend/frontend images | Pinned upstream source, generated build inputs, clinic settings/plugins | Images tagged for this clinic installation | Setup, required refresh, or explicit rebuild. |
+| Clinic infrastructure images | Optional prebuilt digests, or deployment Dockerfiles and base-image/module pins | Locally tagged backup and Caddy/Coraza images | Clinic setup or when their inputs change; local compilation only when prebuilt pins are blank. |
+| CARE backend/frontend images | Published runtime/builder digests from `lines.json`, clinic settings/plugins | Images tagged for this clinic installation | Download/relabel at setup or update; local builder-image customization only for plugins or changed compiled frontend settings. |
 
 Changing Go code, such as the settings read lock, requires rebuilding and relaunching the desktop executable. It does not require reinstalling the clinic or rebuilding every Docker image.
 
-The control panel's "rebuild frontend" action builds the **CARE web application**, not the React interface embedded in the desktop executable.
+The control panel's "rebuild frontend" action prepares the **CARE web application**
+and recreates its container, not the React interface embedded in the desktop
+executable. Runtime settings need no recompilation; changed compiled settings
+use the published frontend builder image.
 
 ## Source layout and tools
 
@@ -36,7 +41,7 @@ The direct Go dependencies have narrow jobs:
 | `golang.org/x/crypto` | Bcrypt hashing and comparison for CARE Clinic administrator authorization. |
 | `golang.org/x/sys` | Low-level platform operations, including Windows durable file replacement. |
 
-The desktop's build prerequisites are Go, Node/npm, the Wails CLI, and the native tools required by Wails on the build OS. macOS packaging uses Apple's developer tools; Windows installer creation needs NSIS (`makensis`). Docker and Git are needed for actually setting up and operating a clinic, not merely for every small Go unit test.
+The desktop's build prerequisites are Go, Node/npm, the Wails CLI, and the native tools required by Wails on the build OS. macOS packaging uses Apple's developer tools; Windows installer creation needs NSIS (`makensis`). Docker is needed for actually setting up and operating a clinic, not merely for every small Go unit test.
 
 For a CLI version matching the current Go dependency:
 
@@ -259,24 +264,20 @@ UI suite because all screens share them.
 | Desktop identity | `CARE_CLINIC_VERSION`. |
 | Third-party bases | `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE`, `CORAZA_VERSION`. |
 | Built-image names | `BACKUP_IMAGE`, `CADDY_WAF_IMAGE`, `BACKEND_IMAGE`, `FRONTEND_IMAGE`. |
-| CARE sources | `CARE_BE_REPO`, `CARE_FE_REPO`, `CARE_BE_REF`, `CARE_FE_REF`. |
-| Prerequisite installers | `RANCHER_VERSION`, `RANCHER_MACOS_ARM64_SHA256`, `RANCHER_MACOS_X86_64_SHA256`, `RANCHER_WINDOWS_SHA256`, `GIT_WINDOWS_VERSION`, `GIT_WINDOWS_SHA256`, `DOCKER_LINUX_VERSION`, `DOCKER_LINUX_X86_64_SHA256`, `DOCKER_LINUX_AARCH64_SHA256`, `COMPOSE_LINUX_VERSION`, `COMPOSE_LINUX_X86_64_SHA256`, `COMPOSE_LINUX_AARCH64_SHA256`. |
+| CARE release lines | `CARE_LINES_URL` (HTTPS manifest URL); `CARE_DEFAULT_LINE` selects new installs. |
+| Prerequisite installers | `RANCHER_VERSION`, `RANCHER_MACOS_ARM64_SHA256`, `RANCHER_MACOS_X86_64_SHA256`, `RANCHER_WINDOWS_SHA256`, `DOCKER_LINUX_VERSION`, `DOCKER_LINUX_X86_64_SHA256`, `DOCKER_LINUX_AARCH64_SHA256`, `COMPOSE_LINUX_VERSION`, `COMPOSE_LINUX_X86_64_SHA256`, `COMPOSE_LINUX_AARCH64_SHA256`. |
 
 The version format is `X.Y.Z` or `X.Y.Z-dev`. `RANCHER_VERSION`,
 `DOCKER_LINUX_VERSION`, and `COMPOSE_LINUX_VERSION` are `X.Y.Z`,
-`GIT_WINDOWS_VERSION` is `X.Y.Z.windows.N`, and each `*_SHA256` is 64 lowercase
+and each `*_SHA256` is 64 lowercase
 hex characters; see [pinned prerequisite downloads](native-integrations.md#pinned-prerequisite-downloads).
 
-`CARE_BE_REF` and `CARE_FE_REF` name the **branch** a release follows, not a
-commit. Releases normally track `develop`: a branch of verified commits, so
-bug fixes reach installed clinics without a desktop release. An installed
-clinic resolves that branch to a commit once, records it, and only moves
-forward when a background check has already built the newer commit. A full
-40-character commit ID is still accepted and opts that service out of
-following the branch. A tag is not accepted, and a ref that resolves to
-nothing fails the build rather than being passed along as if it were a commit.
-See [clinic lifecycle](clinic-lifecycle.md) for how a
-resolved commit is chosen, staged, and applied.
+`CARE_LINES_URL` points to the schema-1 release-line manifest. New clinics use
+`CARE_DEFAULT_LINE`, or the manifest's recommended line. Existing clinics keep
+current and staged digest-pinned images in `line.json`; background checks download
+fixes for that line, while moving to a newer line is explicit. Optional
+`CADDY_WAF_PREBUILT` and `BACKUP_PREBUILT` must be digest-pinned when set; blank
+values retain local builds. See [images and release lines](images-and-lines.md).
 
 At runtime, `GetState().version` comes from these embedded pins, not a separate
 linker-injected version variable.
@@ -289,11 +290,12 @@ into `main`, or the commit selected for a manual run):
 | `CARE_CLINIC_VERSION` | Numeric `X.Y.Z`, without `-dev`. |
 | `app/wails.json` -> `info.productVersion` | Derived as `X.Y.Z` before building. |
 | Automatically created tag | `vX.Y.Z`, pointing to the workflow's source commit. |
-| CARE backend and frontend refs | A branch name to follow, or a full commit hash to pin. |
+| CARE release lines | An HTTPS `CARE_LINES_URL` and `CARE_DEFAULT_LINE`; CARE image digests are published separately in `lines.json`. |
 
-The workflow rejects missing/duplicate manifest identity values, an existing
-release version, and any pinned prerequisite whose download is missing or whose
-SHA-256 differs before building installers. Maintainers do not need to edit
+Release checks cover manifest identity, existing release versions and installer
+checksums. The checked-in desktop workflow still expects removed CARE refs and
+Git installer pins, so it needs adaptation before a release with this configuration;
+see the [release migration caveat](releases.md). Maintainers do not need to edit
 Wails metadata or create tags. See the [release runbook](releases.md) for preparing,
 building, reviewing, publishing, and recovering a release.
 
@@ -301,17 +303,24 @@ building, reviewing, publishing, and recovering a release.
 
 A `-dev` build compares as older than the published release of the same `X.Y.Z`, so a development install can exercise the desktop updater against a real release rather than a fixture.
 
-Build tests use local Git fixtures rather than the real CARE repository URLs. Resolving a branch runs `git ls-remote`, and a unit test that reaches GitHub is slow, flaky, and on a machine with a credential helper installed will ask the developer for a password.
+Build and update tests use local manifest fixtures and fake Docker runners rather
+than contacting CARE repositories or pulling real registry images. The lines
+package also checks the frontend image scripts and defaults agree.
 
 For the same reason no test may elevate. Privileged work goes through [`sys/elevate`](../app/internal/sys/elevate/elevate.go), which runs `osascript` on macOS and `pkexec` elsewhere, so a test that calls it puts a real password dialog in front of whoever ran `go test` and fails on CI, where no one can answer it. Faking the command on `PATH` is not enough, because `elevate` picks the command by platform and the Windows path is the one those tests describe. `netfix` therefore exposes its elevation as a package variable that tests replace, and asserts on the script it was handed; the elevated wrapper around that script is covered separately in `elevate`'s own tests, where it is only a string.
 
 ### Reproducibility boundaries
 
-A release no longer fixes which CARE commit a clinic runs; the tracked branch does, and installed clinics move forward with it. What a given clinic is running is recorded in its `channel.lock` and stamped into each image's `built-from` label, so an install can always be asked rather than assumed. Image fingerprints also include build inputs, as explained in [clinic lifecycle](clinic-lifecycle.md).
+A desktop release chooses the manifest URL and default line, not a fixed CARE
+source commit. `line.json` records the actual published images and their commits;
+CARE images are pinned by registry digest. Local image freshness labels also
+include plugin or compiled-setting inputs, as described in
+[clinic lifecycle](clinic-lifecycle.md).
 
-This is a deliberate trade: branch tracking is what lets a verified fix reach clinics that nobody will manually update, and it is only safe because the branch admits verified commits only. Pinning a commit in `deployments/.env` remains available for a release that must not move.
-
-An image tag is not an immutable registry digest, however, and build-time package downloads can have their own availability and reproducibility constraints. "Pinned source" should not be expanded into a claim that every external dependency is content-addressed forever.
+Published builder images support local customizations without a source checkout.
+Plugin/package downloads and locally built proxy/backup dependencies still have
+availability and reproducibility limits. Digest pins do not guarantee those
+external dependencies remain available forever.
 
 The current storage image pin points to Silo while the key remains `MINIO_IMAGE`. Do not rename the Compose service or data volume as a routine pin update.
 
@@ -326,7 +335,7 @@ missing, and a PR branch push does not trigger a duplicate push workflow.
 | Job/check | What it does |
 | --- | --- |
 | Lint | Formatting, the Wails/internal boundary, pinned Actionlint workflow validation, and golangci-lint v2.13.2 through its v9 action. |
-| Go tests | Clean-checkout `go build ./...` and the full race-enabled test suite, including the release identity/CI gate contracts. Node, PostgreSQL fixture tools, OpenSSL, Python, Git, and Compose must be available rather than silently skipping their tests. |
+| Go tests | Clean-checkout `go build ./...` and the full race-enabled test suite, including the release identity/CI gate contracts. Node, PostgreSQL fixture tools, OpenSSL, Python, and Compose must be available rather than silently skipping their tests. Git remains a CI checkout/module-drift tool, not a clinic prerequisite. |
 | Frontend | Node 22, `npm ci`, binding checks, TypeScript, and the Vite production build. Uploads the built frontend for native builds. |
 | Native builds | After the first three jobs pass: actual Wails macOS universal and Windows/amd64 builds for CARE Clinic. Windows must produce an NSIS installer with NSIS 3.12 from [`install-nsis`](../.github/actions/install-nsis/action.yml), and its version metadata must match `wails.json` and `.env`; the bare application and the generated installer inputs are uploaded separately so a release can sign the application before rebuilding the installer. |
 | CI | Stable aggregate check; fails if any required job failed, was cancelled, or was skipped. Configure this check in branch protection. |
