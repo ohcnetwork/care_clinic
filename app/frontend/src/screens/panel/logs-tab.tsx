@@ -30,15 +30,15 @@ export function LogsTab() {
   }, [care.tab]);
   return <div className="panel-page" aria-label="Logs">
     <PanelPageHeader title="Logs" subtitle="Local diagnostics for installation, updates and running CARE." />
-    <section className="panel-card">
-      <h2 className="panel-card-title"><FolderOpen aria-hidden="true" />All local logs in one folder</h2>
+    <section className="panel-card panel-card-pad">
+      <h2 className="mb-3 flex items-center gap-2 text-base font-semibold"><FolderOpen className="size-5" aria-hidden="true" />All local logs in one folder</h2>
       {path ? <p className="panel-small break-all font-mono">{path}</p> : null}
       <p className="panel-small">Engine and container logs are collected while the CARE engine is running, even when this window is closed.</p>
       <PanelLogButton />
       {task.error ? <p className="panel-inline-error" role="alert">{task.error}</p> : null}
     </section>
-    <section className="panel-card">
-      <h2 className="panel-card-title"><ScrollText aria-hidden="true" />What is recorded</h2>
+    <section className="panel-card panel-card-pad">
+      <h2 className="mb-4 flex items-center gap-2 text-base font-semibold"><ScrollText className="size-5" aria-hidden="true" />What is recorded</h2>
       <dl>
         {files.map(([name, detail]) => <div key={name} className="mb-3">
           <dt className="font-mono text-sm">{name}</dt>

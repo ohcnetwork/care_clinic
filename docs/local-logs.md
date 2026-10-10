@@ -31,7 +31,8 @@ replicas and recreated services.
 Serial capture uses a bounded queue and Docker logging uses non-blocking buffers:
 logging must not stall the VM or containers if the host disk falls behind.
 
-**Open logs folder** opens the shared folder. **Export diagnostics** saves a ZIP
+The **Logs** sidebar page shows the folder path, log categories, retention limits
+and sharing guidance. **Open logs folder** opens the shared folder. **Export diagnostics** saves a ZIP
 of retained logs and app/engine version information, after a privacy warning.
 No automatic upload occurs. Exports exclude environment files, database contents,
 credentials and full journal metadata, but logged messages can still contain

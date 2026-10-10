@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGuestLogsRouteAndReplayCursor(t *testing.T) {
@@ -41,6 +42,31 @@ func TestGuestLogsRouteAndReplayCursor(t *testing.T) {
 }
 
 type rewriteTransport struct{ server string }
+
+func TestConsoleOutputCapturesOnHost(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LOCALAPPDATA", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	out, err := consoleOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := out.Write([]byte("serial boot diagnostic\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(ConsoleLog())
+		if err == nil && strings.Contains(string(data), "serial boot diagnostic") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("serial output was not captured outside the VM")
+}
 
 func (r rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	copy := req.Clone(req.Context())
