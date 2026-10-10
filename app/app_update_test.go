@@ -21,6 +21,8 @@ func TestNewerVersion(t *testing.T) {
 		want               bool
 	}{
 		{"0.1.0", "0.1.1", true},
+		{"0.1.11", "0.1.12", true},
+		{"0.1.12", "0.2.0", true},
 		{"0.1.0", "0.2.0", true},
 		{"0.1.0", "1.0.0", true},
 		{"0.1.0", "0.1.0", false},

@@ -1,14 +1,19 @@
 {
   "$comment": "Maintained CARE release lines, oldest first. CI builds the newest commit of each branch into images and renders lines.json from this file (images/scripts/render-lines.mjs). See docs/images-and-lines.md.",
-  "recommended": "preview",
-  "registry": "ghcr.io/ohcnetwork",
+  "recommended": "3",
+  "registry": "ghcr.io/praffq",
   "lines": [
     {
       "id": "preview",
-      "title": "CARE preview",
-      "backend": { "repo": "ohcnetwork/care", "branch": "ENG-737" },
-      "frontend": { "repo": "ohcnetwork/care_fe", "branch": "bodhi/questionnaire-actions" },
-      "min_app_version": "",
+      "title": "Previous preview (retained for migration)",
+      "archived": true
+    },
+    {
+      "id": "3",
+      "title": "CARE 3 (develop testing)",
+      "backend": { "repo": "praffq/care", "branch": "develop" },
+      "frontend": { "repo": "praffq/care_fe", "branch": "develop" },
+      "min_app_version": "0.1.11",
       "max_app_version": "",
       "supported_until": ""
     }

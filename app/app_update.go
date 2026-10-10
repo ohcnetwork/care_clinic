@@ -158,7 +158,7 @@ func (a *App) watchForCareUpdates() {
 }
 
 const (
-	releasesAPI = "https://api.github.com/repos/ohcnetwork/care_desktop/releases/latest"
+	releasesAPI = "https://api.github.com/repos/praffq/care_clinic/releases/latest"
 
 	maxDownloadBytes = 512 << 20
 

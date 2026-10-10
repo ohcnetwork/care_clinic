@@ -8,6 +8,29 @@ only builds locally when it needs something the published image cannot do
 
 This page is the contract between the CI side (owned on GitHub) and the app.
 
+## Personal update testing
+
+The `praffq` test configuration uses CARE line `3`, built from `develop` in
+`praffq/care` and `praffq/care_fe`. This is a test label, not an upstream
+stable CARE version: development branches can contain more than bug fixes.
+
+Clinic `0.1.11` is the baseline with the personal app-update endpoint and CARE
+3 configuration. Clinic `0.1.12` tests an app-only update: it keeps the same
+CARE line and engine version. New commits published on that line are CARE-only
+updates; they do not change the Clinic version.
+
+When separate CARE 3.1 branches are available, add line `3.1` after `3` and set
+its `min_app_version` to `0.2.0`. Clinic `0.2.0` then unlocks the optional CARE
+3.1 upgrade; it does not automatically move clinics off CARE 3. Leave line `3`
+published and maintained to keep delivering its fixes. An installed preview
+clinic must explicitly upgrade to line `3`; changing the app's default does
+not move existing clinics.
+
+The old `preview` entry is archived: image CI keeps its already-published
+images without building new ones. This preserves the ordering needed to offer
+an upgrade from an installed preview clinic to CARE 3. Archived entries use
+`"archived": true` in `lines.source.json`; they are not maintained release lines.
+
 ## Vocabulary
 
 | Term | Meaning |
