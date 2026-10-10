@@ -46,12 +46,12 @@ in
   time.timeZone = "UTC";
   services.timesyncd.enable = true;
   services.fstrim.enable = true;
-  services.journald.extraConfig = ''
-    Storage=persistent
-    SystemMaxUse=200M
-    RuntimeMaxUse=50M
-    MaxRetentionSec=7day
-  '';
+  services.journald.settings.Journal = {
+    Storage = "persistent";
+    SystemMaxUse = "200M";
+    RuntimeMaxUse = "50M";
+    MaxRetentionSec = "7day";
+  };
 
   virtualisation.docker = {
     enable = true;
