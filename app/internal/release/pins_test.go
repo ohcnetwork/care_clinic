@@ -31,9 +31,9 @@ func TestDeploymentNamesAReleaseLine(t *testing.T) {
 	}{
 		{"http lines", "CARE_LINES_URL=" + pins.LinesURL, "CARE_LINES_URL=http://example.com/lines.json", false},
 		{"bad line", "CARE_DEFAULT_LINE=" + pins.DefaultLine, "CARE_DEFAULT_LINE=../x", false},
-		{"prebuilt caddy", "CADDY_WAF_PREBUILT=", "CADDY_WAF_PREBUILT=" + digest, true},
-		{"tagged caddy", "CADDY_WAF_PREBUILT=", "CADDY_WAF_PREBUILT=caddy:latest", false},
-		{"tagged backup", "BACKUP_PREBUILT=", "BACKUP_PREBUILT=postgres:17", false},
+		{"prebuilt caddy", "CADDY_WAF_PREBUILT=" + pins.CaddyWafPrebuilt, "CADDY_WAF_PREBUILT=" + digest, true},
+		{"tagged caddy", "CADDY_WAF_PREBUILT=" + pins.CaddyWafPrebuilt, "CADDY_WAF_PREBUILT=caddy:latest", false},
+		{"tagged backup", "BACKUP_PREBUILT=" + pins.BackupPrebuilt, "BACKUP_PREBUILT=postgres:17", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			changed := strings.Replace(data, tt.from+"\n", tt.to+"\n", 1)
