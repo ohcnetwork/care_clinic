@@ -263,7 +263,7 @@ test("failed and cancelled updates keep technical details out of the UI and allo
   await expect(page.getByText(/-128|User canceled|couldn't replace/)).toHaveCount(0);
   await expect(setup(page)).toBeEnabled();
   await expect(connect(page)).toBeEnabled();
-  await page.getByRole("button", { name: "Open log file", exact: true }).click();
+  await page.getByRole("button", { name: "Open logs folder", exact: true }).click();
   expect(await methodCount(page, "OpenLogFolder")).toBe(1);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(page.getByText("Downloading CARE Clinic 0.1.6\u2026")).toBeVisible();
@@ -278,7 +278,7 @@ test("a damaged download has its specific retry state, without exposing checksum
   await expect(page.getByRole("alert")).toContainText("The download didn't come through properly");
   await expect(page.getByText("Nothing was installed. Try again on a steadier connection.")).toBeVisible();
   await expect(page.getByText(/SHA-256|secret/)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Open log file", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open logs folder", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(page.getByRole("progressbar")).toBeVisible();
 });
@@ -330,7 +330,7 @@ test("release note and log-opening failures are visible and retryable", async ({
   await page.getByRole("button", { name: "Update now", exact: true }).click();
   await page.evaluate(() => window.careTest.finishUpdate("failed"));
   await page.evaluate(() => window.careTest.failNext("OpenLogFolder", "no log path: /private/log"));
-  await page.getByRole("button", { name: "Open log file", exact: true }).click();
+  await page.getByRole("button", { name: "Open logs folder", exact: true }).click();
   await expect(page.getByText("Couldn't open the log file. Try again, or ask the person who looks after this computer.")).toBeVisible();
   await expect(page.getByText(/private\/log/)).toHaveCount(0);
 });

@@ -309,7 +309,7 @@ test("failed-backup facts are visible but raw causes stay in logs", async ({ pag
   await expect(root(page)).toContainText("Not enough room for the next backup");
   await expect(root(page)).not.toContainText("exit status");
   await expect(root(page).getByRole("button", { name: "Choose another folder" })).toBeEnabled();
-  await root(page).getByRole("button", { name: "Open log file for support" }).click();
+  await root(page).getByRole("button", { name: "Open logs folder for support" }).click();
   expect(await callCount(page, "OpenLogFolder")).toBe(1);
 });
 
@@ -813,7 +813,7 @@ test("the log button cannot accidentally submit an acknowledged restore", async 
   await replace(page).click();
   await expect(dialog(page).getByRole("alert")).toBeVisible();
   const before = await callCount(page, "RestoreFromFile");
-  await dialog(page).getByRole("button", { name: "Open log file for support" }).click();
+  await dialog(page).getByRole("button", { name: "Open logs folder for support" }).click();
   expect(await callCount(page, "OpenLogFolder")).toBe(1);
   expect(await callCount(page, "RestoreFromFile")).toBe(before);
 });

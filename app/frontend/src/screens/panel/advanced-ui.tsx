@@ -89,7 +89,7 @@ export function AdvancedNotice({ title, children, tone = "danger" }: {
   </div>;
 }
 
-export function AdvancedLogButton({ label = "Open log file for support" }: { label?: string }) {
+export function AdvancedLogButton({ label = "Open logs folder for support" }: { label?: string }) {
   const pending = useRef(false);
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState(false);

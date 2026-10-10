@@ -19,6 +19,11 @@ func (l *Logger) slot(n int) string {
 }
 
 func (l *Logger) rotateIfFull(next int) {
+	if l.f != nil {
+		if st, err := l.f.Stat(); err == nil {
+			l.size = st.Size()
+		}
+	}
 	if l.f == nil || l.size+int64(next) <= maxSize {
 		return
 	}
@@ -33,7 +38,7 @@ func (l *Logger) rotateIfFull(next int) {
 }
 
 func (l *Logger) reopen() {
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return
 	}

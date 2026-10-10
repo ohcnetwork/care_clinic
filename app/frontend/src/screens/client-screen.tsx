@@ -324,7 +324,7 @@ export function ClientScreen() {
           {error ? (
             <Callout title={error.title} tone="danger">
               <p>{error.message}</p>{error.tips ? <ul>{error.tips.map((tip) => <li key={tip}>{tip}</li>)}</ul> : null}
-              <div className="on-actions"><Button variant="primary" disabled={locked || (error.action === "repair" && !valid)} onClick={retryError}>{errorAction}</Button><LogButton label="Open log file for support" /></div>
+              <div className="on-actions"><Button variant="primary" disabled={locked || (error.action === "repair" && !valid)} onClick={retryError}>{errorAction}</Button><LogButton label="Open logs folder for support" /></div>
             </Callout>
           ) : null}
           {savedAddress && phase !== "connecting" ? (

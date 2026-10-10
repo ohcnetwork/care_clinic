@@ -6,12 +6,14 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/applog"
 )
 
 // appFolder matches the folder name used everywhere else by the app.
 const appFolder = "care-clinic"
 
-// StateDir holds the engine files, the data disk, credentials and logs.
+// StateDir holds the engine files, the data disk and credentials.
 func StateDir() string {
 	home, _ := os.UserHomeDir()
 	switch runtime.GOOS {
@@ -44,8 +46,8 @@ func dockerConfig() string  { return filepath.Join(StateDir(), "docker-config") 
 func certDir() string       { return filepath.Join(StateDir(), "certs") }
 func dockerSocket() string  { return filepath.Join(runDir(), "docker.sock") }
 func controlSocket() string { return filepath.Join(runDir(), "control.sock") }
-func ConsoleLog() string    { return filepath.Join(StateDir(), "console.log") }
-func HostLog() string       { return filepath.Join(StateDir(), "host.log") }
+func ConsoleLog() string    { return filepath.Join(applog.DefaultLogDir(), "engine-console.log") }
+func HostLog() string       { return filepath.Join(applog.DefaultLogDir(), "engine-host.log") }
 
 func exe(name string) string {
 	if runtime.GOOS == "windows" {

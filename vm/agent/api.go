@@ -51,6 +51,7 @@ func (a *api) routes() http.Handler {
 	mux.HandleFunc("POST /v1/shutdown", a.shutdown)
 	mux.HandleFunc("GET /v1/df", a.df)
 	mux.HandleFunc("GET /v1/journal", a.journal)
+	mux.HandleFunc("GET /v1/logs", a.logs)
 	mux.HandleFunc("GET /v1/fs/list", a.list)
 	mux.HandleFunc("GET /v1/fs/file", a.getFile)
 	mux.HandleFunc("PUT /v1/fs/file", a.putFile)

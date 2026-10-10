@@ -65,8 +65,13 @@ export function PanelLogButton() {
   return <div className="panel-log">
     <Button variant="ghost" size="sm" disabled={task.working}
       onClick={() => void task.run(() => bridge.OpenLogFolder(),
-        "Couldn't open the log file. Try again, or ask the person who looks after this computer.")}>
-      <FileText aria-hidden="true" />Open log file
+        "Couldn't open the logs folder. Try again, or ask the person who looks after this computer.")}>
+      <FileText aria-hidden="true" />Open logs folder
+    </Button>
+    <Button variant="ghost" size="sm" disabled={task.working}
+      onClick={() => void task.run(() => bridge.ExportDiagnostics(),
+        "Couldn't export diagnostics. Check available disk space and try again.")}>
+      <FileText aria-hidden="true" />Export diagnostics
     </Button>
     {task.error ? <p className="panel-inline-error" role="alert">{task.error}</p> : null}
   </div>;

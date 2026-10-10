@@ -46,14 +46,20 @@ in
   time.timeZone = "UTC";
   services.timesyncd.enable = true;
   services.fstrim.enable = true;
+  services.journald.extraConfig = ''
+    Storage=persistent
+    SystemMaxUse=200M
+    RuntimeMaxUse=50M
+    MaxRetentionSec=7day
+  '';
 
   virtualisation.docker = {
     enable = true;
     # Docker's data lives on the persistent disk mounted at /var/lib.
     daemon.settings = {
       data-root = "/var/lib/docker";
-      log-driver = "local";
-      log-opts = { max-size = "20m"; max-file = "5"; };
+      log-driver = "journald";
+      log-opts = { mode = "non-blocking"; max-buffer-size = "4m"; };
       features.buildkit = true;
     };
   };

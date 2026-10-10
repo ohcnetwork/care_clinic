@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/applog"
 )
 
 // HostStatus is what the helper reports on its control socket.
@@ -51,10 +53,11 @@ func RunHost() int {
 		return 2
 	}
 	_ = os.MkdirAll(StateDir(), 0o700)
-	lf, err := os.OpenFile(HostLog(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	lf, err := applog.NewStream(HostLog())
 	if err == nil {
-		defer func() { _ = lf.Close() }()
 		log.SetOutput(lf)
+	} else {
+		fmt.Fprintf(os.Stderr, "engine logging unavailable: %v\n", err)
 	}
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	logf := log.Printf
@@ -99,6 +102,7 @@ func runHost(logf func(string, ...any)) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	go h.collectLogs(ctx)
 
 	srv := &http.Server{Handler: h.routes(), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ctl) }()
@@ -126,7 +130,7 @@ func runHost(logf func(string, ...any)) error {
 		logf("engine: %s", s)
 	case <-m.done():
 		logf("engine: VM stopped on its own")
-		return errors.New("the VM stopped unexpectedly; see console.log")
+		return fmt.Errorf("the VM stopped unexpectedly; see %s", ConsoleLog())
 	}
 	cancel()
 	h.shutdown()
@@ -145,7 +149,7 @@ func (h *host) waitReady(ctx context.Context, limit time.Duration) error {
 	for time.Now().Before(deadline) {
 		select {
 		case <-h.m.done():
-			return errors.New("the VM stopped while starting; see console.log")
+			return fmt.Errorf("the VM stopped while starting; see %s", ConsoleLog())
 		default:
 		}
 		c, cancel := context.WithTimeout(ctx, 3*time.Second)

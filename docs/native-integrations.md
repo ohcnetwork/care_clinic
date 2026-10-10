@@ -1400,7 +1400,7 @@ The volume id is how two folders are recognised as the same drive.
 | Drive | Path | Why |
 | --- | --- | --- |
 | Clinic data (labelled "This computer's drive" on macOS and Windows) | `storage.DockerDataDir()`: the CARE engine state folder on macOS/Windows; on Linux, the native Docker data root, falling back to `/var/lib/docker`. | Images and volumes are stored in the CARE engine's data disk on macOS/Windows, and in the native Docker data root on Linux. The engine state folder location is listed in [CARE engine](vm.md). |
-| CARE engine disk | The CARE engine state folder (macOS/Windows); see [CARE engine](vm.md) for its platform-specific location. | Holds the engine files, Docker data disk, credentials and logs. Selecting the uninstall option to remove images also deletes this folder. |
+| CARE engine disk | The CARE engine state folder (macOS/Windows); see [CARE engine](vm.md) for its platform-specific location. | Holds the engine files, Docker data disk and credentials. Logs live separately in the [local diagnostics folder](local-logs.md). Selecting the uninstall option to remove images also deletes the engine folder. |
 | Backups | The configured backup folder. | See [backup space](backups-and-restore.md#space-checks-and-the-status-file). |
 
 ### Thresholds

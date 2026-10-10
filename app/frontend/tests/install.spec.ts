@@ -155,7 +155,7 @@ test("installation follows log milestones without percentages, controls, or upda
   await expect(page.getByRole("button", { name: /Back|Cancel|Update/ })).toHaveCount(0);
   expect(await calls(page, "CheckAppUpdate")).toBe(updateChecks);
   expect(await calls(page, "CleanupFailedInstall")).toBe(0);
-  await page.getByRole("button", { name: "Open log file", exact: true }).click();
+  await page.getByRole("button", { name: "Open logs folder", exact: true }).click();
   expect(await calls(page, "OpenLogFolder")).toBe(1);
 });
 
@@ -269,7 +269,7 @@ test("failure is honest about partial setup, keeps diagnostics in the log, and p
   await expect(page.locator("#install-retry-consequences")).toContainText("Keep your old backup recovery files");
   expect(await calls(page, "CleanupFailedInstall")).toBe(0);
   await page.evaluate(() => window.careTest.failNext("OpenLogFolder", "open /private/diagnostics: exit status 1"));
-  await page.getByRole("button", { name: "Open log file", exact: true }).click();
+  await page.getByRole("button", { name: "Open logs folder", exact: true }).click();
   await expect(page.getByText("Couldn't open the log file.", { exact: false })).toBeVisible();
   await expect(page.locator(".install-screen")).not.toContainText("/private/diagnostics");
 });
@@ -590,8 +590,8 @@ test("reduced motion keeps the current stage readable without animation", async 
   await expect(page.locator(".install-progress [data-slot=progress-indicator]")).toHaveCSS("animation-name", "none");
   await expect(page.getByRole("heading", { name: RUN_STEPS[4].label, exact: true })).toBeVisible();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Open log file", exact: true })).toBeFocused();
-  await expect(page.getByRole("button", { name: "Open log file", exact: true })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Open logs folder", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Open logs folder", exact: true })).toBeInViewport();
   await fits(page);
 });
 

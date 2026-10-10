@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/applog"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/appremoval"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
@@ -50,6 +51,17 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 	var script, name string
 	var cmd *exec.Cmd
 	a.updateProgress(phaseVerifying, 0, 0)
+	logPath := filepath.Join(a.log.Folder(), "app-update-helper.log")
+	if a.log.Folder() == "" {
+		return fmt.Errorf("the logs folder is unavailable; cannot save update diagnostics")
+	}
+	helperLog, err := applog.NewStream(logPath)
+	if err != nil {
+		return fmt.Errorf("couldn't open update diagnostics: %w", err)
+	}
+	if _, err := helperLog.Write([]byte("Starting CARE Clinic update to " + version + "\n")); err != nil {
+		return fmt.Errorf("couldn't write update diagnostics: %w", err)
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		a.logln("Unpacking CARE Clinic " + version + "...")
@@ -68,7 +80,7 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 		if err != nil {
 			return err
 		}
-		script = macUpdateHelper(target, staged, work, os.Getpid(), elevated, verification)
+		script = macUpdateHelper(target, staged, work, logPath, os.Getpid(), elevated, verification)
 		name = filepath.Join(work, "install.sh")
 		cmd = proc.Command("/bin/sh", name)
 	case "windows":
@@ -80,7 +92,7 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 		if err != nil {
 			return err
 		}
-		script = windowsUpdateHelper(exe, download, work, version, digest, os.Getpid())
+		script = windowsUpdateHelper(exe, download, work, version, digest, logPath, os.Getpid())
 		name = filepath.Join(work, "install.ps1")
 		cmd = proc.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", name)
 	default:
@@ -90,8 +102,8 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 		return err
 	}
 	a.updateProgress(phaseInstalling, 0, 0)
-	a.logln("Preparing an in-place update of " + target + ". Helper log: " + filepath.Join(work, "helper.log"))
-	if err := startUpdateHelper(cmd, ready); err != nil {
+	a.logln("Preparing an in-place update of " + target + ". Helper log: " + logPath)
+	if err := startUpdateHelper(cmd, ready, logPath); err != nil {
 		return err
 	}
 	if err := os.WriteFile(commit, []byte("continue"), 0o600); err != nil {
@@ -105,7 +117,7 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 	return nil
 }
 
-func startUpdateHelper(cmd *exec.Cmd, ready string) error {
+func startUpdateHelper(cmd *exec.Cmd, ready, logPath string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("couldn't start the update helper: %w", err)
 	}
@@ -118,7 +130,7 @@ func startUpdateHelper(cmd *exec.Cmd, ready string) error {
 	for {
 		select {
 		case err := <-done:
-			detail, _ := os.ReadFile(filepath.Join(filepath.Dir(ready), "helper.log"))
+			detail, _ := os.ReadFile(logPath)
 			return fmt.Errorf("the update helper stopped before it was ready (%v): %s", err, strings.TrimSpace(string(detail)))
 		case <-deadline.C:
 			_ = cmd.Process.Kill()

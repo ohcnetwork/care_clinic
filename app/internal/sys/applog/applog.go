@@ -18,10 +18,11 @@ type Logger struct {
 	// failure the way it reports every other one. Nil means exit.
 	OnFatal func(string)
 
-	mu   sync.Mutex
-	f    *os.File
-	path string
-	size int64
+	mu        sync.Mutex
+	f         *os.File
+	path      string
+	size      int64
+	lastSweep time.Time
 }
 
 func Open() *Logger { return openWithDir(DefaultLogDir()) }
@@ -32,11 +33,11 @@ func openWithDir(dir string) *Logger {
 	if dir == "" {
 		return l
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return l
 	}
 	path := filepath.Join(dir, logName)
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return l
 	}
@@ -56,6 +57,12 @@ func (l *Logger) Write(line string) {
 	defer l.mu.Unlock()
 	if l.f == nil {
 		return
+	}
+	if time.Since(l.lastSweep) >= time.Minute {
+		l.lastSweep = time.Now()
+		if err := Maintain(filepath.Dir(l.path), l.lastSweep); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "log retention failed: %v\n", err)
+		}
 	}
 	line = strings.TrimRight(line, "\r\n")
 	if len(line) > maxLine {

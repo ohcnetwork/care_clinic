@@ -31,7 +31,7 @@ func TestMacReplacementElevationPreservesOwnership(t *testing.T) {
 			if elevated != tc.want {
 				t.Fatalf("elevated = %v, want %v", elevated, tc.want)
 			}
-			script := macUpdateHelper("/Applications/CARE.app", "/cache/stage/CARE.app", "/cache", 12345, elevated)
+			script := macUpdateHelper("/Applications/CARE.app", "/cache/stage/CARE.app", "/cache", "/logs/helper.log", 12345, elevated)
 			if strings.Contains(script, "with administrator privileges") != tc.want {
 				t.Fatal("helper does not use the required privilege level")
 			}
@@ -66,7 +66,7 @@ func TestMacUpdateHelperWaitsBeforeReplacingAndReportsFailure(t *testing.T) {
 	staged := "/private/update/stage/CARE's Clinic.app"
 	work := "/private/update"
 	for _, elevated := range []bool{false, true} {
-		script := macUpdateHelper(target, staged, work, 12345, elevated)
+		script := macUpdateHelper(target, staged, work, filepath.Join(work, "helper.log"), 12345, elevated)
 		wait := strings.Index(script, "/bin/kill -0 12345")
 		swap := strings.Index(script, "owner=")
 		if wait < 0 || swap < wait || !strings.Contains(script, "did not exit; nothing was replaced") {
@@ -94,7 +94,7 @@ func TestMacUpdateHelperWaitsBeforeReplacingAndReportsFailure(t *testing.T) {
 
 func TestWindowsUpdateHelperUsesExactInstallDirectoryAndWaits(t *testing.T) {
 	exe := filepath.Join("custom path", "CARE's Clinic.exe")
-	script := windowsUpdateHelper(exe, "release-setup.exe", "work", "1.2.3", strings.Repeat("a", 64), 12345)
+	script := windowsUpdateHelper(exe, "release-setup.exe", "work", "1.2.3", strings.Repeat("a", 64), "logs/helper.log", 12345)
 	for _, required := range []string{
 		"Get-Process -Id 12345", "UninstallString", "Confirm-Download",
 		"SignerCertificate.Subject", "Get-FileHash", "WaitForExit(120000)",
@@ -121,7 +121,7 @@ func TestUpdateHelperStartupFailureKeepsAppOpen(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(work, "helper.log"), []byte("permission denied"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := startUpdateHelper(exec.Command("/bin/sh", "-c", "exit 1"), filepath.Join(work, "ready"))
+	err := startUpdateHelper(exec.Command("/bin/sh", "-c", "exit 1"), filepath.Join(work, "ready"), filepath.Join(work, "helper.log"))
 	if err == nil || !strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("helper failure not surfaced: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestUpdateHelperRequiresReadinessAcknowledgement(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = stdin.Close() }()
-	if err := startUpdateHelper(cmd, ready); err != nil {
+	if err := startUpdateHelper(cmd, ready, filepath.Join(filepath.Dir(ready), "helper.log")); err != nil {
 		t.Fatal(err)
 	}
 	// This fixture waits for stdin, never runs an installer, and exits on EOF.
@@ -174,7 +174,7 @@ func TestMacCopiedBundlePinsExecutableBeforeSwap(t *testing.T) {
 	}
 	for _, elevated := range []bool{false, true} {
 		cmd := exec.Command("/bin/sh", "-n")
-		cmd.Stdin = strings.NewReader(macUpdateHelper("/Applications/CARE.app", stage, work, 12345, elevated, check))
+		cmd.Stdin = strings.NewReader(macUpdateHelper("/Applications/CARE.app", stage, work, filepath.Join(work, "helper.log"), 12345, elevated, check))
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("invalid verified helper shell: %v: %s", err, out)
 		}

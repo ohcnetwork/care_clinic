@@ -956,7 +956,7 @@ test("address check failures offer a log without putting technical causes on scr
   await page.getByLabel("Clinic address", { exact: true }).fill("care-hospital");
   await expect(page.getByText("Couldn't check or save this clinic address. Try again, or share the log file with your support contact.")).toBeVisible();
   await expect(forward(page)).toBeDisabled();
-  await page.getByRole("button", { name: "Open log file", exact: true }).click();
+  await page.getByRole("button", { name: "Open logs folder", exact: true }).click();
   expect(await calls(page, "OpenLogFolder")).toBe(1);
   expect(await page.locator("body").innerText()).not.toContain("private multicast lookup failed");
   await page.getByRole("button", { name: "Check again", exact: true }).click();

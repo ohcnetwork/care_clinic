@@ -105,7 +105,7 @@ func boot(o bootOptions) (machine, error) {
 	}
 	cfg.SetSocketDevicesVirtualMachineConfiguration([]vz.SocketDeviceConfiguration{sock})
 
-	out, err := os.OpenFile(ConsoleLog(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	out, err := consoleOutput()
 	if err != nil {
 		return nil, err
 	}

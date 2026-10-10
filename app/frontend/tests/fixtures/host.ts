@@ -657,6 +657,7 @@ export function installTestHost() {
     },
     OpenURL: async () => { logs.push("Test only: release notes requested."); },
     OpenLogFolder: async () => { logs.push("Test only: log file requested."); },
+    ExportDiagnostics: async () => { logs.push("Test only: diagnostics export requested."); },
     SetQuitDialogReady: async (ready: boolean) => {
       if (!ready) quitRequest = null;
       return quitRequest ? { ...quitRequest } : null;

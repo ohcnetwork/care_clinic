@@ -47,7 +47,7 @@ export function Callout({ title, children, tone = "neutral" }: {
   );
 }
 
-export function LogButton({ label = "Open log file" }: { label?: string }) {
+export function LogButton({ label = "Open logs folder" }: { label?: string }) {
   const { log } = useCare();
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);

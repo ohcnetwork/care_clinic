@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"slices"
 
@@ -122,18 +121,18 @@ func (a *App) LogPath() string { return a.log.Path() }
 
 func (a *App) OpenLogFolder() (err error) {
 	defer a.logError(&err)
-	path := a.log.Path()
+	path := a.log.Folder()
 	if path == "" {
 		return errors.New("this run isn't writing a log file - the log folder couldn't be opened for writing")
 	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = proc.Command("open", "-R", path)
+		cmd = proc.Command("open", path)
 	case "windows":
-		cmd = proc.Command("explorer.exe", "/select,"+path)
+		cmd = proc.Command("explorer.exe", path)
 	default:
-		cmd = proc.Command("xdg-open", filepath.Dir(path))
+		cmd = proc.Command("xdg-open", path)
 	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("couldn't open the log folder: %w", err)

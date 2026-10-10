@@ -8,7 +8,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 )
 
-func macUpdateHelper(target, staged, work string, pid int, elevated bool, verification ...string) string {
+func macUpdateHelper(target, staged, work, logPath string, pid int, elevated bool, verification ...string) string {
 	q := elevate.ShQuote
 	swap := swapScript(target, staged, verification...)
 	install := "/bin/sh -c " + q(swap)
@@ -17,11 +17,11 @@ func macUpdateHelper(target, staged, work string, pid int, elevated bool, verifi
 	}
 	message := "CARE Clinic could not finish updating or reopening. Your clinic data has not been changed. " +
 		"Open CARE Clinic from its installed folder. If it is missing, keep the .care-update- recovery folder beside it and contact support. Update log: " +
-		filepath.Join(work, "helper.log")
+		logPath
 	return strings.Join([]string{
 		"#!/bin/sh",
 		"umask 077",
-		"exec >>" + q(filepath.Join(work, "helper.log")) + " 2>&1",
+		"exec >>" + q(logPath) + " 2>&1",
 		"failed() { /usr/bin/osascript -e " + q("display alert "+elevate.OSAQuote("CARE Clinic update didn't finish")+
 			" message "+elevate.OSAQuote(message)+" as critical") + "; /usr/bin/open " + q(target) + "; exit 1; }",
 		"printf ready >" + q(filepath.Join(work, "ready")),
@@ -36,7 +36,7 @@ func macUpdateHelper(target, staged, work string, pid int, elevated bool, verifi
 	}, "\n") + "\n"
 }
 
-func windowsUpdateHelper(exe, installer, work, version, digest string, pid int) string {
+func windowsUpdateHelper(exe, installer, work, version, digest, logPath string, pid int) string {
 	q := elevate.PSQuote
 	// Start-Process joins ArgumentList into one command line. NSIS requires /D
 	// last and unquoted, including paths with spaces; it consumes the remainder.
@@ -46,7 +46,7 @@ func windowsUpdateHelper(exe, installer, work, version, digest string, pid int) 
 		"$exe = " + q(exe),
 		"$installer = " + q(installer),
 		"$work = " + q(work),
-		"$log = Join-Path $work 'helper.log'",
+		"$log = " + q(logPath),
 		"$ready = $false",
 		"try {",
 		"  Start-Transcript -Path $log -Force | Out-Null",

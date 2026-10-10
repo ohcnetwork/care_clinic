@@ -106,7 +106,7 @@ export function BackupLogButton() {
     <div className="care-backups-log">
       <Button type="button" variant="ghost" size="sm" disabled={working} onClick={() => void open()}>
         <ScrollText aria-hidden="true" />
-        {working ? "Opening log…" : "Open log file for support"}
+        {working ? "Opening log…" : "Open logs folder for support"}
       </Button>
       {failed ? <span role="alert">The log file couldn't be opened. Try again.</span> : null}
     </div>

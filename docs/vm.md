@@ -73,22 +73,24 @@ sides since the last sync, the computer's copy wins.
 Inside that folder: `engine/` (the installed bundle and `manifest.json`),
 `data.img` (the sparse data disk that holds Docker's images, containers and
 volumes; it grows as needed, up to 64 GB by default), `bin/` (docker, compose,
-QEMU), `config.json` (CPU/memory/disk sizing), `host.log` and `console.log`.
+QEMU) and `config.json` (CPU/memory/disk sizing). Logs live in the shared
+[local diagnostics folder](local-logs.md), outside the engine state folder.
 
 The storage tab reports this folder as the **CARE engine disk**. Uninstalling
 CARE with "remove images" deletes the folder.
 
 ## Troubleshooting
 
-- **Logs.** `host.log` (the helper) and `console.log` (the VM's boot console)
-  are in the engine state folder. If the engine fails to start, the app also
+- **Logs.** `engine-host.log` (the helper) and `engine-console.log` (boot console)
+  are in the shared logs folder alongside continuously captured guest and
+  container logs. If the engine fails to start, the app also
   writes `care-engine-diagnostics.txt` (helper log, console and guest journal)
-  next to its own `application.log`.
+  next to its own `care-log.log`. See [local diagnostics](local-logs.md).
 - **"Windows Hypervisor Platform is off".** Use the *Turn on* button on the
   setup screen, then restart. If it says virtualization is disabled, turn on
   Intel VT-x / AMD-V (sometimes called "SVM") in the computer's BIOS/UEFI.
 - **The clinic page doesn't open.** Another program may be using port 80 or
-  443 (`host.log` says `port 80: address already in use`). Stop it (common
+  443 (`engine-host.log` says `port 80: address already in use`). Stop it (common
   culprits: IIS, Skype, another web server, an old Rancher Desktop) and restart
   the engine from the app.
 - **Windows firewall prompt.** The first start may ask to allow QEMU. The

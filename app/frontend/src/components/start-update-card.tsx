@@ -174,7 +174,7 @@ export function StartUpdateCard({ controller, context = "start" }: {
               </Button>
               {showLog ? (
                 <Button variant="glass" size="sm" disabled={opening} onClick={() => void open("log")}>
-                  <FileText aria-hidden="true" />Open log file
+                  <FileText aria-hidden="true" />Open logs folder
                 </Button>
               ) : null}
             </div>
