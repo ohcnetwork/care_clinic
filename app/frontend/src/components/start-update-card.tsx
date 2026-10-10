@@ -121,7 +121,7 @@ export function StartUpdateCard({ controller, context = "start" }: {
     eyebrow = "Update available";
     title = `CARE Clinic ${releaseVersion}`;
     detail = context === "setup" ? "Best done before installing. CARE Clinic will close briefly and reopen."
-      : "Updates this installed copy and reopens CARE Clinic. Your computer may ask for permission. Clinic data is kept and a running clinic is not stopped.";
+      : "Updates this installed copy and reopens CARE Clinic. Your computer may ask for permission. Clinic data is kept. An included CARE engine update briefly restarts the clinic after reopening.";
   }
 
   return (

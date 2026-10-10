@@ -250,7 +250,7 @@ function ClinicApplicationCard({ controller }: { controller: AppUpdateController
       <p className="panel-small">{phase === "installer" ? "Follow the installer to finish, then reopen CARE Clinic."
         : phase === "restarting" ? "CARE Clinic is reopening."
           : "Keep CARE Clinic open. Your computer may ask for permission to replace the app."}</p>
-      {system === "running" ? <p className="panel-small">The clinic keeps running while CARE Clinic updates.</p> : null}
+      {system === "running" ? <p className="panel-small">The clinic keeps running while CARE Clinic updates. If the new version includes a CARE engine update, the clinic is unavailable for a few minutes after CARE Clinic reopens while the engine updates.</p> : null}
       {phase === "installer" ? <Button disabled={controller.updating} onClick={controller.dismiss}>Done</Button> : null}
     </div> : problem ? <PanelNotice title={problemTitle} tone={problem.kind === "download" || problem.kind === "install" ? "danger" : "warning"}
       actions={<>
@@ -261,7 +261,7 @@ function ClinicApplicationCard({ controller }: { controller: AppUpdateController
       {problemDetail}
     </PanelNotice> : update?.available ? <PanelNotice tone={update.blocked ? "warning" : "ok"} title={`CARE Clinic ${update.version} is available`}>
       {update.blocked ? <span role="alert">{update.blocked}</span> : <>Downloads and installs the new version. Your computer may ask for permission.
-      {system === "running" ? " Your clinic keeps running." : ""}</>}
+      {system === "running" ? " Your clinic keeps running while the app updates." : ""} If the new version includes a CARE engine update, the clinic is unavailable for a few minutes after CARE Clinic reopens while the engine updates.</>}
       <div className="panel-actions">
         {update.notes_url ? <Button disabled={action.working} onClick={() => void action.run(() => bridge.OpenURL(update.notes_url),
           "Couldn't open what's new. Try again when this computer is connected to the internet.")}>

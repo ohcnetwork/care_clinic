@@ -102,9 +102,12 @@ func (pr *Provisioner) EngineVersions() (installed, expected string, toolsOK boo
 	return installed, expected, vm.ToolsInstalled()
 }
 
-// UpdateEngine replaces an installed CARE engine with the pinned version. A
-// running engine is stopped first; its data disk is kept.
-func (pr *Provisioner) UpdateEngine() error { return pr.installEngine() }
+// UpdateEngine replaces an installed CARE engine with the pinned version. Every
+// download is verified before beforeStop runs and the running engine is
+// stopped, so a failed download leaves the clinic untouched. The data disk is kept.
+func (pr *Provisioner) UpdateEngine(beforeStop func() error) error {
+	return pr.installEngineThen(beforeStop)
+}
 
 func (pr *Provisioner) enginePlan() ToolPlan {
 	p := ToolPlan{URL: dockerHelpURL()}
@@ -130,7 +133,9 @@ func (pr *Provisioner) enginePlan() ToolPlan {
 	return p
 }
 
-func (pr *Provisioner) installEngine() error {
+func (pr *Provisioner) installEngine() error { return pr.installEngineThen(nil) }
+
+func (pr *Provisioner) installEngineThen(beforeStop func() error) error {
 	if runtime.GOOS == "windows" {
 		if err := vm.HypervisorReady(); err != nil {
 			return fmt.Errorf("%w; finish the Windows step first", err)
@@ -154,6 +159,11 @@ func (pr *Provisioner) installEngine() error {
 		files = append(files, f)
 	}
 
+	if beforeStop != nil {
+		if err := beforeStop(); err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), engineStopWait)
 	defer cancel()
 	if vm.Status(ctx).PID != 0 {

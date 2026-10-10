@@ -60,7 +60,7 @@ export function AppUpdateCard({ disabled = false }: { disabled?: boolean }) {
             {update.blocked ? <span role="alert">{update.blocked}</span> : <>Downloads {update.asset}, verifies its checksum, and installs the update.
             CARE Clinic closes briefly, replaces this installed copy, and reopens.
             Your computer may ask for permission. Clinic data and settings are kept;
-            a running clinic is not stopped.</>}
+            a running clinic is not stopped while the app updates. If the new version includes a CARE engine update, the clinic is unavailable for a few minutes after CARE Clinic reopens while the engine updates.</>}
           </span>
           {update.notes_url ? (
             <Button onClick={() => void bridge.OpenURL(update.notes_url)}>Release notes</Button>

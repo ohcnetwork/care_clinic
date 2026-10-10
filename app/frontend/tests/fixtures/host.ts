@@ -13,6 +13,7 @@ type Fixtures = {
   disk: DiskStatus;
   docker: DockerStatus;
   engine: EngineState;
+  engineRetry?: boolean;
   windowsVM: WindowsVMStatus;
   network: NetworkStatus;
   restart: RestartPlan;
@@ -220,7 +221,7 @@ export function installTestHost() {
     fixtures.storage.headline = "Space for the clinic is running low.";
   }
   if (scenario === "panel-requirements") { fixtures.docker.ok = false; }
-  if (scenario === "panel-engine-outdated") fixtures.engine = { ...fixtures.engine, installed_version: "0.1.0", running_version: "0.1.0", update_needed: true, logs: "" };
+  if (scenario === "panel-engine-outdated" || scenario === "panel-engine-update-failed") fixtures.engine = { ...fixtures.engine, installed_version: "0.1.0", running_version: "0.1.0", update_needed: true, logs: "" };
   if (scenario === "panel-update") fixtures.channel.pending_backend = "preview-backend-next";
   const available = ["available", "downloading", "installing", "verifying", "restarting", "installer", "failed", "download-failed", "unavailable"].includes(scenario);
   let update: AppUpdate = {
@@ -248,7 +249,7 @@ export function installTestHost() {
       const title = action === "restore" ? "Restore didn't finish" : action === "backup-now" ? "Backup didn't finish" : "CARE couldn't finish that";
       if (action !== "setup") emit("care-error", title, error);
     } else {
-      if (["start", "restart", "update", "upgrade-line", "restore"].includes(action)) {
+      if (["start", "restart", "update", "upgrade-line", "restore", "engine-update"].includes(action)) {
         fixtures.health = { active: true, code: 200, detail: "" };
         fixtures.clinicStatus = "backend\nfrontend\ndb\nbackup";
       }
@@ -464,7 +465,18 @@ export function installTestHost() {
       requireServer();
       if (state.restore_pending && !["start", "stop"].includes(action)) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
       if (action === "backup-now") fixtures.storage.last_run.state = "running";
-      if (action === "engine-update") fixtures.engine = { ...fixtures.engine, installed_version: fixtures.engine.expected_version, running_version: fixtures.engine.expected_version, update_needed: false, logs: "collecting" };
+      if (action === "engine-update") {
+        if (scenario === "panel-engine-update-failed" && !fixtures.engineRetry) {
+          fixtures.engineRetry = true;
+          window.setTimeout(() => finishJob(action, "could not download care-engine-0.1.1-linux-arm64.tar.gz: network is unreachable"), 350);
+          return;
+        }
+        window.setTimeout(() => {
+          fixtures.engine = { ...fixtures.engine, installed_version: fixtures.engine.expected_version, running_version: fixtures.engine.expected_version, update_needed: false, logs: "collecting" };
+          finishJob(action);
+        }, 600);
+        return;
+      }
       acceptJob(action);
     },
     VerifyAdminPassword: async (password: string) => password === fixtures.adminPassword,

@@ -398,7 +398,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       // launch, so the intent dies with the session, same as the state it describes.
       stopIntentBeforeRef.current = stoppedOnPurposeRef.current;
       if (action === "stop") stoppedOnPurposeRef.current = true;
-      if (action === "start" || action === "restart") {
+      if (action === "start" || action === "restart" || action === "engine-update") {
         stoppedOnPurposeRef.current = false;
         // Down and being fixed is not down and unattended. refresh() skips while
         // busy, so without this the banner would sit there through the restart.
@@ -629,9 +629,25 @@ export function CareProvider({ children }: { children: ReactNode }) {
       log(`storage: ${errorText(e)}`);
       setStorageError("Storage couldn't be checked. Try again.");
     });
+    // An app update leaves the previous CARE engine running. Replace it before
+    // the first status refresh, so the clinic isn't reported as running on an
+    // engine this version of CARE Clinic doesn't support.
+    let engineUpdating = false;
+    if (!restorePending && !pluginPending) {
+      try {
+        const engine = await bridge.EngineStatus();
+        if (engine.supported && engine.update_needed && !busyRef.current) {
+          log(`\nCARE engine ${engine.expected_version} is required — updating it now...`);
+          engineUpdating = await runAction("engine-update");
+        }
+      } catch (e) {
+        log(`engine status: ${errorText(e)}`);
+      }
+    }
     await reloadBackups();
     await refresh();
     await syncAutostart();
+    if (engineUpdating) return;
     try {
       const health = await bridge.ClinicHealth();
       if ((!health.active || restorePending || pluginPending) && !busyRef.current) {

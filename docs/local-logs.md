@@ -23,8 +23,9 @@ containers retain their original logging driver until recreated.
 
 The Logs page shows the live collection state reported by the helper
 (collecting, connecting, reconnecting, engine stopped). If an older engine is
-still running after an app update, it shows "CARE engine update required"; the
-**Update CARE engine** action recreates the containers so they use journald.
+still running after an app update, the app updates it automatically on launch
+and recreates the containers so they use journald. If that fails, the page shows
+"CARE engine update required" with an **Update CARE engine** retry.
 
 Logs rotate at 10 MiB with four retained stream files. A minute-by-minute sweep
 expires logs after seven days and enforces a shared 500 MiB budget. The limit can

@@ -30,7 +30,7 @@ export function EngineUpdateNotice({ engine }: { engine: EngineState | null }) {
   const care = useCare();
   const task = usePanelTask();
   const updateLock = usePanelUpdateLock();
-  if (!engine?.supported || !engine.update_needed) return null;
+  if (!engine?.supported || !engine.update_needed || care.busy) return null;
   const current = engine.running_version || engine.installed_version;
   const locked = care.busy || task.working || updateLock.active;
   return <PanelNotice title="CARE engine update required" tone="warning" actions={<>
@@ -41,7 +41,8 @@ export function EngineUpdateNotice({ engine }: { engine: EngineState | null }) {
     }}><RefreshCw aria-hidden="true" />Update CARE engine</Button>
   </>}>
     This version of CARE Clinic needs CARE engine {engine.expected_version}, but {current ? `${current} is ${engine.running ? "running" : "installed"}` : "an older engine is installed"}.
-    {" "}Until it is updated, engine and container logs are not collected. The clinic stops for a few minutes while the engine restarts; patient records, files and backups are kept.
+    {" "}The automatic update didn&apos;t finish, so the clinic is still on the previous engine and engine and container logs are not collected.
+    {" "}Updating takes the clinic offline for a few minutes; patient records, files and backups are kept.
     {task.error ? <p className="panel-inline-error" role="alert">{task.error}</p> : null}
   </PanelNotice>;
 }

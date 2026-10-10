@@ -451,3 +451,22 @@ const run = async (env, missing) => {
 		t.Fatalf("prerequisite verifier failed: %v\n%s", err, output)
 	}
 }
+
+func TestEngineUpdateLeavesClinicAloneWhenDownloadFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "missing", http.StatusNotFound)
+	}))
+	defer server.Close()
+	pr := NewProvisioner(proc.Runner{}, &release.Pins{
+		CareVMVersion: "0.1.1", CareVMBaseURL: server.URL,
+		CareVMAarch64SHA256: "vm-arm", CareVMX8664SHA256: "vm-intel",
+	}, nil)
+	stopped := false
+	err := pr.UpdateEngine(func() error { stopped = true; return nil })
+	if err == nil {
+		t.Fatal("update must fail when the engine cannot be downloaded")
+	}
+	if stopped {
+		t.Fatal("the clinic was stopped before the new engine was downloaded")
+	}
+}

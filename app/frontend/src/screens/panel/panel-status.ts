@@ -19,6 +19,7 @@ export function panelStatus({ system, systemDetail, trouble, busy, busyLabel }: 
     Rebuilding: ["Updating", "CARE is being rebuilt. Keep this computer on."],
     "Applying plugins": ["Updating", "Changes are being applied. Staff may be signed out briefly."],
     "Updating CARE": ["Updating", "The CARE software update is being installed. Keep this computer on."],
+    "Updating CARE engine": ["Updating", "The CARE engine is being updated. The clinic is back in a few minutes and its data is kept. Keep this computer on."],
     Restoring: ["Restoring", "CARE is paused while the backup is restored. Keep this computer on."],
     Uninstalling: ["Removing", "CARE is being removed from this computer."],
   } as Record<string, [string, string]>)[busyLabel] : undefined;

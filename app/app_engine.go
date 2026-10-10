@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/vm"
@@ -47,9 +48,11 @@ func (a *App) EngineStatus() EngineState {
 	return engineState(installed, expected, toolsOK, vm.Status(ctx))
 }
 
-// updateEngine runs inside a clinic job. Containers are removed (volumes kept)
-// before the engine is replaced so that they are recreated on the new engine
-// with its logging settings rather than restarted with the old ones.
+// updateEngine runs inside a clinic job, automatically on the first launch
+// after an app update or from the panel's retry button. The new engine is
+// downloaded and verified first; only then are the containers removed (volumes
+// kept) so they are recreated on the new engine with its logging settings.
+// The clinic is started again afterwards, on the old engine if the update failed.
 func (a *App) updateEngine() error {
 	if !vm.Supported() {
 		return errors.New("this computer runs CARE on Docker directly; there is no CARE engine to update")
@@ -59,31 +62,29 @@ func (a *App) updateEngine() error {
 		a.logln("The CARE engine is already up to date.")
 		return nil
 	}
-	if !a.confirmDialog("Update the CARE engine?", "CARE Clinic will stop the clinic, install CARE engine "+
-		st.ExpectedVersion+", and start the clinic again. This takes a few minutes and needs an internet connection. "+
-		"Patient records, uploaded files and backups are kept.") {
-		a.logln("CARE engine update cancelled.")
-		return nil
-	}
+	a.logln("Updating the CARE engine to " + st.ExpectedVersion + ". The clinic is unavailable until this finishes; its data is kept.")
 	e := a.engine()
-	start := a.clinicRunning()
-	if st.Running {
-		if err := e.RemoveContainers(); err != nil {
-			return err
+	p := a.provisioner()
+	err := p.UpdateEngine(func() error {
+		if vm.Status(context.Background()).PID == 0 {
+			return nil
 		}
-	}
-	if err := a.provisioner().UpdateEngine(); err != nil {
+		return e.RemoveContainers()
+	})
+	if err != nil {
+		a.logln("The CARE engine update didn't finish; starting the clinic on the current engine...")
+		if rerr := p.OpenDocker(); rerr != nil {
+			return fmt.Errorf("%w (the current engine also couldn't start: %v)", err, rerr)
+		}
+		if serr := e.Start(); serr != nil {
+			return fmt.Errorf("%w (the clinic also couldn't start again: %v)", err, serr)
+		}
 		return err
 	}
-	if !st.Running {
-		// The engine was stopped, so its containers could not be removed first.
-		if err := e.RemoveContainers(); err != nil {
-			return err
-		}
-	}
-	if !start {
-		a.logln("CARE engine " + st.ExpectedVersion + " is running. Start the clinic when you're ready.")
-		return nil
+	// Containers left by an engine that was already stopped when the update
+	// began still carry the old logging driver; removing again is harmless.
+	if err := e.RemoveContainers(); err != nil {
+		return err
 	}
 	return e.Start()
 }
