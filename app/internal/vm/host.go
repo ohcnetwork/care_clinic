@@ -26,6 +26,7 @@ type HostStatus struct {
 	DiskFree  uint64 `json:"disk_free"`
 	DiskTotal uint64 `json:"disk_total"`
 	PID       int    `json:"pid"`
+	WebPorts  []int  `json:"web_ports,omitempty"`
 }
 
 type host struct {
@@ -171,6 +172,9 @@ func (h *host) waitReady(ctx context.Context, limit time.Duration) error {
 func (h *host) attach(ctx context.Context) error {
 	if runtime.GOOS == "windows" {
 		h.sync = newSyncer(h.g, h.logf)
+		h.mu.Lock()
+		h.status.WebPorts = []int{80, 443}
+		h.mu.Unlock()
 		return nil
 	}
 	for _, s := range darwinShares() {
@@ -193,6 +197,9 @@ func (h *host) attach(ctx context.Context) error {
 			h.logf("engine: port %d: %v", p, err)
 			continue
 		}
+		h.mu.Lock()
+		h.status.WebPorts = append(h.status.WebPorts, int(p))
+		h.mu.Unlock()
 		go forward(ctx, ln, func(c context.Context) (net.Conn, error) { return h.m.dial(c, p) }, h.logf)
 	}
 	return nil

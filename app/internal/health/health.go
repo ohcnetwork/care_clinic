@@ -1,15 +1,18 @@
 package health
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 )
 
 type Health struct {
@@ -53,7 +56,17 @@ func EnsurePortFree(run proc.Runner, host string) error {
 	if caddyRunning(run) {
 		return nil // the listeners on :80/:443 are our own caddy
 	}
+	var enginePorts []int
+	if vm.Supported() {
+		status := vm.Status(context.Background())
+		if status.Running {
+			enginePorts = status.WebPorts
+		}
+	}
 	for _, port := range []int{80, 443} {
+		if slices.Contains(enginePorts, port) {
+			continue
+		}
 		if !tcpBusy(fmt.Sprintf("127.0.0.1:%d", port)) {
 			continue
 		}

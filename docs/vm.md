@@ -124,6 +124,11 @@ The engine is defined in `vm/`:
   into the release tarball with a `manifest.json` of checksums.
 - `vm/VERSION`: the engine version.
 
+The app pins a small patch of `Code-Hex/vz` in `app/go.mod`: its Objective-C
+`AppDelegate` is renamed to `VZAppDelegate` to avoid a linker collision with
+Wails. The replacement points at a specific commit in `praffq/vz`, not a moving
+branch.
+
 To release a new engine: bump `vm/VERSION`, run the **CARE engine** workflow
 (`.github/workflows/care-vm.yml`), then paste the values it prints into
 `deployments/.env` and ship an app release. Locally (needs Docker; takes
