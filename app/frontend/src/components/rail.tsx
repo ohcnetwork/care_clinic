@@ -20,6 +20,7 @@ const PANEL_TABS: { id: PanelTab; label: string }[] = [
   { id: "backups", label: "Backups" },
   { id: "plugins", label: "Plugins" },
   { id: "updates", label: "Updates" },
+  { id: "logs", label: "Logs" },
   { id: "advanced", label: "Advanced" },
 ];
 
@@ -128,6 +129,7 @@ const CLINIC_TABS = [
   { id: "storage", label: "Storage", icon: HardDrive },
   { id: "plugins", label: "Plugins", icon: Puzzle },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
+  { id: "logs", label: "Logs", icon: ScrollText },
   { id: "advanced", label: "Advanced", icon: Settings },
 ] as const;
 

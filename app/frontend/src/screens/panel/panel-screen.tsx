@@ -17,6 +17,7 @@ import { PanelLogButton, usePanelTask } from "./panel-ui";
 import { PanelUpdateLockProvider } from "./panel-update-lock";
 import { PluginTable } from "./plugin-table";
 import { StorageTab } from "./storage-tab";
+import { LogsTab } from "./logs-tab";
 import { TroubleDialog } from "./trouble-dialog";
 import { UpdatePanel } from "./update-panel";
 
@@ -113,6 +114,7 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
         <div hidden={care.tab !== "storage"}><StorageTab /></div>
         <div data-panel-tab="plugins" hidden={care.tab !== "plugins"}><PluginTable disabled={locked} /></div>
         <div hidden={care.tab !== "updates"}><UpdatePanel appUpdate={appUpdate} /></div>
+        <div hidden={care.tab !== "logs"}><LogsTab /></div>
         <div data-panel-tab="advanced" hidden={care.tab !== "advanced"}><AdvancedTab disabled={locked} /></div>
       </ScreenBody>
     </Screen>

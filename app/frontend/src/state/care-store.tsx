@@ -21,7 +21,7 @@ import type { AppUpdateProgress, Backup, CareUpdate, SetupFailure, SetupPage, St
 
 export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
-export type PanelTab = "overview" | "storage" | "backups" | "plugins" | "updates" | "advanced";
+export type PanelTab = "overview" | "storage" | "backups" | "plugins" | "updates" | "logs" | "advanced";
 export type SystemState = "running" | "partial" | "stopped" | "unknown";
 
 export type InstallParams = {
