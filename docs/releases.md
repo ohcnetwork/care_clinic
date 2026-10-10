@@ -17,12 +17,11 @@ credentials it retains Wails' ad-hoc signature only. The release manifest record
 signing status separately for each platform. Do not tell users to disable OS
 protection.
 
-> **Image/line migration caveat:** The checked-in desktop release workflow still
-> validates removed CARE ref keys and expects removed Git installer pins. It must
-> be adapted before releasing this configuration; the stages below are not a
-> claim that it already succeeds with the new pins. The CARE image/manifest
-> publication workflow is also still to be created, as described in
-> [images and release lines](images-and-lines.md).
+The CARE engine is built and published separately from the desktop app. To change
+the engine version, run the manually started **CARE engine** workflow and copy
+its version and checksums into `deployments/.env`; the desktop release workflow
+verifies the pinned engine and platform downloads before packaging. See the
+[CARE engine guide](vm.md) for the process.
 
 ## Prepare a version
 
@@ -42,7 +41,7 @@ protection.
 | `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE` | Deliberately chosen image versions; use immutable digests when available. |
 | `CORAZA_VERSION` | The WAF module version used to build the proxy. |
 | `BACKUP_IMAGE`, `CADDY_WAF_IMAGE`, `BACKEND_IMAGE`, `FRONTEND_IMAGE` | Local output image names. These are not upstream version selectors; normally leave them alone. |
-| `RANCHER_*`, `DOCKER_LINUX_*`, `COMPOSE_LINUX_*` | The exact Rancher Desktop and Linux Docker Engine/Compose downloads the app installs. See [below](#bump-a-pinned-prerequisite). |
+| `CARE_VM_*`, `DOCKER_CLI_*`, `COMPOSE_MACOS_*`, `COMPOSE_WINDOWS_*`, `QEMU_WINDOWS_*`, `DOCKER_LINUX_*`, `COMPOSE_LINUX_*` | Version and SHA-256 pins for the CARE engine, host Docker/Compose clients, Windows QEMU, and native Linux Docker/Compose downloads. See [below](#bump-a-pinned-prerequisite) and the [CARE engine guide](vm.md). |
 
 Publish verified fixes to each maintained release line. Existing clinics retain
 their line in `line.json`; changing the default affects new installs, not the
@@ -55,33 +54,14 @@ the exact file is embedded in the app and attached to the release.
 
 ### Bump a pinned prerequisite
 
-Only bump to a stable upstream release, and test the new installer on a clean
-machine for each platform before releasing it.
-
-1. Set the version without a leading `v`: `RANCHER_VERSION` (for example
-   `1.24.0`), `DOCKER_LINUX_VERSION` (a `docker-<version>.tgz` listed at
-   `download.docker.com/linux/static/stable/x86_64/`, for example `29.8.1`), or
-   `COMPOSE_LINUX_VERSION` (the `docker/compose` release, for example `5.5.1`).
-2. Compute the SHA-256 of each file from its official release page:
-
-   ```sh
-   v=1.24.0; r=https://github.com/rancher-sandbox/rancher-desktop/releases/download/v$v
-   for f in Rancher.Desktop-$v.aarch64.dmg Rancher.Desktop-$v.x86_64.dmg Rancher.Desktop.Setup.$v.msi; do
-     curl -fsSL "$r/$f" | shasum -a 256
-   done
-   for a in x86_64 aarch64; do
-     curl -fsSL https://download.docker.com/linux/static/stable/$a/docker-29.8.1.tgz | shasum -a 256
-     curl -fsSL https://github.com/docker/compose/releases/download/v5.5.1/docker-compose-linux-$a | shasum -a 256
-   done
-   ```
-
-3. Put each hash in its `*_SHA256` key. Rancher also publishes a
-   `<file>.sha512sum` beside each installer, and Compose a
-   `docker-compose-linux-<arch>.sha256`; checking against them confirms the file
-   you hashed is the one upstream released.
-
-The release workflow downloads each pinned installer again and fails if any hash
-differs, so a wrong or missing value cannot reach a draft.
+The desktop release pins are maintained in `deployments/.env`. For the CARE
+engine, first build and publish a version with the manually run
+[CARE engine workflow](vm.md#building-the-engine), then update the corresponding
+`CARE_VM_*` version and checksum values. Update the `DOCKER_CLI_*`,
+`COMPOSE_MACOS_*`, `COMPOSE_WINDOWS_*`, and `QEMU_WINDOWS_*` pins when their
+host-side tools change. Linux continues to use `DOCKER_LINUX_*` and
+`COMPOSE_LINUX_*` static-binary pins. The release workflow verifies these
+pinned files before it packages the app.
 
 `deployments/.env` is the version source of truth. Do not maintain
 `app/wails.json`'s `info.productVersion` by hand. The staging script synchronizes
@@ -121,8 +101,8 @@ succeeds. For `CARE_CLINIC_VERSION=0.1.1`, the tag is `v0.1.1`.
 | Stage | Behavior |
 | --- | --- |
 | Gate | On a push to `main`, continue only when `CARE_CLINIC_VERSION` differs from the previous commit; otherwise skip every job. A manual run always continues. |
-| Validate | Reject malformed/duplicate version values and an existing release version. The checked-in workflow still has obsolete CARE-ref validation; see the migration caveat above. |
-| Verify prerequisites | Download pinned installers and compare SHA-256 values before building. The checked-in script still expects removed Git installer pins and must be adapted; the current app downloads only Rancher Desktop and Linux Docker Engine/Compose. |
+| Validate | Reject malformed/duplicate version values and an existing release version. |
+| Verify prerequisites | Download the pinned CARE engine and platform tools, then compare SHA-256 values before building. Linux Docker Engine and Compose pins are checked as well. |
 | Check and build | Call the same CI workflow used by PRs: lint, race tests, frontend checks, and real macOS/Windows native builds. No separate untested release rebuild. |
 | Windows signing | With the SignPath configuration, submit the CI-built `CARE Clinic.exe` and `uninstall.exe` for signing in one request, rebuild the NSIS installer around the signed files with the installer inputs CI produced, and submit the installer for signing. Each request waits for an approver. Without the configuration, both jobs are skipped and the CI installer is used unsigned. |
 | macOS signing | With the existing credentials, sign the app with hardened runtime, notarize/staple it, then sign and notarize/staple the DMG. Otherwise explicitly report ad-hoc signing. |

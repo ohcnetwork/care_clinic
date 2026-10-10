@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
-	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 )
 
 func TestRunnerIgnoresTheActiveDockerContext(t *testing.T) {
@@ -25,11 +25,8 @@ func TestRunnerIgnoresTheActiveDockerContext(t *testing.T) {
 	}
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		if host != proc.DockerHost() || context != "default" {
-			t.Fatalf("engine not pinned to Rancher Desktop: DOCKER_HOST=%q DOCKER_CONTEXT=%q", host, context)
-		}
-		if !strings.Contains(host, ".rd") && !strings.Contains(host, "docker_engine") {
-			t.Fatalf("unexpected Rancher endpoint %q", host)
+		if host != vm.DockerHost() || context != "default" {
+			t.Fatalf("engine not pinned to the CARE engine: DOCKER_HOST=%q DOCKER_CONTEXT=%q", host, context)
 		}
 	default:
 		if host != "tcp://elsewhere:2375" || context != "desktop-linux" {

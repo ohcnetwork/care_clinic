@@ -70,7 +70,7 @@ const ACTION_LABELS: Record<string, string> = {
 export const RESTORE_PENDING_NOTICE =
   "An earlier restore is unfinished. Start CARE to recover it before doing anything else.";
 
-// Rancher Desktop needs about a minute after a reboot before it can answer, and
+// The CARE engine needs under a minute after a reboot before it can answer, and
 // the panel starts the clinic itself on launch. Nothing is wrong until then.
 const GRACE_MS = 90_000;
 
@@ -143,7 +143,7 @@ type CareStore = {
   uninstall: (
     removeImages: boolean,
     removeBackups: boolean,
-    removeRancher: boolean,
+    removeLegacyRancher: boolean,
     adminPassword: string,
     removeApp?: boolean,
   ) => Promise<boolean>;
@@ -566,7 +566,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
     async (
       removeImages: boolean,
       removeBackups: boolean,
-      removeRancher: boolean,
+      removeLegacyRancher: boolean,
       adminPassword: string,
       removeApp = false,
     ) => {
@@ -582,10 +582,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
       lastErrorRef.current = "";
       setOperationError(null);
       log(
-        `\n$ care uninstall${removeImages ? " --images" : ""}${removeBackups ? " --backups" : ""}${removeRancher ? " --rancher" : ""} --yes`,
+        `\n$ care uninstall${removeImages ? " --images" : ""}${removeBackups ? " --backups" : ""}${removeLegacyRancher ? " --legacy-rancher" : ""} --yes`,
       );
       try {
-        await bridge.RunUninstall(removeImages, removeBackups, removeRancher, adminPassword);
+        await bridge.RunUninstall(removeImages, removeBackups, removeLegacyRancher, adminPassword);
         return true;
       } catch (e) {
         log(`error: ${errorText(e)}`);

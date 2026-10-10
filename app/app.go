@@ -68,6 +68,7 @@ type App struct {
 
 func NewApp(installFS fs.FS, log *applog.Logger) (*App, error) {
 	proc.FixPath()
+	useEngine()
 	env, err := fs.ReadFile(installFS, "install/"+release.EnvFile)
 	if err != nil {
 		return nil, fmt.Errorf("this build is missing its embedded %s: %w", release.EnvFile, err)

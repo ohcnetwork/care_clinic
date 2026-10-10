@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -45,14 +44,24 @@ func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd 
 	return c
 }
 
-func (r Runner) cmd(name string, args ...string) *exec.Cmd {
+// DockerHook, when set, sees every docker command a Runner starts. It may
+// rewrite the arguments and returns a function to call once the command has
+// finished. Windows uses it to map bind-mount paths into the CARE engine and
+// keep the folders it mounts in step.
+var DockerHook func(args []string) ([]string, func())
+
+func (r Runner) cmd(name string, args ...string) (*exec.Cmd, func()) {
+	after := func() {}
+	if name == "docker" && DockerHook != nil {
+		args, after = DockerHook(args)
+	}
 	c := Command(name, args...)
 	if r.Ctx != nil {
 		c = CommandContext(r.Ctx, name, args...)
 	}
 	c.Dir = r.Dir
 	c.Env = r.Env
-	return c
+	return c, after
 }
 
 func (r Runner) Run(name string, args ...string) error {
@@ -80,7 +89,8 @@ func (r Runner) RunLauncher(timeout time.Duration, name string, args ...string) 
 }
 
 func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
-	cmd := r.cmd(name, args...)
+	cmd, after := r.cmd(name, args...)
+	defer after()
 	if len(extraEnv) > 0 {
 		cmd.Env = append(cmd.Environ(), extraEnv...)
 	}
@@ -154,7 +164,9 @@ func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 
 // Capture returns trimmed stdout without streaming.
 func (r Runner) Capture(name string, args ...string) (string, error) {
-	out, err := r.cmd(name, args...).Output()
+	cmd, after := r.cmd(name, args...)
+	defer after()
+	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -165,6 +177,11 @@ func (r Runner) CaptureIn(timeout time.Duration, extraEnv []string, name string,
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
+	after := func() {}
+	if name == "docker" && DockerHook != nil {
+		args, after = DockerHook(args)
+	}
+	defer after()
 	cmd := CommandContext(ctx, name, args...)
 	cmd.Dir, cmd.Env = r.Dir, r.Env
 	if len(extraEnv) > 0 {
@@ -204,15 +221,11 @@ func AugmentedPath() string {
 	if runtime.GOOS == "windows" {
 		sep = ";"
 		parts = []string{
-			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Rancher Desktop",
-				"resources", "resources", "win32", "bin"),
-			`C:\Program Files\Rancher Desktop\resources\resources\win32\bin`,
 			`C:\Program Files\Git\bin`,
 			`C:\Program Files\Git\cmd`,
 		}
 	} else {
 		parts = []string{
-			filepath.Join(os.Getenv("HOME"), ".rd", "bin"),
 			"/opt/homebrew/bin", "/opt/homebrew/sbin",
 			"/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
 		}
@@ -221,16 +234,6 @@ func AugmentedPath() string {
 		parts = append(parts, existing)
 	}
 	return strings.Join(parts, sep)
-}
-
-func DockerHost() string {
-	switch runtime.GOOS {
-	case "darwin":
-		return "unix://" + filepath.Join(os.Getenv("HOME"), ".rd", "docker.sock")
-	case "windows":
-		return "npipe:////./pipe/docker_engine"
-	}
-	return ""
 }
 
 // FixPath widens the process PATH so binary lookups succeed.

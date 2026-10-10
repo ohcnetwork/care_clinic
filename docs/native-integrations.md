@@ -114,7 +114,7 @@ environment, browser, or architecture is supported or has been integration-teste
 | Atomic replacement | Rename within the destination directory, then sync that directory. | `MoveFileEx` with replacement and write-through flags. | Same Unix replacement implementation as macOS. |
 | Login startup | Per-user LaunchAgent plist. | Per-user `HKCU` Run value. | Per-user `.desktop` autostart file under `~/.config`. |
 | Restart detection/action | No pending-restart detection; `Now` returns an unsupported error. | Two registry-key probes; restart action schedules `shutdown /r` after five seconds. | No pending-restart detection; `Now` returns an unsupported error. |
-| Automated Docker setup | Download the pinned, architecture-selected Rancher Desktop DMG and verify its SHA-256. | Download the pinned Rancher Desktop MSI, verify its SHA-256, and run it. | Download Docker's pinned static engine and Compose plugin, verify their SHA-256, install them with a systemd unit, `groupadd`, and `usermod`. |
+| Automated Docker setup | Install/update the app-managed [CARE engine](vm.md). | Install/update the app-managed [CARE engine](vm.md); enable Windows Hypervisor Platform separately when required. | Download pinned static Docker Engine and Compose binaries, verify SHA-256, and install them with a systemd unit, `groupadd`, and `usermod`. |
 
 Other `GOOS` values are not a general supported-platform promise. For example,
 some helpers have default branches, but `atomicfile` only supplies replacement
@@ -176,14 +176,11 @@ construction; see the integration point in [app.go](../app/app.go).
   `SHELL` is unset. It has a three-second context deadline. The command emits a
   line prefixed with `__care_path__`, so unrelated shell startup output is not
   mistaken for PATH. Failure simply omits this part.
-- `AugmentedPath` prepends `$HOME/.rd/bin` (Rancher Desktop's CLI directory),
-  `/opt/homebrew/bin`, `/opt/homebrew/sbin`, `/usr/local/bin`, `/usr/bin`,
-  `/bin`, `/usr/sbin`, and `/sbin` on Unix.
-- On Windows it prepends
-  `%LOCALAPPDATA%\Programs\Rancher Desktop\resources\resources\win32\bin`,
-  `C:\Program Files\Rancher Desktop\resources\resources\win32\bin`,
-  and the legacy search entries `C:\Program Files\Git\bin` and
-  `C:\Program Files\Git\cmd`. These PATH entries do not make Git a prerequisite.
+- `AugmentedPath` prepends `/opt/homebrew/bin`, `/opt/homebrew/sbin`,
+  `/usr/local/bin`, `/usr/bin`, `/bin`, `/usr/sbin`, and `/sbin` on Unix.
+- On Windows it prepends `C:\Program Files\Git\bin` and
+  `C:\Program Files\Git\cmd`. These PATH entries do not make Git a
+  prerequisite.
 - The existing PATH is appended. The login-shell result, when available, precedes
   the augmented path. There is no directory-existence check or deduplication.
 
@@ -258,12 +255,10 @@ method shape Wails expects from its logger.
 | Windows | `%LOCALAPPDATA%\care-clinic\logs`; if unset, `~/AppData/Local/care-clinic/logs` |
 | Linux/default branch | `$XDG_STATE_HOME/care-clinic`; if unset, `~/.local/state/care-clinic` |
 
-CARE records launcher invocations, failures and Docker readiness in its main log,
-but discards inherited launcher stdout/stderr. Use Rancher Desktop's
-**Troubleshooting** logs for Rancher's startup diagnostics. CARE no longer
-creates or appends to `rancher-launch.log`; older copies are not automatically
-removed, and processes started by an older CARE build can still hold their old
-output handle until they exit.
+CARE records launcher invocations, failures and Docker readiness in its main
+log, but discards inherited launcher stdout/stderr. For CARE engine startup
+failures, the app writes `care-engine-diagnostics.txt` beside `application.log`;
+see [CARE engine troubleshooting](vm.md#troubleshooting).
 
 The active filename is `care-log.log`. The code first needs `os.UserHomeDir` to
 succeed, even before checking the Windows or XDG overrides. A failed home lookup
@@ -1335,441 +1330,59 @@ so a full teardown can request one approval for every change. See
 
 ## Docker prerequisites
 
-Sources: [check.go](../app/internal/prereq/check.go) and
+Sources: [check.go](../app/internal/prereq/check.go),
+[engine.go](../app/internal/prereq/engine.go), and
 [provision.go](../app/internal/prereq/provision.go).
 
-The package separates **readiness**, **the offered next action**, and **executing
-an installer**. A tool binary existing is not the same as a usable Docker daemon,
-and an installer finishing is not always the end of setup.
+The prerequisite check distinguishes a usable Docker engine from an installed
+CLI. It checks `docker version --format "{{.Server.Os}}/{{.Server.Version}}"`
+and `docker compose version`; it does not validate every Compose file, registry
+or clinic service. On macOS and Windows, Docker runs in the app-managed
+[CARE engine](vm.md). Linux servers continue to use native Docker Engine.
 
-### Readiness checks
-
-Each explicit probe uses `cmdTimeout = 5 * time.Second` and
-`proc.CommandContext`. It applies `Runner.Env` but does not set `Runner.Dir`.
-
-| Probe | Evidence checked | Limits |
-| --- | --- | --- |
-| `DockerCheck` | `docker version --format "{{.Server.Os}}/{{.Server.Version}}"` succeeds; server OS is Linux or empty; `docker compose version` succeeds. On failure, "not installed" is decided by `rancherDesktopInstalled` alone, not by the `docker` binary being missing: on macOS `~/.rd/bin/docker` only appears once Rancher Desktop's first start finishes, so an installed but still-starting Rancher Desktop reports "running, but Docker is not answering yet" instead. | No minimum Docker version, capacity, virtualization, or registry-access test. Empty OS output is accepted by the helper. |
-| `hasCompose` | Compose v2-style subcommand can run. | Does not validate the clinic's Compose files or pull images. |
-| `dockerDaemonUp` | A bounded `docker version` request for the server version succeeds. | Used to choose an action; not the complete OS/Compose readiness check. |
-
-`DockerCheck` distinguishes a not-found executable using error-message substrings,
-reports other command failures as installed-but-not-running advice, and explicitly
-warns about a non-Linux container mode. These are actionable summaries, not a full
-diagnostic classification of every possible Docker error.
-
-The environment is preserved, so Docker's configured context or environment can
-affect which daemon answers. The helper does not force a local Docker endpoint.
-Meanwhile the clinic's HTTP health probe is explicitly local.
-
-A successful Docker check can use two sequential five-second probes. Five
-seconds is a per-command deadline, not a guaranteed total duration for every
-status request.
-
-### Plans and follow-up checks
-
-`ToolPlan` carries `Action`, `Label`, `Detail`, `URL`, and `DownloadPreview`; actions are `""`,
-`install`, `open`, and `manual`.
-
-Rancher install plans set `download_preview`. Before invoking installation,
-the prerequisite UI calls `RancherDownloadInfo()` to inspect the pinned
-platform-specific installer with a HEAD request (following redirects, with a
-30-second overall timeout). It displays the filename and size in a confirmation
-dialog. No installer body is fetched until **Download and install** is chosen.
-Cancellation leaves the machine unchanged. Missing size or failed metadata
-requests show an error and require retry, rather than guessing a size.
-
-- If a tool is ready, its plan offers no action.
-- If Docker's daemon is not answering but an installation is detected, the plan
-  offers to open/start Docker.
-- Otherwise Docker gets an install plan, or a manual plan on an unsupported
-  platform, including Linux on an architecture other than x86_64/aarch64 or
-  without `systemctl`.
-
-Plan selection is deliberately small. For example, an already-running daemon
-with the wrong container mode or missing Compose can still lead to an install
-plan, while the readiness message explains the more specific problem.
-
-```mermaid
-flowchart LR
-    Inspect["Check readiness"] --> OK{"Ready?"}
-    OK -- Yes --> Continue["Continue clinic workflow"]
-    OK -- No --> Plan["Choose open, install, or manual plan"]
-    Plan --> Action["Operator follows the offered action"]
-    Action --> Pending["May require download, approval, logout, or restart"]
-    Pending --> Inspect
-```
-
-### Provisioning by platform
-
-**macOS Docker**
-
-The engine supplied on macOS and Windows is
-[Rancher Desktop](https://rancherdesktop.io/) (Apache-2.0), not Docker Desktop:
-Docker Desktop requires a paid subscription for organizations above its size
-threshold, and that threshold applies to the clinic running the installation.
-Rancher Desktop ships dockerd (moby) and the same `docker` CLI and Compose v2
-plugin, so nothing in `internal/clinic` or `internal/compose` changes. Docker
-Desktop may be installed alongside it for unrelated reasons, so the app never
-lets the CLI pick the engine: every command runs
-with `DOCKER_HOST` pinned to Rancher Desktop's socket or named pipe (see
-[Clinic lifecycle](clinic-lifecycle.md#3-one-subprocess-environment-for-the-clinic)). `DockerCheck` reports "not
-installed" rather than "not running" when the Rancher Desktop application is
-absent, even if some other `docker` binary is on PATH.
-
-The Rancher Desktop version is pinned, never resolved at install time: see
-[Pinned prerequisite downloads](#pinned-prerequisite-downloads). The downloader
-fetches `.../releases/download/v<RANCHER_VERSION>/Rancher.Desktop-<version>.aarch64.dmg`
-for an arm64 build, or the `x86_64` asset for an amd64 build, and verifies it
-against `RANCHER_MACOS_ARM64_SHA256` or `RANCHER_MACOS_X86_64_SHA256`. It requests administrator
-approval to attach the image on a temporary mount point it owns, replace
-`/Applications/Rancher Desktop.app`, and detach.
-
-The shell sequence is joined with `&&`. On failure it also attempts an ordinary
-detach so the image is not intentionally left mounted. Downloaded media is
-removed on return. It then launches Rancher Desktop with
-`open -a "/Applications/Rancher Desktop.app"` and waits for readiness.
-
-**Windows Docker**
-
-WSL 2 is checked and installed as its own prerequisite in
-[wsl.go](../app/internal/prereq/wsl.go), not as part of installing Docker. It is
-a different dependency with a different remedy — Windows may need a restart
-before it takes effect — and folding it into the Docker step hid that behind a
-button labelled "Install Rancher Desktop". The wizard therefore shows it as its
-own row, on Windows only, in the same way the network-profile repair does.
-
-### WSL 2 is two separate things, and both have to be on
-
-The "Windows Subsystem for Linux" app package and the `VirtualMachinePlatform`
-optional feature are installed independently, and they can disagree. The app
-package answers `wsl --status`; the feature carries the Hyper-V socket transport
-the virtual machine is reached through. `wsl --install --no-distribution` does
-not reliably turn the feature on, and `wsl --status` answers `0` regardless.
-
-A machine in that split state is the worst case, because every cheap signal says
-it is healthy: `wsl --status` succeeds, `wsl --version` prints, and a
-distribution will even boot and run commands, since Hyper-V alone is enough to
-start the VM. Only traffic to it fails. Rancher Desktop installs, `dockerd`
-starts *inside* the VM, and then `docker-proxy` loops on
-`error accept()ing connection: bad file descriptor` while the Windows side
-reports `timed out dialing Hyper-V socket`, forever.
-
-`wslReady` therefore requires both, and `wslAnswers` alone is never treated as
-readiness. The feature is read through the `Win32_OptionalFeature` CIM class,
-whose `InstallState` is `1` when enabled. That class is readable **without
-elevation**, unlike `Get-WindowsOptionalFeature` and `dism`, which is what makes
-the check possible on a path that has no administrator rights.
-
-Two details keep that probe honest:
-
-- It costs roughly a second and a half, far too much for every re-check, so a
-  positive result is cached for the life of the process. The feature cannot be
-  switched off again without administrator rights, so a cached *yes* cannot go
-  stale underneath the app. A negative result is never cached, so the row clears
-  as soon as the operator fixes it, and `InstallWSL` resets the cache after it
-  runs so the next probe is honest.
-- A probe that *fails* reports the feature as present. An inconclusive query must
-  not turn a working machine red and block setup; the failure that matters is a
-  definite `InstallState` that is not `1`.
-
-`InstallWSL` enables the feature explicitly with an elevated
-`dism /online /enable-feature /featurename:VirtualMachinePlatform /all
-/norestart` before installing the app package, rather than trusting
-`wsl --install` to do it. No distribution is requested because the clinic needs
-the WSL 2 platform, not a Linux userland of its own; Rancher Desktop registers
-its own distributions. It reports success only when both probes pass *and* no
-restart is pending; otherwise it returns the restart instruction as success
-rather than as an error. The restart itself is covered by
-[reboot](#reboot-detect-a-pending-windows-restart-not-its-exact-cause).
-
-Whether toggling the feature forces a restart varies by Windows build — it has
-been observed applying immediately with `RestartNeeded: False` — so the pending
-restart is checked rather than assumed. When WSL is not ready the row always
-carries its fix: a pending restart changes the wording only, because a stale
-restart flag left by an unrelated change must never remove the operator's only
-button.
-
-Skipping the prerequisite is what made a clean machine unrecoverable: winget
-resolves `Microsoft.WSL` as a dependency, but that package is an MSIX and cannot
-elevate itself from a non-elevated winget, so the winget route failed with
-`0x80073d28`, and the MSI fallback then downloaded roughly a gigabyte before
-failing its WSL 2 launch condition with the generic exit code 1603.
-
-The Docker row now defers to the WSL row rather than competing with it. While
-WSL is not ready `dockerInstallPlan` returns no action at all, so the wizard
-never offers a button whose only outcome is failure, and `DockerCheck` says so
-in words: "Rancher Desktop is not installed, and WSL 2 has to be on before it
-can be." `installDockerWindows` keeps the same guard as a backstop for a stale
-interface or a direct call, logging the refusal before returning it — an
-unlogged refusal is invisible when reading back what happened.
-
-With WSL 2 in place the app downloads the pinned
-`.../releases/download/v<RANCHER_VERSION>/Rancher.Desktop.Setup.<version>.msi`
-and verifies it against `RANCHER_WINDOWS_SHA256`. There is no winget fallback:
-winget installs whatever version its catalog currently lists, which would defeat
-the pin, and its dependency resolution stopped mattering once WSL became a
-prerequisite of its own. A failed download or checksum is reported as it is.
-There is no architecture-selection branch; the Windows build is amd64 only.
-
-The direct installer runs elevated as
-`msiexec /i <msi> /qn /norestart /l*v <log>`. A quiet install prints nothing, so
-without that log a refusal reaches the operator as a bare exit code;
-`msiFailureDetail` reads the log back and reports the installer's own
-explanation instead. It takes the first `Product: <name> -- <message>` line
-that is not a generic status such as `Installation failed.`, since the blocking
-condition is logged before the failure it causes, and strips NUL bytes so a
-UTF-16 log reads the same as an ANSI one. The log is removed afterwards.
-
-After either installation route, it launches Rancher Desktop and waits.
-`afterWindowsDockerInstall` does not itself edit group membership or inspect
-restart registry keys. It reports a start failure with advice that Windows may
-need a WSL 2 restart.
-
-Rancher Desktop executable lookup checks `%LOCALAPPDATA%\Programs`,
-`ProgramFiles`, `ProgramW6432`, and `C:\Program Files`, each with
-`Rancher Desktop\Rancher Desktop.exe`.
-
-### The Rancher Desktop deployment profile
-
-Source: [profile.go](../app/internal/prereq/profile.go).
-
-The profile carries a `version` field, pinned to `rancherProfileVersion = 18`,
-the schema version the format is documented against. Rancher Desktop migrates an
-older profile version forward, so this does not need to track every release.
-
-`writeRancherProfile` writes a *defaults* deployment profile so the operator
-never meets the first-run wizard and the clinic's requirements are already
-answered. Rancher Desktop treats a run as a first run only when it finds no
-profile at all, so a profile that sets anything suppresses the wizard; with one
-in place it also never offers, downloads, or starts Kubernetes. The profile is
-therefore written before installing, before every `startRancher`, and once when
-a server starts CARE Clinic, so it is in place even when the operator installed
-Rancher Desktop themselves rather than through CARE:
-
-| Setting | Why CARE needs it |
+| Platform | Docker engine and setup |
 | --- | --- |
-| `application.adminAccess: true` | Rancher Desktop only forwards host ports below 1024 with administrative access. Without it Caddy cannot take 80/443, every container still reports healthy, and `health.Wait` times out with no obvious cause. |
-| `containerEngine.name: moby` | Supplies dockerd and the `docker` CLI the engine calls. The containerd/nerdctl engine would fail every Compose command. |
-| `kubernetes.enabled: false` | k3s would consume roughly 1.5GB of RAM the clinic never uses. |
-| `application.autoStart: true` | Rancher Desktop starts at login, so the clinic comes back after a reboot without anyone opening it. |
-| `application.startInBackground: true` | Rancher Desktop starts without its window; the operator only ever sees CARE Clinic. |
-| `application.pathManagementStrategy: rcfiles` | Lets Rancher Desktop put `~/.rd/bin` on the shell PATH, matching what `AugmentedPath` already prepends. Ignored on Windows. |
+| macOS | The setup step installs or updates the CARE engine. No administrator-password prompt is needed to install it. |
+| Windows | The setup step installs or updates the CARE engine. Windows Hypervisor Platform is a separate prerequisite; its fix runs elevated `dism /online /enable-feature /featurename:HypervisorPlatform /all /norestart`. Exit code `3010` means a restart is needed. |
+| Linux | Docker Engine and the Compose plugin are installed as pinned static binaries. The supported architectures are x86_64 and aarch64; provisioning uses `systemd`, adds the `docker` group and current user, and may require logout/login before group membership applies. |
 
-| Platform | Profile location |
-| --- | --- |
-| macOS | `~/Library/Preferences/io.rancherdesktop.profile.defaults.plist` |
-| Windows | `HKCU\Software\Rancher Desktop\Profile\Defaults` through `reg add` |
-| Linux | Not written; Linux uses its native Docker Engine. |
+The macOS and Windows setup step is labelled **Install CARE engine**,
+**Update CARE engine**, or **Start CARE engine**, depending on the state. The
+engine bundle, host CLI downloads, platform-specific endpoints and start/stop
+lifecycle are described in [CARE engine](vm.md); the detail is kept there rather
+than duplicated here.
 
-Rancher Desktop looks for a registry profile under `SOFTWARE\Policies\Rancher
-Desktop` and then `SOFTWARE\Rancher Desktop\Profile`, reading `HKLM` before
-`HKCU` within each, and takes the first that holds anything. CARE writes the
-last of those four. Windows reserves `HKCU\Software\Policies` for
-administrators, so writing there fails with "Access is denied" for an ordinary
-operator, no profile lands, and Rancher Desktop opens its welcome dialog and
-downloads Kubernetes. `rancherProfileWritten` reads the `version` value back
-first, so a start that already has the profile does not shell out to `reg` six
-more times.
+### Linux Docker provisioning
 
-Defaults are applied on first run only. An operator's later preference changes
-are kept, and an administrator's managed profile in `/Library/Managed
-Preferences` or `HKLM` still takes precedence over this user profile. Because of
-that, an installation that had already run would ignore the profile, so
-`applyRancherProfileNow` additionally attempts `rdctl set` for the same values
-(`rancherSettings`). It runs on every profile write - after installing, before
-each start, and once each time a server starts CARE Clinic - so existing
-installations pick up later additions. That attempt is
-best-effort: `rdctl` may be absent, or the values may be locked by an
-administrator. A profile write failure is logged as a warning and does not stop
-the installation. `rdctlPath` uses the copy inside the Rancher Desktop bundle,
-because a freshly installed `~/.rd/bin` is not yet on the PATH CARE inherits.
+Linux uses Docker Engine natively; no VM is installed. The provisioner downloads
+`docker-<DOCKER_LINUX_VERSION>.tgz` and the pinned Docker Compose binary for the
+machine's architecture, then verifies each SHA-256. In one elevated `pkexec`
+shell it installs `iptables` if needed, extracts and copies the binaries,
+writes `/etc/systemd/system/docker.service`, adds the `docker` group and current
+user, reloads systemd, and enables and starts Docker. The unit runs `dockerd`,
+which starts and manages its own containerd. If Docker is already answering and
+only Compose is missing, only the Compose plugin is installed.
 
-`OpenDocker` starts Rancher Desktop with `rdctl start` and `rancherLaunchArgs`
-(`--no-modal-dialogs` plus `rancherSettings`), which opens no window, skips the
-first-run wizard, and applies the settings to an instance that is already
-running.
+Adding the user to the `docker` group grants substantial host control through
+Docker. Static binaries are not updated by the distribution; a security fix
+reaches clinics when CARE updates the Linux pins in `deployments/.env`.
 
-A launcher may exit while Rancher keeps its stdout/stderr handles open. CARE
-uses `RunLauncher` for these commands, directing output to the OS null device
-instead of a pipe or an unbounded file. It waits for the launcher process and
-then proceeds to readiness checks without waiting for Rancher itself to exit.
-The inherited null-device handles stay valid even when CARE exits; closing an
-inherited pipe could otherwise break Rancher's later output. This deliberately
-discards launcher console output rather than adding a background log collector;
-Rancher's own Troubleshooting logs remain the source for startup details.
-Launcher commands have a separate
-two-minute timeout; nonzero exits and cancellation remain failures. This prevents
-an inherited log pipe from blocking the Docker-readiness timer indefinitely.
+### Downloads and readiness
 
-A Rancher Desktop that has never run its Linux environment before regularly
-fails its first start with `Timed out after waiting for /run/wsl-init.pid` and
-succeeds when it is started again, so a failed `rdctl start` is followed by
-`rdctl shutdown`, a `rancherRestartPause` wait, and one more attempt. Only if
-that also fails does it launch the application directly, passing the same
-`rancherLaunchArgs` on the command line. Rancher Desktop parses those arguments
-itself whatever launched it, so the direct launch skips the wizard and keeps
-Kubernetes off just as `rdctl` does - and unlike the profile, command-line
-arguments also apply to an installation that already answered the wizard.
+`DockerPlan()` separates the next action from readiness: no action when the
+engine answers, an open/start action when the engine is installed but not ready,
+or an install/manual action otherwise. Readiness probes use a five-second
+per-command deadline. A successful check does not prove that later image pulls
+or external services are reachable.
 
-An accepted launch request is not readiness: when the operator has just quit
-Rancher Desktop, the request can reach the old instance before it finishes
-shutting down. While waiting for Docker, CARE allows 15 seconds for Rancher's
-process to appear, then checks that it is still running. If it has exited, CARE
-launches it once more. If the second launch also exits or never appears, the
-operation fails with a retryable error rather than waiting out the full
-eight-minute Docker-readiness limit. A live Rancher process gets that full limit
-to finish starting; Linux Docker keeps its normal readiness checks without
-Rancher process monitoring.
-
-**Rancher Desktop administrator setup (macOS)**
-
-With `adminAccess`, Rancher Desktop needs root-owned pieces before it can forward
-ports 80 and 443. When any is missing it shows its own explanation dialog and a
-password prompt on every start, and under `--no-modal-dialogs` it silently turns
-admin access off for that run instead, leaving Caddy unreachable. CARE therefore
-creates them itself (`rancherRootSetup`), inside the same single password prompt
-that copies the app, and `ensureRancherRoot` repairs any that go missing before
-each `OpenDocker`:
-
-| Item | Why |
-| --- | --- |
-| `/opt/rancher-desktop` | A root-owned copy of the bundle's `lima/socket_vmnet` tree. Rancher compares it file by file. |
-| `/private/etc/sudoers.d/zzzzz-rancher-desktop-lima` | Lets Rancher run `socket_vmnet` without a password. `rancherSudoers` reproduces Rancher Desktop 1.24's `sudoersFile` layout, with one bridged entry per interface from `system_profiler SPNetworkDataType`, and it is checked with `visudo -cf` before install. Rancher compares the text exactly, so if a later Rancher release changes the layout, Rancher asks for the password itself again and `TestRancherSudoersMatchesRancherLayout` is the place to update. A new network adapter also changes the text; CARE rewrites it on the next start. |
-| `/var/run/docker.sock` → `~/.rd/docker.sock` | macOS empties `/var/run` at every boot. Without the link Rancher asks for the password after each reboot. |
-| `/Library/LaunchDaemons/org.ohcnetwork.care-clinic.docker-socket.plist` | Recreates that link at boot, before Rancher starts at login. It is left in place on uninstall, since it serves Rancher Desktop rather than the clinic. |
-| Stale `/private/var/run/socket_vmnet.*` sockets and pidfiles | Deleted, not created. A socket left by a stopped daemon lets Lima dial it before the new daemon listens, and the VM fails with `connection refused`. Only files whose pidfile names no running process are removed; see [Stale Rancher network sockets](cleanup-and-uninstall.md#stale-rancher-network-sockets-macos). |
-
-**Linux Docker**
-
-Linux runs Docker Engine natively; Rancher Desktop is never used there. So that
-every distribution gets the same, pinned engine, the app installs Docker's
-official static binaries rather than distribution packages, in
-[linux_docker.go](../app/internal/prereq/linux_docker.go):
-
-1. Download `docker-<DOCKER_LINUX_VERSION>.tgz` from
-   `download.docker.com/linux/static/stable/<arch>/` and
-   `docker-compose-linux-<arch>` from the `docker/compose` GitHub release, and
-   verify both against the pinned SHA-256 for the machine's architecture
-   (`x86_64` or `aarch64`).
-2. In one `pkexec` shell: install `iptables` with the package manager if it is
-   missing (dockerd needs it), extract the archive, copy its binaries to
-   `/usr/local/bin`, copy Compose to
-   `/usr/local/lib/docker/cli-plugins/docker-compose`, write
-   `/etc/systemd/system/docker.service`, `groupadd -f docker`,
-   `usermod -aG docker <user>`, `systemctl daemon-reload`, and
-   `systemctl enable --now docker`. A `trap` removes the root-owned extraction
-   directory whatever the outcome.
-
-The unit runs `/usr/local/bin/dockerd`, which starts and manages its own
-containerd, so no separate containerd service is installed. dockerd gives
-`/var/run/docker.sock` to the `docker` group because that group exists. Adding the
-user to it grants substantial host control through Docker, not merely a cosmetic
-login preference.
-
-If a Docker daemon is already answering and only Compose is missing, the app
-installs just the pinned Compose plugin and leaves the existing engine, including
-a distribution-packaged one, alone.
-
-Static binaries are not updated by the distribution. The engine a clinic runs
-changes only when a CARE release bumps `DOCKER_LINUX_VERSION`, so a Docker
-security fix reaches clinics through a CARE release.
-
-It waits up to the nominal 30-second Linux post-install limit. A newly added
-group may not apply to the current desktop process until logout/login. An error
-at this stage can mean Docker is installed but not usable by this session, not
-that every installation step was rolled back.
-
-Git is not a clinic prerequisite and has no setup action. Manual Docker guidance
-uses `https://rancherdesktop.io/` on macOS and Windows and
-`https://docs.docker.com/engine/install/` on Linux.
-
-### Waiting, downloads, and side effects
-
-`OpenDocker` launches Rancher Desktop on macOS/Windows. On Linux it elevates
-`systemctl start docker`. It then uses `dockerReadyTimeout = 8 * time.Minute`,
-checking full `DockerCheck` readiness and sleeping three seconds between
-unsuccessful checks. Poll deadlines are checked between probes; they are not
-hard cancellation deadlines for the whole operation.
-
-That budget is generous because the first start after an install is the slow
-one: Rancher Desktop has to provision its distributions before the engine
-answers, and a healthy first run has been measured at around four and a half
-minutes. The earlier three-minute budget expired while a perfectly good install
-was still starting, so the wizard reported a failure for something that then
-succeeded on its own a minute later. Running out of time is therefore worded as
-"taking longer than usual… it may still be starting", not as a failure, because
-the check cannot tell a slow start from a broken one.
-
-The HTTP downloader uses a cloned default Go HTTP transport, ordinary TLS
-verification, and:
-
-- `downloadHeaderTimeout = 30 * time.Second` for response headers.
-- `downloadStallTimeout = 2 * time.Minute` to cancel when progress stops.
-- No overall `http.Client.Timeout` cap for a long but progressing download.
-- A stall timer reset whenever a body read returns positive bytes.
-- Progress logs at crossed 10-percent steps when content length is known.
-- Structured `prereq-download-progress` events carry filename, phase, downloaded
-  bytes and total bytes. Byte updates are throttled to roughly five per second,
-  including downloads with unknown length; terminal events report the final count.
-- HTTP 200 as the required response; other status codes are errors.
-
-The UI shows a progress bar, percentage and downloaded/total size. Unknown
-totals use an indeterminate indicator and downloaded bytes rather than a made-up
-percentage. Connecting, downloading, checksum verification and verified download
-are distinct states; download completion is not reported as installation success.
-
-DNS failures, connection resets, truncated responses and download timeouts are
-identified natively as connection interruptions, retaining the underlying error
-in the log. The setup wizard and panel repair screen show **The download was
-interrupted** and ask the operator to check the internet connection and retry.
-The download-size preview gives the same reconnect guidance without claiming
-that an installer has been downloaded. Checksum, certificate, disk and installer
-permission failures are not classified as lost connections.
-
-Every download is hashed while it is written. A SHA-256 that differs from the
-pinned value deletes the file and fails the install before anything runs, with
-both hashes in the error. Successful downloads return a temporary path whose
-caller must remove after use. Copy/read and file-close failures remove the
-incomplete download before returning an error. There is no persistent installer
-cache. Trying again downloads the installer from the beginning; it does not
-clear clinic settings, backups or recovery files.
-
-### Pinned prerequisite downloads
-
-Installers the app downloads from the internet are pinned in
-[`deployments/.env`](../deployments/.env), which is embedded in the app:
-
-| Key | Download |
-| --- | --- |
-| `RANCHER_VERSION` | Rancher Desktop release from `github.com/rancher-sandbox/rancher-desktop`. |
-| `RANCHER_MACOS_ARM64_SHA256` | `Rancher.Desktop-<version>.aarch64.dmg` |
-| `RANCHER_MACOS_X86_64_SHA256` | `Rancher.Desktop-<version>.x86_64.dmg` |
-| `RANCHER_WINDOWS_SHA256` | `Rancher.Desktop.Setup.<version>.msi` |
-| `DOCKER_LINUX_VERSION` | Docker Engine static release from `download.docker.com/linux/static/stable/`. |
-| `DOCKER_LINUX_X86_64_SHA256`, `DOCKER_LINUX_AARCH64_SHA256` | `<arch>/docker-<version>.tgz` |
-| `COMPOSE_LINUX_VERSION` | Docker Compose release from `github.com/docker/compose`, without the `v`. |
-| `COMPOSE_LINUX_X86_64_SHA256`, `COMPOSE_LINUX_AARCH64_SHA256` | `docker-compose-linux-<arch>` |
-
-URLs are derived from these values in
-[`downloads.go`](../app/internal/prereq/downloads.go). The installers are
-linked from upstream, never re-hosted, so CARE does not redistribute them.
-WSL 2 remains an operating-system component installed through `wsl --install`.
-Git is neither checked nor provisioned for clinic operation.
-
-The desktop release workflow's prerequisite verification is not yet aligned
-with this configuration: its checked-in script still expects the removed Git
-installer pins. It must be adapted before releasing; see the
-[release migration caveat](releases.md). The existing script contract test uses
-a stubbed `fetch`. See the [release runbook](releases.md#bump-a-pinned-prerequisite)
-for bumping a version.
-
-Readiness checks do not download tools or request elevation. Installation
-normally needs internet access to vendor/package sources, and may need native
-approval, additional OS components, login renewal, or restart. Opening an
-already-installed tool is different from downloading one. These helpers do not
-establish whether subsequent clinic image pulls or external
-services are reachable; see [Clinic lifecycle](clinic-lifecycle.md).
+Downloads use the versions and SHA-256 values pinned in
+[`deployments/.env`](../deployments/.env). The CARE engine and its host tools
+use `CARE_VM_*`, `DOCKER_CLI_*`, `COMPOSE_MACOS_*`, `COMPOSE_WINDOWS_*`, and
+`QEMU_WINDOWS_*`; Linux uses `DOCKER_LINUX_*` and `COMPOSE_LINUX_*`. The
+[release runbook](releases.md#bump-a-pinned-prerequisite) explains updating the
+pins. Readiness checks do not download tools or request elevation. Downloaded
+files are verified before use; see [CARE engine](vm.md) for engine-specific
+troubleshooting and state locations.
 
 ## Disk space and storage monitoring
 
@@ -1786,8 +1399,8 @@ The volume id is how two folders are recognised as the same drive.
 
 | Drive | Path | Why |
 | --- | --- | --- |
-| Clinic data (labelled "This computer's drive" on macOS and Windows) | `storage.DockerDataDir()`: `~/Library/Application Support/rancher-desktop/lima` on macOS, `%LOCALAPPDATA%\rancher-desktop` on Windows, on Linux whatever `docker info --format '{{.DockerRootDir}}'` reports (so a moved `data-root` or rootless Docker is measured on the right disk), falling back to `/var/lib/docker` when Docker doesn't answer within 5 seconds. | Images and the Postgres/MinIO volumes live here. On macOS and Windows that is inside Rancher Desktop's VM disk file, so this row answers whether the host drive has room for that file to grow, and the Rancher Desktop disk row answers how full the VM disk is. The install folder only holds a few MB of compose files. |
-| Rancher Desktop disk | `docker compose exec -T backup df -Pk /` (macOS/Windows, only while the clinic answers). | The VM disk has its own ceiling (Lima defaults to 100 GB), so the host can have room while the VM is full. |
+| Clinic data (labelled "This computer's drive" on macOS and Windows) | `storage.DockerDataDir()`: the CARE engine state folder on macOS/Windows; on Linux, the native Docker data root, falling back to `/var/lib/docker`. | Images and volumes are stored in the CARE engine's data disk on macOS/Windows, and in the native Docker data root on Linux. The engine state folder location is listed in [CARE engine](vm.md). |
+| CARE engine disk | The CARE engine state folder (macOS/Windows); see [CARE engine](vm.md) for its platform-specific location. | Holds the engine files, Docker data disk, credentials and logs. Selecting the uninstall option to remove images also deletes this folder. |
 | Backups | The configured backup folder. | See [backup space](backups-and-restore.md#space-checks-and-the-status-file). |
 
 ### Thresholds
@@ -1813,8 +1426,8 @@ button.
 
 ### Freeing space
 
-"Free up space" sits on the row whose `Drive.Cleanable` is set: the Rancher
-Desktop disk on macOS and Windows, and Clinic data on Linux, where Docker has no
+"Free up space" sits on the row whose `Drive.Cleanable` is set: the CARE
+engine disk on macOS and Windows, and Clinic data on Linux, where Docker has no
 VM and the clinic's data is on the host's own drive. Both need the clinic to be
 answering. It runs the `free-space` action,
 `Clinic.FreeSpace()`. It only removes things Docker can rebuild or pull again:
@@ -1830,9 +1443,8 @@ answering. It runs the `free-space` action,
    other project's. The next CARE rebuild is slower but gives the same result.
 
 Volumes, containers and backups are left alone. Step failures are logged rather
-than failing the action. When the backup container answers before and after,
-the log reports how much the VM disk gained. Log rotation is in the compose
-file (see [clinic lifecycle](clinic-lifecycle.md#7-deployment-inventory-and-dependency-graph)),
+than failing the action. When the backup service answers before and after, the log reports how much
+Docker storage was freed. Log rotation is in the compose file (see [clinic lifecycle](clinic-lifecycle.md#7-deployment-inventory-and-dependency-graph)),
 so logs never need clearing here.
 
 A system notification is sent once per distinct critical headline, and re-armed
@@ -1955,8 +1567,9 @@ HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootR
 ```
 
 Either successful query produces a restart plan. The message is framed around
-finishing Docker/WSL 2 setup, but the keys are general Windows servicing/update
-indicators. They do not prove that Docker caused the restart requirement.
+finishing Windows Hypervisor Platform setup, but the keys are general Windows
+servicing/update indicators. They do not prove that this feature caused the
+restart requirement.
 Query failures are treated as no positive signal; there is no separate
 inspection-error status or exhaustive restart detection.
 
@@ -2082,7 +1695,7 @@ For the rest of the repository, use [Repository map](repository-map.md).
 The included tests cover important error and ownership decisions, but many use
 injected queries, generated command strings, redirected filesystem fixtures, or
 fake executables. They are not evidence of real UAC, macOS keychain, LAN
-multicast, Rancher Desktop installation, or distribution-wide browser support.
+multicast, CARE engine installation, or distribution-wide browser support.
 This scope has no separate test files for `applog`, `autostart`, `reboot`,
 `health` or root extraction. The documentation work does
 not require running installers, native removal scripts, or broad test suites.

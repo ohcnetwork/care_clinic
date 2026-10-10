@@ -10,6 +10,7 @@ import (
 
 	"github.com/ohcnetwork/care_desktop/app/internal/prereq"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -30,7 +31,6 @@ func (a *App) startup(ctx context.Context) {
 	}
 	go func() {
 		a.log.Writef("docker: %s", prereq.DockerCheck(a.engine().Runner()).Message)
-		prereq.EnsureRancherSettings()
 	}()
 	go a.watchForCareUpdates()
 	go a.watchStorage()
@@ -238,12 +238,12 @@ func jobQuitPrompt(label string) quitPrompt {
 	case jobPrereq:
 		return quitPrompt{"a requirement install", "Quit while this computer is being prepared?",
 			"CARE Clinic is still installing or starting something this computer needs, " +
-				"such as Rancher Desktop. That step stops where it is. The next time you open " +
+				"such as the CARE engine. That step stops where it is. The next time you open " +
 				"CARE Clinic the computer check runs again and shows what is left to do.\n\n" +
 				"An installer that already started may keep running in the background for a few minutes."}
 	case "start", "restart":
 		return quitPrompt{"starting CARE", "Quit while CARE is starting?",
-			"CARE is still starting. This can take several minutes while Docker (Rancher Desktop) " +
+			"CARE is still starting. This can take a few minutes while the CARE engine " +
 				"comes up. Starting stops where it is; open CARE Clinic again to try once more.\n\n" + leftRunning}
 	case "stop":
 		return quitPrompt{"stopping CARE", "Quit while CARE is stopping?",
@@ -334,6 +334,9 @@ func (a *App) stopForQuit() error {
 	cmd.Dir, cmd.Env = run.Dir, run.Env
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("Docker did not finish stopping; CARE Clinic was kept open: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if err := vm.Stop(ctx); err != nil {
+		return fmt.Errorf("the CARE engine did not finish stopping; CARE Clinic was kept open: %w", err)
 	}
 	return nil
 }

@@ -265,12 +265,14 @@ UI suite because all screens share them.
 | Third-party bases | `POSTGRES_IMAGE`, `REDIS_IMAGE`, `MINIO_IMAGE`, `CADDY_IMAGE`, `CORAZA_VERSION`. |
 | Built-image names | `BACKUP_IMAGE`, `CADDY_WAF_IMAGE`, `BACKEND_IMAGE`, `FRONTEND_IMAGE`. |
 | CARE release lines | `CARE_LINES_URL` (HTTPS manifest URL); `CARE_DEFAULT_LINE` selects new installs. |
-| Prerequisite installers | `RANCHER_VERSION`, `RANCHER_MACOS_ARM64_SHA256`, `RANCHER_MACOS_X86_64_SHA256`, `RANCHER_WINDOWS_SHA256`, `DOCKER_LINUX_VERSION`, `DOCKER_LINUX_X86_64_SHA256`, `DOCKER_LINUX_AARCH64_SHA256`, `COMPOSE_LINUX_VERSION`, `COMPOSE_LINUX_X86_64_SHA256`, `COMPOSE_LINUX_AARCH64_SHA256`. |
+| Prerequisite downloads | `CARE_VM_*`, `DOCKER_CLI_*`, `COMPOSE_MACOS_*`, `COMPOSE_WINDOWS_*`, `QEMU_WINDOWS_*`, `DOCKER_LINUX_*`, and `COMPOSE_LINUX_*` version, URL, and checksum pins. |
 
-The version format is `X.Y.Z` or `X.Y.Z-dev`. `RANCHER_VERSION`,
-`DOCKER_LINUX_VERSION`, and `COMPOSE_LINUX_VERSION` are `X.Y.Z`,
-and each `*_SHA256` is 64 lowercase
-hex characters; see [pinned prerequisite downloads](native-integrations.md#pinned-prerequisite-downloads).
+`CARE_CLINIC_VERSION` is `X.Y.Z` or `X.Y.Z-dev`. Engine and tool versions
+(`CARE_VM_VERSION`, `DOCKER_CLI_VERSION`, `QEMU_WINDOWS_VERSION`,
+`DOCKER_LINUX_VERSION`, and `COMPOSE_LINUX_VERSION`) are `X.Y.Z`; each
+`*_SHA256` is 64 lowercase hex characters. The CARE engine and host-side tools
+are documented in the [CARE engine guide](vm.md); Linux Docker provisioning is
+covered in [native integrations](native-integrations.md#docker-prerequisites).
 
 `CARE_LINES_URL` points to the schema-1 release-line manifest. New clinics use
 `CARE_DEFAULT_LINE`, or the manifest's recommended line. Existing clinics keep
@@ -292,12 +294,13 @@ into `main`, or the commit selected for a manual run):
 | Automatically created tag | `vX.Y.Z`, pointing to the workflow's source commit. |
 | CARE release lines | An HTTPS `CARE_LINES_URL` and `CARE_DEFAULT_LINE`; CARE image digests are published separately in `lines.json`. |
 
-Release checks cover manifest identity, existing release versions and installer
-checksums. The checked-in desktop workflow still expects removed CARE refs and
-Git installer pins, so it needs adaptation before a release with this configuration;
-see the [release migration caveat](releases.md). Maintainers do not need to edit
-Wails metadata or create tags. See the [release runbook](releases.md) for preparing,
-building, reviewing, publishing, and recovering a release.
+Release checks cover manifest identity, existing release versions and the
+pinned CARE engine, platform tools and Linux Docker/Compose downloads. The engine
+itself is published separately by the manually run **CARE engine** workflow;
+see the [release runbook](releases.md) and [engine build guide](vm.md#building-the-engine).
+Maintainers do not need to edit Wails metadata or create tags. See the [release
+runbook](releases.md) for preparing, building, reviewing, publishing, and
+recovering a release.
 
 ### Testing the updater
 

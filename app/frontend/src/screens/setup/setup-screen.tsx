@@ -94,7 +94,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
   const backupReady = !!space && !folderError && recovery.backup_verified && !recovery.backup_problem && !recoveryError;
   const adminReady = strength.strong && !!form.adminConfirm && form.adminPassword === form.adminConfirm && !passwordError && !folderError && recovery.codes_saved && !recovery.codes_problem && !recoveryError;
   const addressReady = address.state === "ready" && address.name === normaliseHost(form.hostInput) && isClinicName(form.hostInput);
-  const engine = care.platform === "linux" ? "Docker" : "Rancher Desktop";
+  const engine = care.platform === "linux" ? "Docker" : "CARE engine";
   const syncBusy = useCallback(() => {
     onBusy(workRef.current || addressQueuedRef.current || addressTasks.current.size > 0 || restartRef.current !== null);
   }, [onBusy]);
@@ -306,7 +306,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     const target = pageRef.current;
     if (!isRequirement(target)) return;
     try {
-      if (action === "windows") { setTool("windows"); await bridge.InstallWSL(); }
+      if (action === "windows") { setTool("windows"); await bridge.EnableWindowsVM(); }
       else if (action === "network") { setTool("network"); await bridge.FixNetwork(); }
       else if (action === "cleanup") {
         setTool("cleanup");

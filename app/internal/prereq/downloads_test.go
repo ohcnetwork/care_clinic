@@ -286,12 +286,18 @@ func deploymentPins(t *testing.T) *release.Pins {
 func pinnedDownloads(t *testing.T, p *release.Pins) []Download {
 	t.Helper()
 	var all []Download
+	seen := map[string]bool{}
 	for _, target := range [][2]string{{"darwin", "arm64"}, {"darwin", "amd64"}, {"windows", "amd64"}} {
-		d, err := rancherDownload(p, target[0], target[1])
+		downloads, err := engineDownloads(p, target[0], target[1])
 		if err != nil {
 			t.Fatal(err)
 		}
-		all = append(all, d)
+		for _, d := range downloads {
+			if !seen[d.URL] {
+				seen[d.URL] = true
+				all = append(all, d)
+			}
+		}
 	}
 	for _, goarch := range []string{"amd64", "arm64"} {
 		engine, compose, err := dockerLinuxDownloads(p, goarch)
@@ -303,25 +309,45 @@ func pinnedDownloads(t *testing.T, p *release.Pins) []Download {
 	return all
 }
 
-func TestRancherDownloadMatchesPlatform(t *testing.T) {
+func TestEngineDownloadsMatchPlatform(t *testing.T) {
 	p := &release.Pins{
-		RancherVersion:        "1.24.0",
-		RancherMacArm64SHA256: "arm", RancherMacX8664SHA256: "intel", RancherWindowsSHA256: "windows",
+		CareVMVersion: "0.1.0", CareVMBaseURL: "https://example.test/engine/",
+		CareVMAarch64SHA256: "vm-arm", CareVMX8664SHA256: "vm-intel",
+		DockerCLIVersion: "29.8.1", DockerCLIMacAarch64SHA256: "cli-arm", DockerCLIMacX8664SHA256: "cli-intel",
+		DockerCLIWindowsSHA256: "cli-win", ComposeLinuxVersion: "5.5.1",
+		ComposeMacAarch64SHA256: "compose-arm", ComposeMacX8664SHA256: "compose-intel", ComposeWindowsSHA256: "compose-win",
+		QEMUWindowsVersion: "10.1.0", QEMUWindowsSHA256: "qemu",
 	}
-	base := "https://github.com/rancher-sandbox/rancher-desktop/releases/download/v1.24.0/"
-	for _, tc := range []struct{ goos, goarch, name, sum string }{
-		{"darwin", "arm64", "Rancher.Desktop-1.24.0.aarch64.dmg", "arm"},
-		{"darwin", "amd64", "Rancher.Desktop-1.24.0.x86_64.dmg", "intel"},
-		{"windows", "amd64", "Rancher.Desktop.Setup.1.24.0.msi", "windows"},
+	compose := "https://github.com/docker/compose/releases/download/v5.5.1/"
+	for _, tc := range []struct {
+		goos, goarch string
+		want         []Download
+	}{
+		{"darwin", "arm64", []Download{
+			{"care-engine-0.1.0-linux-arm64.tar.gz", "https://example.test/engine/care-engine-0.1.0-linux-arm64.tar.gz", "vm-arm"},
+			{"docker-29.8.1.tgz", "https://download.docker.com/mac/static/stable/aarch64/docker-29.8.1.tgz", "cli-arm"},
+			{"docker-compose-darwin-aarch64", compose + "docker-compose-darwin-aarch64", "compose-arm"},
+		}},
+		{"darwin", "amd64", []Download{
+			{"care-engine-0.1.0-linux-amd64.tar.gz", "https://example.test/engine/care-engine-0.1.0-linux-amd64.tar.gz", "vm-intel"},
+			{"docker-29.8.1.tgz", "https://download.docker.com/mac/static/stable/x86_64/docker-29.8.1.tgz", "cli-intel"},
+			{"docker-compose-darwin-x86_64", compose + "docker-compose-darwin-x86_64", "compose-intel"},
+		}},
+		{"windows", "amd64", []Download{
+			{"care-engine-0.1.0-linux-amd64.tar.gz", "https://example.test/engine/care-engine-0.1.0-linux-amd64.tar.gz", "vm-intel"},
+			{"docker-29.8.1.zip", "https://download.docker.com/win/static/stable/x86_64/docker-29.8.1.zip", "cli-win"},
+			{"docker-compose-windows-x86_64.exe", compose + "docker-compose-windows-x86_64.exe", "compose-win"},
+			{"qemu-10.1.0-windows-x86_64.zip", "https://example.test/engine/qemu-10.1.0-windows-x86_64.zip", "qemu"},
+		}},
 	} {
-		d, err := rancherDownload(p, tc.goos, tc.goarch)
-		if err != nil || d != (Download{Name: tc.name, URL: base + tc.name, SHA256: tc.sum}) {
-			t.Errorf("%s/%s: got %+v, %v", tc.goos, tc.goarch, d, err)
+		got, err := engineDownloads(p, tc.goos, tc.goarch)
+		if err != nil || fmt.Sprint(got) != fmt.Sprint(tc.want) {
+			t.Errorf("%s/%s: got %+v, %v", tc.goos, tc.goarch, got, err)
 		}
 	}
 	for _, target := range [][2]string{{"windows", "arm64"}, {"linux", "amd64"}} {
-		if _, err := rancherDownload(p, target[0], target[1]); err == nil {
-			t.Errorf("%s/%s: expected no Rancher Desktop download", target[0], target[1])
+		if _, err := engineDownloads(p, target[0], target[1]); err == nil {
+			t.Errorf("%s/%s: expected no engine download", target[0], target[1])
 		}
 	}
 }
@@ -414,8 +440,8 @@ const run = async (env, missing) => {
   assert.equal(gone.failed, true);
   assert.ok(gone.logs.some(line => line.includes("HTTP 404")));
   let threw = false;
-  try { await run(served.replace(/^RANCHER_VERSION=.*$/m, "RANCHER_VERSION=latest")); } catch { threw = true; }
-  assert.ok(threw, "an unpinned Rancher Desktop version was accepted");
+  try { await run(served.replace(/^CARE_VM_VERSION=.*$/m, "CARE_VM_VERSION=latest")); } catch { threw = true; }
+  assert.ok(threw, "an unpinned CARE engine version was accepted");
 })().catch(error => { console.error(error); process.exit(1); });
 `
 	cmd := proc.Command("node", "-e", script)

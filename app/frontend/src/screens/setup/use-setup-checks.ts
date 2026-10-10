@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { bridge } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
-import type { DiskStatus, DockerStatus, NetworkStatus, ResidueReport, RestartPlan, ToolPlan, WSLStatus } from "@/types";
+import type { DiskStatus, DockerStatus, NetworkStatus, ResidueReport, RestartPlan, ToolPlan, WindowsVMStatus } from "@/types";
 import type { RequirementPage, StepState } from "./setup-model";
 
 export type SoftwareStatus = {
@@ -12,7 +12,7 @@ export type SoftwareStatus = {
 };
 type Values = {
   space: DiskStatus;
-  windows: { status: WSLStatus; restart: RestartPlan };
+  windows: { status: WindowsVMStatus; restart: RestartPlan };
   software: SoftwareStatus;
   cleanup: ResidueReport;
   network: NetworkStatus;
@@ -55,7 +55,7 @@ export function useSetupChecks() {
             return ok;
           }
           case "windows": {
-            const [status, restart] = await Promise.all([bridge.WSLStatus(), bridge.RestartPlan()]);
+            const [status, restart] = await Promise.all([bridge.WindowsVMStatus(), bridge.RestartPlan()]);
             const ok = !status.applicable || (status.ok && !restart.needed);
             update("windows", { value: { status, restart }, state: ok ? "ready" : "blocked", error: "" });
             return ok;

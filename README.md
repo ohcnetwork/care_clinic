@@ -113,8 +113,8 @@ compiled frontend settings; see [images and release lines](docs/images-and-lines
 connection, installation, each control-panel tab and update handoffs.
 
 **Technical documentation:** [Start with `docs/README.md`](docs/README.md) for
-the architecture, file map, Wails API, configuration, lifecycle, backups, native
-integrations, safe UI tests and release workflow.
+the architecture, [CARE engine](docs/vm.md), file map, Wails API, configuration,
+lifecycle, backups, native integrations, safe UI tests and release workflow.
 
 **Releases:** [Preparing and publishing a version](docs/releases.md), including
 releases started on merge, automatic tags, and macOS and Windows signing configuration.
@@ -140,8 +140,9 @@ CARE Clinic has no telemetry, analytics or crash reporting. Network requests
 are made for setup, configured features and updates, including automatic update
 checks:
 
-- **Server setup** installs Docker (Rancher Desktop on macOS/Windows) if needed
-  using pinned, checksum-verified downloads. It fetches the CARE release-line
+- **Server setup** installs the [CARE engine](docs/vm.md) on macOS and Windows,
+  or pinned native Docker and Compose binaries on Linux. Downloads are
+  checksum-verified. It fetches the CARE release-line
   manifest from GitHub Pages and pulls digest-pinned CARE images from GHCR,
   plus the stack's third-party images. Local CARE builds are only needed for
   backend plugins or changed compiled frontend settings, using published builder
@@ -161,9 +162,7 @@ checks:
 On the clinic network the server announces `https://<clinic>.local` with mDNS so
 staff computers can find it; clients do not advertise a clinic. Clients retrieve
 the public certificate over local HTTP and check the clinic over HTTPS. That
-traffic stays on the local network. Rancher
-Desktop, the container images and WebView2 are covered by their own privacy
-policies.
+traffic stays on the local network.
 
 Build with `cd app && node frontend/scripts/stage-install.mjs && wails build`
 (needs Go, Node 22 and the Wails CLI).

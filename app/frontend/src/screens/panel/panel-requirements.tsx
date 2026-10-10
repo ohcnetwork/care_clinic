@@ -20,7 +20,7 @@ import type { DownloadInfo, PrereqDownloadProgress, RestartPlan, ToolPlan } from
 import { PanelBadge, PanelLogButton, PanelNotice } from "./panel-ui";
 import { usePanelUpdateLock } from "./panel-update-lock";
 
-type CheckId = "wsl" | "docker" | "network" | "disk" | "address" | "clinic";
+type CheckId = "windows-vm" | "docker" | "network" | "disk" | "address" | "clinic";
 type CheckState = "ready" | "bad" | "unknown" | "waiting";
 type Fix = {
   label: string;
@@ -38,14 +38,15 @@ export type PanelCheck = {
 };
 
 const TITLES: Record<CheckId, string> = {
-  wsl: "WSL 2", docker: "Rancher Desktop", network: "Network profile",
+  "windows-vm": "Windows Hypervisor Platform", docker: "CARE engine", network: "Network profile",
   disk: "Enough free space", address: "Clinic address", clinic: "Clinic software",
 };
-const CORE = new Set<CheckId>(["wsl", "docker", "network"]);
+const CORE = new Set<CheckId>(["windows-vm", "docker", "network"]);
 
 function useChecks() {
   const { platform, mdnsName, busy, busyLabel, operationError, restorePending, runAction, refresh, setTab, log } = useCare();
   const updateLock = usePanelUpdateLock();
+  const engine = platform === "linux" ? "Docker" : "CARE engine";
   const [checks, setChecks] = useState<PanelCheck[]>([]);
   const [checking, setChecking] = useState(false);
   const [checkedAt, setCheckedAt] = useState(0);
@@ -66,17 +67,17 @@ function useChecks() {
   const toolFix = useCallback((plan?: ToolPlan): Fix | undefined => {
     if (!plan || !plan.action) return undefined;
     if (plan.action === "manual") return plan.url ? {
-      label: "Open Rancher Desktop download page", run: () => bridge.OpenURL(plan.url),
+      label: plan.label, run: () => bridge.OpenURL(plan.url),
     } : undefined;
     if (plan.action === "open") return {
-      label: "Start Rancher Desktop", run: () => bridge.OpenDocker(),
-      progress: "Starting Rancher Desktop — this can take a minute.",
+      label: plan.label, run: () => bridge.OpenDocker(),
+      progress: `Starting ${engine} — this can take a minute.`,
     };
     return {
-      label: "Install Rancher Desktop", run: () => bridge.InstallDocker(),
+      label: plan.label, run: () => bridge.InstallDocker(),
       preview: plan.download_preview,
     };
-  }, []);
+  }, [engine]);
 
   const recheck = useCallback((): Promise<void> => {
     if (pending.current) return pending.current;
@@ -87,9 +88,10 @@ function useChecks() {
     };
     setChecking(true);
     const work = async () => {
-      const [docker, wsl, network, space, address, health, reboot] = await Promise.all([
-        read("Rancher Desktop check", () => bridge.DockerStatus()),
-        platform === "windows" ? read("WSL check", () => bridge.WSLStatus()) : undefined,
+      const titles = { ...TITLES, docker: engine };
+      const [docker, windowsVM, network, space, address, health, reboot] = await Promise.all([
+        read(`${engine} check`, () => bridge.DockerStatus()),
+        platform === "windows" ? read("Windows virtualization check", () => bridge.WindowsVMStatus()) : undefined,
         platform === "windows" ? read("network check", () => bridge.NetworkStatus()) : undefined,
         read("space check", () => bridge.DiskStatus()),
         read("address check", () => bridge.MDNSStatus(mdnsName)),
@@ -97,39 +99,39 @@ function useChecks() {
         platform === "windows" ? read("restart check", () => bridge.RestartPlan()) : undefined,
       ]);
       for (const [name, status] of [
-        ["Rancher Desktop", docker], ["WSL 2", wsl],
+        [engine, docker], ["Windows Hypervisor Platform", windowsVM],
         ["Network", network], ["Space", space], ["Address", address],
       ] as const) {
         if (status && !status.ok && status.message) log(`${name}: ${status.message}`);
       }
       if (health && !health.active && health.detail) log(`clinic health: ${health.detail}`);
-      const dockerPlan = docker && !docker.ok ? await read("Rancher Desktop plan", () => bridge.DockerPlan()) : undefined;
+      const dockerPlan = docker && !docker.ok ? await read(`${engine} plan`, () => bridge.DockerPlan()) : undefined;
       const unknown = (id: CheckId): PanelCheck => ({
-        id, title: TITLES[id], state: "unknown",
+        id, title: titles[id], state: "unknown",
         detail: id === "docker" ? SOFTWARE_DESCRIPTIONS[id]
           : "Couldn't check this. Check again, or share the log file with support.",
       });
       const next: PanelCheck[] = [];
-      if (platform === "windows" && (!wsl || wsl.applicable)) {
-        next.push(!wsl || !reboot ? unknown("wsl") : {
-          id: "wsl", title: TITLES.wsl,
-          state: wsl.ok && !reboot.needed ? "ready" : "bad",
+      if (platform === "windows" && (!windowsVM || windowsVM.applicable)) {
+        next.push(!windowsVM || !reboot ? unknown("windows-vm") : {
+          id: "windows-vm", title: TITLES["windows-vm"],
+          state: windowsVM.ok && !reboot.needed ? "ready" : "bad",
           detail: reboot.needed ? "Windows needs to restart before CARE can run."
-            : wsl.ok ? "The Windows software CARE needs is ready."
-              : "WSL 2 needs to be turned on before Rancher Desktop can run.",
+            : windowsVM.ok ? "The Windows software CARE needs is ready."
+              : windowsVM.how || windowsVM.message || "Windows Hypervisor Platform needs to be turned on before the CARE engine can run.",
           action: reboot.needed ? {
             label: "Restart Windows", run: async () => setRestart(reboot),
-          } : !wsl.ok && wsl.fixable ? {
-            label: "Turn on WSL 2", run: () => bridge.InstallWSL(),
+          } : !windowsVM.ok && windowsVM.fixable ? {
+            label: "Turn on Windows Hypervisor Platform", run: () => bridge.EnableWindowsVM(),
           } : undefined,
         });
       }
       next.push(!docker ? unknown("docker") : {
-        id: "docker", title: TITLES.docker, state: docker.ok ? "ready" : "bad",
+        id: "docker", title: titles.docker, state: docker.ok ? "ready" : "bad",
         detail: SOFTWARE_DESCRIPTIONS.docker,
         action: docker.ok ? undefined : toolFix(dockerPlan),
-        blocked: next.some((check) => check.id === "wsl" && check.state !== "ready")
-          ? "Finish the WSL 2 step first." : undefined,
+        blocked: next.some((check) => check.id === "windows-vm" && check.state !== "ready")
+          ? "Finish the Windows Hypervisor Platform step first." : undefined,
       });
       if (platform === "windows" && (!network || network.applicable)) {
         next.push(!network ? unknown("network") : {
@@ -156,7 +158,7 @@ function useChecks() {
         id: "clinic", title: TITLES.clinic,
         state: health.active ? "ready" : !docker?.ok ? "waiting" : "bad",
         detail: health.active ? "Serving CARE to your staff."
-          : !docker?.ok ? "Waiting for Rancher Desktop."
+          : !docker?.ok ? `Waiting for ${engine}.`
             : "CARE isn't answering on this computer.",
         action: docker?.ok && !health.active ? {
           label: "Start clinic", run: () => runAction("start"),
@@ -172,7 +174,7 @@ function useChecks() {
       if (mounted.current) setChecking(false);
     });
     return pending.current;
-  }, [platform, mdnsName, log, toolFix, runAction, setTab]);
+  }, [platform, engine, mdnsName, log, toolFix, runAction, setTab]);
 
   useEffect(() => {
     mounted.current = true;
@@ -208,7 +210,7 @@ function useChecks() {
         return;
       }
       if (typeof result === "string" && result) log(`requirement action: ${result}`);
-      if (platform === "windows" && (check.id === "wsl" || check.id === "docker")) {
+      if (platform === "windows" && (check.id === "windows-vm" || check.id === "docker")) {
         const plan = await bridge.RestartPlan();
         if (plan.needed) setRestart(plan);
       }
@@ -232,7 +234,7 @@ function useChecks() {
     setPreviewing(true);
     setFailure(null);
     try {
-      const info = await bridge.RancherDownloadInfo();
+      const info = await bridge.EngineDownloadInfo();
       if (updateLock.isActive()) {
         fixing.current = false;
         setFailure({ message: "Finish the CARE Clinic update, then try the fix again." });
@@ -240,7 +242,7 @@ function useChecks() {
       }
       setConfirmation({ check, info });
     } catch (error) {
-      log(`Rancher Desktop download size: ${errorText(error)}`);
+      log(`CARE engine download size: ${errorText(error)}`);
       setFailure(downloadProblem(error, true) ?? { message: "Couldn't check the download. Connect to the internet and try again." });
       fixing.current = false;
     } finally {
@@ -277,9 +279,9 @@ export function PanelRequirementsProvider({ children, onWorkingChange }: {
     {children}
     <AlertDialog open={value.confirmation !== null} onOpenChange={(open) => { if (!open) value.dismissConfirmation(); }}>
       <AlertDialogContent className="panel-dialog">
-        <AlertDialogTitle>Download Rancher Desktop?</AlertDialogTitle>
+        <AlertDialogTitle>Download the CARE engine?</AlertDialogTitle>
         <AlertDialogDescription className="panel-dialog-description">
-          CARE needs Rancher Desktop to run. Check the download size before continuing, especially on a limited internet connection.
+          CARE needs the CARE engine to run the clinic. Check the download size before continuing, especially on a limited internet connection.
         </AlertDialogDescription>
         <div className="panel-notice panel-download-size">
           <Download aria-hidden="true" />
@@ -288,7 +290,7 @@ export function PanelRequirementsProvider({ children, onWorkingChange }: {
               ? diskSize(value.confirmation.info.size) : "The size isn't available."}
           </div>
         </div>
-        <p className="panel-small">Nothing has downloaded yet. Your computer may ask for permission to install it.</p>
+        <p className="panel-small">Nothing has downloaded yet. Keep CARE Clinic open while the engine is installed.</p>
         <AlertDialogFooter className="panel-dialog-foot">
           <AlertDialogCancel onClick={value.dismissConfirmation}>Not now</AlertDialogCancel>
           <AlertDialogAction disabled={busy || updateLock.active || restorePending} onClick={(event) => { event.preventDefault(); value.confirm(); }}>Download and install</AlertDialogAction>

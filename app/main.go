@@ -12,6 +12,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/appremoval"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -35,6 +36,9 @@ var assets embed.FS
 var installFS embed.FS
 
 func main() {
+	if slices.Contains(os.Args, vm.HostFlag) {
+		os.Exit(vm.RunHost())
+	}
 	osUninstall := slices.Contains(os.Args, uninstallFlag)
 	uninstallCheck := slices.Contains(os.Args, uninstallCheckFlag)
 	appLog = applog.Open()

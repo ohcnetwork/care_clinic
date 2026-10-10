@@ -79,12 +79,12 @@ distinct from stopping Docker containers.
 
 ### Closing the application
 
-`beforeClose()` first attempts the exclusive operation lock. `run` and `withLabeledJob` record the label of the job they start (`activeJob`) and clear it when the job ends, so a refused lock tells `beforeClose` what is running. Any running job gets a Quit/No question (default No) worded for that job by `jobQuitPrompt`, so an operation that hangs (for example Rancher Desktop never answering during `start`) can always be quit:
+`beforeClose()` first attempts the exclusive operation lock. `run` and `withLabeledJob` record the label of the job they start (`activeJob`) and clear it when the job ends, so a refused lock tells `beforeClose` what is running. Any running job gets a Quit/No question (default No) worded for that job by `jobQuitPrompt`, so an operation that hangs (for example the CARE engine not answering during `start`) can always be quit:
 
 | Running job | What the question says |
 | --- | --- |
 | `setup` | Setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. |
-| `prereq` | The computer check's fix buttons (installing or starting Rancher Desktop, WSL 2, the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
+| `prereq` | The computer check's fix buttons (installing, updating or starting the CARE engine; enabling Windows Hypervisor Platform; or repairing the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
 | `start`, `restart` | Starting can take minutes while Docker comes up; open the app again to try once more. |
 | `restore`, `uninstall`, `update`, rebuilds | Quitting can leave data or the installation half-changed; the message says which action to run again after reopening. |
 | `upgrade-line` | Check the line/update status after reopening; a safety backup precedes migration, and returning to an older line requires restore. |
@@ -256,12 +256,12 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. Offline/isolated peers cannot be ruled out. |
 | `NetworkStatus()` | `NetworkStatus` | Query. Platform-specific networking inspection. |
 | `FixNetwork()` | `void` | Sync. Runs the native networking repair. |
-| `WSLStatus()` | `WSLStatus` | Query. Windows-only; `applicable` is false elsewhere and the row is hidden. |
-| `InstallWSL()` | `string` | Sync. Turns on WSL 2. A non-empty result is the restart instruction, not an error. |
+| `WindowsVMStatus()` | `WindowsVMStatus` | Query. Windows-only; reports whether Windows Hypervisor Platform is enabled. |
+| `EnableWindowsVM()` | `string` | Sync. Enables Windows Hypervisor Platform. A non-empty result is the restart instruction, not an error. |
 | `DockerPlan()` | `ToolPlan` | Query. Describes the available Docker install/open/manual action. |
-| `RancherDownloadInfo()` | `DownloadInfo` | Server-only metadata query. HEAD request for the pinned installer returns filename and byte size before the UI asks for download confirmation. |
+| `EngineDownloadInfo()` | `DownloadInfo` | Server-only metadata query. Checks the pinned CARE engine download size before the UI asks for confirmation. |
 | `InstallDocker()` | `string` | Sync. Runs prerequisite provisioning and returns its result or error. |
-| `OpenDocker()` | `void` | Sync. Attempts to launch the available Docker application: Rancher Desktop on macOS/Windows, the `docker` service on Linux. |
+| `OpenDocker()` | `void` | Sync. Starts the CARE engine on macOS/Windows or the `docker` service on Linux. |
 | `RestartPlan()` | `RestartPlan` | Query. Describes a detected prerequisite-related reboot requirement. |
 | `RestartNow()` | `void` | Sync. Attempts to enable login startup, then requests an OS restart; autostart failure is logged. |
 | `ClinicHealth()` | `Health` | Query. HTTP health probe, separate from name and certificate-trust checks. |
@@ -270,26 +270,16 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `StorageStatus()` | `StorageReport` | Query. Returns the cached storage report or performs the first check. |
 | `RecheckStorage()` | `StorageReport` | Query. Refreshes drive/backup measurements, updates the cache and emits `care-storage`. |
 | `BackupDirSpace(dir)` | `BackupSpace` | Query. Assesses the selected parent plus `care-db-backups`, or the effective default; an unmeasurable destination has an unknown level and explanatory message. |
-| `RancherDesktopInstalled()` | `boolean` | Query. Reports whether optional Rancher Desktop removal is applicable. It does not remove it. |
+| `LegacyRancherInstalled()` | `boolean` | Query. Reports whether optional removal of a Rancher Desktop left by an older CARE Clinic is applicable. It does not remove it. |
 
 #### What the wizard rows owe the operator
 
 The wizard is used by people who will not open a terminal, so a red row without
-a button is a dead end. Two rules follow, and both were learned by breaking
-them.
-
-A failing row must keep its action. A row that reports a problem and withdraws
-its own fix leaves nothing to press: the WSL row once treated a pending restart
-as terminal and dropped its button, and because an unrelated change had left the
-restart flag set, the operator was stranded. Conditions like that belong in the
-wording, not in whether the fix is offered.
-
-A row must not offer an action that can only fail either. Where one requirement
-depends on another, the dependent row reports the dependency in words and
-returns no action until it is met — the Docker row does this while WSL 2 is off,
-so the only button on screen is the one that helps. The host still refuses the
-underlying call, because a stale interface can outlive the rule that hid the
-button.
+a button is a dead end. A failing row must keep its action, including when a
+restart is pending. A row must not offer an action that can only fail: the
+Docker row waits for Windows Hypervisor Platform to be enabled before offering
+engine installation. The host still checks the prerequisite when the action is
+called, because a stale interface can outlive the rule that hid the button.
 
 Failures reported by an action are held against the row that produced them and
 cleared as soon as that row stops failing. A single shared failure string prints
@@ -381,7 +371,7 @@ to warn that the computer will ask for permission.
 | `ResetAdminPassword(code, newPassword)` | `void` | Sync. Rate-limited offline recovery; atomically consumes one code and changes the CARE Clinic password. No CARE web reset. |
 | `CleanupFailedInstall()` | `void` | Sync. Only for incomplete setup. Keeps the clinic address and existing backups, but resets backup-folder/password/recovery configuration. The UI clears those choices only after cleanup succeeds. New setup needs fresh recovery material; old backup keys may still be needed for earlier archives. |
 | `ClinicAction(action, adminPassword)` | `void` | Job. Allow-listed action dispatch; details below. |
-| `RunUninstall(removeImages, removeBackups, removeRancher, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. The UI waits for both `uninstalled` and successful `care-done` before returning to Start or requesting desktop-app removal. |
+| `RunUninstall(removeImages, removeBackups, removeLegacyRancher, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. Stops the CARE engine on macOS/Windows; `removeImages` also removes its state folder. The optional legacy removal flag applies only to Rancher Desktop left by an older CARE Clinic. The UI waits for both `uninstalled` and successful `care-done` before returning to Start or requesting desktop-app removal. |
 | `CareUpdateStatus()` | `ChannelStatus` | Query. The current line, running/staged commits, pending line, support dates, and newer compatible lines, using `line.json` and the cached manifest. |
 | `CheckCareUpdate()` | `void` | Returns at once and checks in the background: fetches the release-line manifest and downloads/prepares newer same-line images under `-next` tags; also reports newer compatible lines. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. |
 | `UpgradeCareLine(id)` | `void` | Job (`upgrade-line`). Stable installed server and ready Docker required; refuses an in-flight check. Stages both images of a newer compatible line, takes a pre-update backup, then applies/migrates. Returning to an older line requires restore. |
@@ -455,7 +445,7 @@ uses rather than assuming one:
 | Plan action | Behavior |
 | --- | --- |
 | `""` | Docker answers; the action proceeds. |
-| `open` | Ask the operator for confirmation, then `OpenDocker()`, which launches the engine and waits up to eight minutes. If Rancher exits during startup, retry its launch once and fail early if it does not stay running. Declining returns the readiness message as the error. |
+| `open` | Ask the operator for confirmation, then `OpenDocker()`, which starts the platform's Docker engine and waits for readiness. Declining returns the readiness message as the error. |
 | anything else | Return the readiness message and point at the requirements check; the engine is missing, not merely stopped. |
 
 `stop` is excluded deliberately: reporting that an unreachable clinic is not
@@ -607,7 +597,7 @@ The core serialized shapes are:
 | `ConfirmationRequest`, `QuitRequest` | `id`, `title`, `message`. IDs identify requests within the current native process, not jobs or authorization sessions. |
 | `DockerStatus`, `NameStatus` | `ok`, `message`. |
 | `Health` | `active`, `code`, `detail`. |
-| `NetworkStatus`, `WSLStatus` | `applicable`, `ok`, `message`, `how`, `fixable`. |
+| `NetworkStatus`, `WindowsVMStatus` | `applicable`, `ok`, `message`, `how`, `fixable`. |
 | `ToolPlan` | `action`, `label`, `detail`, `url`, `download_preview`. |
 | `RestartPlan` | `needed`, `title`, `detail`, `label`. |
 | `ResidueReport` | `clean`, `traces`; each trace has `id`, `label`, `detail`. |

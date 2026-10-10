@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { bridge } from "@/lib/bridge";
+import { useCare } from "@/state/care-store";
 import type { DownloadInfo, ToolPlan } from "@/types";
 import { SOFTWARE_DESCRIPTIONS } from "./setup-model";
 
 export type CheckTone = "wait" | "ok" | "bad";
 export type CheckId =
   | "residue"
-  | "wsl"
+  | "windows-vm"
   | "docker"
   | "disk"
   | "mdns"
@@ -54,7 +55,7 @@ type Result = { state: CheckTone; how: string; action?: CheckAction };
 const WAITING: Result = { state: "wait", how: "" };
 
 const NEEDS: Partial<Record<CheckId, CheckId[]>> = {
-  docker: ["wsl"],
+  docker: ["windows-vm"],
   residue: ["docker"],
   clinic: ["docker"],
 };
@@ -90,7 +91,7 @@ function actionFor(plan: ToolPlan, install: () => Promise<string | void>): Check
     label: plan.label,
     detail: plan.detail,
     run: install,
-    preview: plan.download_preview ? () => bridge.RancherDownloadInfo() : undefined,
+    preview: plan.download_preview ? () => bridge.EngineDownloadInfo() : undefined,
   };
 }
 
@@ -99,8 +100,10 @@ function actionFor(plan: ToolPlan, install: () => Promise<string | void>): Check
  */
 export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   const inSetup = mode === "setup";
+  const { platform } = useCare();
+  const engine = platform === "linux" ? "Docker" : "CARE engine";
   const [residue, setResidue] = useState<Result>(WAITING);
-  const [wsl, setWsl] = useState<Result | null>(null);
+  const [windowsVM, setWindowsVM] = useState<Result | null>(null);
   const [docker, setDocker] = useState<Result>(WAITING);
   const [disk, setDisk] = useState<Result & { message: string }>({ ...WAITING, message: "" });
   const [nameCheck, setNameCheck] = useState<{ host: string; result: Result }>({ host: "", result: WAITING });
@@ -152,17 +155,17 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
       const docker = await bridge.DockerStatus().catch(() => null);
       result =
         docker && !docker.ok
-          ? { state: "wait", how: "Waiting for Docker before this can be checked." }
+          ? { state: "wait", how: `Waiting for ${engine} before this can be checked.` }
           : { state: "bad", how: String(e) };
     }
     setResidue(result);
     return result;
-  }, []);
+  }, [engine]);
 
-  const checkWSL = useCallback(async (): Promise<Result | null> => {
+  const checkWindowsVM = useCallback(async (): Promise<Result | null> => {
     let result: Result | null;
     try {
-      const status = await bridge.WSLStatus();
+      const status = await bridge.WindowsVMStatus();
       result = status.applicable
         ? {
             state: status.ok ? "ok" : "bad",
@@ -171,17 +174,17 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
               status.ok || !status.fixable
                 ? undefined
                 : {
-                    label: "Turn on WSL 2",
+                    label: "Turn on Windows Hypervisor Platform",
                     detail:
-                      "Turns on the Windows feature Docker runs inside. Windows will ask for permission, and may need to restart before Docker can be installed.",
-                    run: () => bridge.InstallWSL(),
+                      "Turns on Windows Hypervisor Platform, the Windows feature the CARE engine runs on. Windows will ask for permission and usually needs a restart.",
+                    run: () => bridge.EnableWindowsVM(),
                   },
           }
         : null;
     } catch {
       result = null;
     }
-    setWsl(result);
+    setWindowsVM(result);
     return result;
   }, []);
 
@@ -316,7 +319,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
     try {
       const [r, w, d, s, m, c, n] = await Promise.all([
         inSetup ? checkResidue() : null,
-        checkWSL(),
+        checkWindowsVM(),
         checkDocker(),
         checkDisk(),
         checkMDNS(),
@@ -330,7 +333,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
   }, [
     inSetup,
     checkResidue,
-    checkWSL,
+    checkWindowsVM,
     checkDocker,
     checkDisk,
     checkMDNS,
@@ -352,17 +355,17 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
         ...residue,
       });
     }
-    if (wsl) {
+    if (windowsVM) {
       list.push({
-        id: "wsl",
-        title: "WSL 2",
-        detail: "The Windows feature Docker runs inside",
-        ...wsl,
+        id: "windows-vm",
+        title: "Windows Hypervisor Platform",
+        detail: "The Windows feature the CARE engine runs on",
+        ...windowsVM,
       });
     }
     list.push({
       id: "docker",
-      title: "Docker",
+      title: engine,
       detail: SOFTWARE_DESCRIPTIONS.docker,
       ...docker,
     });
@@ -401,7 +404,7 @@ export function useRequirementChecks(host: string, mode: ChecksMode = "setup") {
       });
     }
     return withPrerequisites(list);
-  }, [inSetup, clinic, disk, docker, host, mdns, network, residue, wsl]);
+  }, [inSetup, clinic, disk, docker, engine, host, mdns, network, residue, windowsVM]);
 
   const overall = useMemo(
     () => summarise(checks.map((c) => ({ state: c.state, how: c.how }))),

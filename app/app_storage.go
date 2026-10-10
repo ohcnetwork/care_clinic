@@ -121,15 +121,15 @@ func (a *App) checkStorage() storage.Report {
 		if runtime.GOOS != "linux" {
 			d.Label = "This computer's drive"
 			if d.Level == storage.LevelOK {
-				d.Message = "Plenty of room for Rancher Desktop's disk to grow."
+				d.Message = "Plenty of room for the CARE engine's disk to grow."
 			}
 		}
 		r.Drives = append(r.Drives, d)
 	}
 	if running && runtime.GOOS != "linux" {
 		if free, total, err := e.DockerDiskFree(); err == nil {
-			d := storage.AssessDrive("vm", "Rancher Desktop disk",
-				diskspace.Usage{Path: "Rancher Desktop", Free: free, Total: total})
+			d := storage.AssessDrive("vm", "CARE engine disk",
+				diskspace.Usage{Path: "CARE engine", Free: free, Total: total})
 			d.Cleanable = true
 			r.Drives = append(r.Drives, d)
 		}

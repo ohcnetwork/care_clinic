@@ -176,19 +176,13 @@ Each call to [`Runner()`](../app/internal/clinic/clinic.go) creates a
 - `Env` starts with `os.Environ()` and appends the engine's explicit settings.
   Other host environment values still matter, but not the Docker engine
   selection: see the next two points.
-- `PATH` uses `proc.AugmentedPath()` so GUI-launched processes can find Docker
-  in its normal installation locations.
-- On macOS and Windows, `DOCKER_HOST` is pinned to Rancher Desktop's endpoint
-  from `proc.DockerHost()` (`unix://$HOME/.rd/docker.sock`, or
-  `npipe:////./pipe/docker_engine`) and `DOCKER_CONTEXT` is set to `default`,
-  so the CLI ignores `currentContext` in `~/.docker/config.json` and any
-  inherited `DOCKER_HOST`/`DOCKER_CONTEXT`. Docker Desktop rewrites
-  `currentContext` to `desktop-linux` every time it starts; without the pin a
-  computer with both applications installed silently switched engines, and an
-  uninstall then reported success after cleaning the wrong engine while the
-  clinic kept running in Rancher Desktop. Every engine, check, residue,
-  backup and restore command goes through this runner, so the pin covers all
-  of them. Linux keeps the inherited engine (native Docker Engine).
+- `PATH` uses `proc.AugmentedPath()` so GUI-launched processes can find the
+  required command-line tools.
+- On macOS and Windows, `vm.Env()` directs every `docker` and `docker compose`
+  command to the app-managed CARE engine and its bundled CLI. It does not use
+  the user's Docker contexts. Linux continues to use native Docker Engine.
+  Platform endpoints, folder sharing and synchronization are described in the
+  [CARE engine guide](vm.md).
 - `Log` is the same callback supplied to the engine.
 
 `dc(args...)` means a runner invocation of `docker compose` with those

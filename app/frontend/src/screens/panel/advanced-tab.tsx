@@ -239,15 +239,15 @@ function RebuildControl({ adminPassword }: { adminPassword: string }) {
 }
 
 export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
-  const { busy, restorePending, uninstall, clearOperationError } = useCare();
+  const { busy, platform, restorePending, uninstall, clearOperationError } = useCare();
   const lock = useAdvancedLock();
   const blocked = busy || lock.disabled;
   const [open, setOpen] = useState(false);
   const [removeBackups, setRemoveBackups] = useState(false);
   const [removeImages, setRemoveImages] = useState(false);
-  const [removeRancher, setRemoveRancher] = useState(false);
+  const [removeLegacyRancher, setRemoveLegacyRancher] = useState(false);
   const [removeApp, setRemoveApp] = useState(false);
-  const [capabilities, setCapabilities] = useState<{ rancher: boolean; app: boolean } | null>(null);
+  const [capabilities, setCapabilities] = useState<{ legacyRancher: boolean; app: boolean } | null>(null);
   const [checking, setChecking] = useState(false);
   const [working, setWorking] = useState(false);
   const [confirmation, setConfirmation] = useState("");
@@ -263,8 +263,8 @@ export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
     setProblem(null);
     setCapabilities(null);
     try {
-      const [rancher, app] = await Promise.all([bridge.RancherDesktopInstalled(), bridge.CanRemoveApp()]);
-      if (version === checkVersion.current) setCapabilities({ rancher, app });
+      const [legacyRancher, app] = await Promise.all([bridge.LegacyRancherInstalled(), bridge.CanRemoveApp()]);
+      if (version === checkVersion.current) setCapabilities({ legacyRancher, app });
     } catch (cause) {
       if (version === checkVersion.current) setProblem(advancedProblem(cause, "Removal options couldn't be checked",
         "No removal has started. Try checking again before continuing."));
@@ -276,7 +276,7 @@ export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
     setConfirmation("");
     setRemoveBackups(false);
     setRemoveImages(false);
-    setRemoveRancher(false);
+    setRemoveLegacyRancher(false);
     setRemoveApp(false);
     setCapabilities(null);
     setProblem(null);
@@ -304,7 +304,7 @@ export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
     clearOperationError();
     setOpen(false);
     try {
-      const accepted: unknown = await uninstall(removeImages, removeBackups, capabilities.rancher && removeRancher,
+      const accepted: unknown = await uninstall(removeImages, removeBackups, capabilities.legacyRancher && removeLegacyRancher,
         adminPassword, capabilities.app && removeApp);
       setConfirmation("");
       if (accepted === true) { setOpen(false); clear(); }
@@ -349,15 +349,15 @@ export function UninstallPanel({ adminPassword }: { adminPassword: string }) {
             <label className="advanced-check">
               <Checkbox checked={removeImages} disabled={working || blocked || checking}
                 onCheckedChange={(checked) => setRemoveImages(checked === true)} />
-              <span>Also remove downloaded images and clear the shared build cache
-                <small>Other projects on this computer may need to download or build their files again.</small>
+              <span>{platform === "linux" ? "Also remove downloaded images and clear the shared build cache" : "Also remove downloaded images and the CARE engine disk"}
+                <small>{platform === "linux" ? "Other projects on this computer may need to download or build their files again." : "Deletes the CARE engine’s VM disk. CARE will download the software again if you set up another clinic."}</small>
               </span>
             </label>
-            {capabilities?.rancher ? <label className="advanced-check">
-              <Checkbox checked={removeRancher} disabled={working || blocked}
-                onCheckedChange={(checked) => setRemoveRancher(checked === true)} />
-              <span>Also remove Rancher Desktop and its settings
-                <small>Leave this off if other programs on this computer use Rancher Desktop.</small>
+            {capabilities?.legacyRancher ? <label className="advanced-check">
+              <Checkbox checked={removeLegacyRancher} disabled={working || blocked}
+                onCheckedChange={(checked) => setRemoveLegacyRancher(checked === true)} />
+              <span>Also remove Rancher Desktop left by an older CARE Clinic
+                <small>Earlier versions of CARE Clinic used Rancher Desktop. Leave this off if other programs on this computer use it.</small>
               </span>
             </label> : null}
             {capabilities?.app ? <label className="advanced-check">

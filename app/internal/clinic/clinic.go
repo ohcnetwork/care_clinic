@@ -11,6 +11,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/compose"
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 )
 
 type Clinic struct {
@@ -42,11 +43,10 @@ func (e *Clinic) logln(s string) {
 func (e *Clinic) baseEnv() []string {
 	env := os.Environ()
 	set := func(k, v string) { env = append(env, k+"="+v) }
-	set("PATH", proc.AugmentedPath())
-	if host := proc.DockerHost(); host != "" {
-		set("DOCKER_HOST", host)
-		set("DOCKER_CONTEXT", "default")
-	}
+	set("PATH", vm.PathWithBin(proc.AugmentedPath()))
+	// On macOS and Windows docker always means the CARE engine, whatever
+	// context or DOCKER_HOST the user has set for other tools.
+	env = append(env, vm.Env()...)
 	set("COMPOSE_PROJECT_NAME", composeProject)
 	set("COMPOSE_FILE", filepath.Join(e.InstallDir, "docker-compose.yml"))
 	set("BACKEND_IMAGE", e.Pins.BackendImage)
@@ -66,6 +66,9 @@ func (e *Clinic) baseEnv() []string {
 	set("FILE_UPLOAD_BUCKET", strings.TrimSpace(benv["FILE_UPLOAD_BUCKET"]))
 	set("FACILITY_S3_BUCKET", strings.TrimSpace(benv["FACILITY_S3_BUCKET"]))
 	set("BACKUP_DIR", e.backupDir())
+	if err := vm.SetSyncRoots([]string{e.InstallDir, e.backupDir()}); err != nil {
+		e.logln("Warning: could not record the folders the CARE engine mirrors: " + err.Error())
+	}
 	return env
 }
 

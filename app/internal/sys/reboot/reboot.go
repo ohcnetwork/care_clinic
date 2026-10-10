@@ -25,10 +25,10 @@ func Check() Plan {
 	}
 	return Plan{
 		Needed: true,
-		Title:  "Restart to finish setting up Docker",
-		Detail: "Windows needs to restart before Docker can run - it has to turn on WSL 2, " +
-			"which only takes effect after a restart. CARE Clinic will open again by itself " +
-			"and pick up where you left off.",
+		Title:  "Restart to finish setting up the CARE engine",
+		Detail: "Windows needs to restart before the CARE engine can run - it has to turn on the " +
+			"Windows Hypervisor Platform, which only takes effect after a restart. CARE Clinic will " +
+			"open again by itself and pick up where you left off.",
 		Label: "Restart now",
 	}
 }

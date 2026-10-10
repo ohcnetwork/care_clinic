@@ -28,7 +28,7 @@ import type {
   SetupRecoveryStatus,
   StorageReport,
   ToolPlan,
-  WSLStatus,
+  WindowsVMStatus,
 } from "./types";
 
 declare global {
@@ -49,10 +49,10 @@ declare global {
           MDNSStatus(name: string): Promise<NameStatus>;
           NetworkStatus(): Promise<NetworkStatus>;
           FixNetwork(): Promise<void>;
-          WSLStatus(): Promise<WSLStatus>;
-          InstallWSL(): Promise<string>;
+          WindowsVMStatus(): Promise<WindowsVMStatus>;
+          EnableWindowsVM(): Promise<string>;
           DockerPlan(): Promise<ToolPlan>;
-          RancherDownloadInfo(): Promise<DownloadInfo>;
+          EngineDownloadInfo(): Promise<DownloadInfo>;
           InstallDocker(): Promise<string>;
           OpenDocker(): Promise<void>;
           ScanResidue(): Promise<ResidueReport>;
@@ -104,8 +104,8 @@ declare global {
           InspectBackupFile(path: string): Promise<ImportedBackup>;
           RestoreFromFile(path: string, recoveryFile: string, adminPassword: string): Promise<void>;
           RestoreBackup(dbDump: string, filesArchive: string, recoveryFile: string, adminPassword: string): Promise<void>;
-          RancherDesktopInstalled(): Promise<boolean>;
-          RunUninstall(removeImages: boolean, removeBackups: boolean, removeRancher: boolean, adminPassword: string): Promise<void>;
+          LegacyRancherInstalled(): Promise<boolean>;
+          RunUninstall(removeImages: boolean, removeBackups: boolean, removeLegacyRancher: boolean, adminPassword: string): Promise<void>;
           OpenURL(url: string): Promise<void>;
           ChooseFolder(title: string): Promise<string>;
           LogPath(): Promise<string>;

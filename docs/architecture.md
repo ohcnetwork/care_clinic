@@ -108,7 +108,7 @@ decides. Actual OS privilege prompts still belong to the native integrations.
 | `lines` | Which release lines, digest-pinned images and app-version ranges does the manifest publish? |
 | `health` | Is the clinic HTTP endpoint responding, and is the HTTPS port usable? |
 | `plugins` | Which plugin configuration is active, and which validated draft is staged for application? |
-| `prereq` | Is Docker usable, and how can the user obtain or start it? Supplies the Docker engine through Rancher Desktop on macOS/Windows and native Docker Engine on Linux. |
+| `prereq` | Is Docker usable, and how can the user obtain or start it? Uses the [CARE engine](vm.md) on macOS/Windows and native Docker Engine on Linux. |
 | `release` | Which version, release-line settings, and image references does this executable ship? |
 | `residue` | What resources from an earlier installation remain? |
 

@@ -40,13 +40,13 @@ func (a *App) validateSetup(name, password, backupDir string) []SetupIssue {
 	if disk := a.DiskStatus(); !disk.OK || disk.Need == 0 {
 		add("space", "There isn't enough confirmed free space to install CARE. Check this step again.", disk.Message)
 	}
-	wsl := a.WSLStatus()
-	if restart := a.RestartPlan(); wsl.Applicable && (!wsl.OK || restart.Needed) {
+	hv := a.WindowsVMStatus()
+	if restart := a.RestartPlan(); hv.Applicable && (!hv.OK || restart.Needed) {
 		message := "Windows setup needs another look."
 		if restart.Needed {
 			message = "Windows still needs to restart."
 		}
-		add("windows", message, wsl.Message)
+		add("windows", message, hv.Message)
 	}
 	docker := a.DockerStatus()
 	if !docker.OK {

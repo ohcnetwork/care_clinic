@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -12,15 +13,72 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
 
+// Earlier versions of CARE Clinic ran Docker through Rancher Desktop. These
+// paths let an uninstall clean up what that installer left behind.
 const (
+	rancherAppMac      = "/Applications/Rancher Desktop.app"
+	rancherOptDir      = "/opt/rancher-desktop"
+	rancherSudoersPath = "/private/etc/sudoers.d/zzzzz-rancher-desktop-lima"
+	rancherOldSudoers  = "/private/etc/sudoers.d/rancher-desktop-lima"
+	dockerSockLink     = "/var/run/docker.sock"
+	dockerSockDaemon   = "/Library/LaunchDaemons/org.ohcnetwork.care-clinic.docker-socket.plist"
+	dockerSockLabel    = "org.ohcnetwork.care-clinic.docker-socket"
+
 	rancherProfileDomain = "io.rancherdesktop.profile.defaults"
 	rancherProfileKeyWin = `HKCU\Software\Policies\Rancher Desktop`
 	rancherRCStart       = "### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)"
 	rancherRCEnd         = "### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)"
 )
 
-func RancherDesktopInstalled() bool {
-	return (runtime.GOOS == "darwin" || runtime.GOOS == "windows") && rancherDesktopInstalled()
+// LegacyRancherInstalled reports a Rancher Desktop left from an earlier
+// version of CARE Clinic, which the uninstaller can offer to remove.
+func LegacyRancherInstalled() bool {
+	switch runtime.GOOS {
+	case "darwin":
+		_, err := os.Stat(rancherAppMac)
+		return err == nil
+	case "windows":
+		return windowsRancherDesktopExe() != ""
+	}
+	return false
+}
+
+func windowsRancherDesktopExe() string {
+	bases := []string{
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs"),
+		os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432"), `C:\Program Files`,
+	}
+	for _, base := range bases {
+		if base == "" {
+			continue
+		}
+		p := filepath.Join(base, "Rancher Desktop", "Rancher Desktop.exe")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func rdctlPath() string {
+	var bundled string
+	switch runtime.GOOS {
+	case "darwin":
+		bundled = filepath.Join(rancherAppMac, "Contents", "Resources", "resources", "darwin", "bin", "rdctl")
+	case "windows":
+		if exe := windowsRancherDesktopExe(); exe != "" {
+			bundled = filepath.Join(filepath.Dir(exe), "resources", "resources", "win32", "bin", "rdctl.exe")
+		}
+	}
+	if bundled != "" {
+		if _, err := os.Stat(bundled); err == nil {
+			return bundled
+		}
+	}
+	if p, err := exec.LookPath("rdctl"); err == nil {
+		return p
+	}
+	return ""
 }
 
 func (pr *Provisioner) RemoveRancherDesktop() error {
@@ -30,7 +88,7 @@ func (pr *Provisioner) RemoveRancherDesktop() error {
 	case "windows":
 		return pr.removeRancherWindows()
 	default:
-		pr.logln("Rancher Desktop is only installed by CARE Clinic on macOS and Windows; nothing to remove.")
+		pr.logln("Rancher Desktop was only used by CARE Clinic on macOS and Windows; nothing to remove.")
 		return nil
 	}
 }

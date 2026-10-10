@@ -10,7 +10,7 @@ export type NetworkStatus = {
   how: string;
   fixable: boolean;
 };
-export type WSLStatus = NetworkStatus;
+export type WindowsVMStatus = NetworkStatus;
 export type Health = { active: boolean; code: number; detail: string };
 
 /** Whether this machine must restart before the prerequisites will work. */

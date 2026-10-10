@@ -161,10 +161,10 @@ test("storage refresh and cleanup use native results without invented freed-spac
   const storage = page.locator('.panel-page[aria-label="Storage"]');
   await expect(storage.getByText("37 GB currently used", { exact: true })).toBeVisible();
   const vm = storage.locator(".panel-storage-vm");
-  await expect(vm.getByRole("heading", { name: "CARE Clinic storage" })).toBeVisible();
+  await expect(vm.getByRole("heading", { name: "CARE engine disk" })).toBeVisible();
   await expect(vm).toContainText("Storage capacity: 100 GB");
   await expect(vm).toContainText("not the amount used");
-  await expect(vm).toContainText("Other apps using Rancher Desktop may also be included.");
+  await expect(vm).toContainText("Includes clinic records, uploads and the software that runs CARE.");
   await expect(vm.getByRole("progressbar")).toHaveCount(0);
   await page.evaluate(() => {
     window.careTest.fixtures.finishJobs = false;
@@ -196,7 +196,7 @@ test("storage read failure retains explicitly old readings and can be retried", 
     drive.level = "unknown"; drive.free = 0; drive.total = 0;
     window.careTest.emit("care-storage", window.careTest.fixtures.storage);
   });
-  const vm = storage.locator("section").filter({ has: page.getByRole("heading", { name: "CARE Clinic storage", exact: true }) });
+  const vm = storage.locator("section").filter({ has: page.getByRole("heading", { name: "CARE engine disk", exact: true }) });
   await expect(vm).toContainText("Space unavailable");
   await expect(vm.locator(".panel-storage-usage")).toHaveCount(0);
   await expect(vm.getByRole("progressbar")).toHaveCount(0);
@@ -209,17 +209,17 @@ test("requirements stay absent when healthy, recheck throughout panel lifetime, 
   await expect(overview(page).getByRole("region", { name: "What the clinic needs" })).toHaveCount(0);
   await page.evaluate(() => {
     window.careTest.fixtures.docker = { ok: false, message: "engine not running: exit status 127" };
-    window.careTest.respond("DockerPlan", { action: "open", label: "Start Rancher Desktop", detail: "", url: "", download_preview: false });
+    window.careTest.respond("DockerPlan", { action: "open", label: "Start CARE engine", detail: "", url: "", download_preview: false });
   });
   await page.clock.fastForward(60_100);
   const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
-  await expect(requirements).toContainText("Rancher Desktop needs setup");
+  await expect(requirements).toContainText("CARE engine needs setup");
   await expect(requirements).not.toContainText("exit status");
   await page.evaluate(() => {
     window.careTest.hold("OpenDocker");
     window.careTest.respond("OpenDocker", undefined);
   });
-  await requirements.getByRole("button", { name: "Start Rancher Desktop", exact: true }).dblclick();
+  await requirements.getByRole("button", { name: "Start CARE engine", exact: true }).dblclick();
   await expect.poll(() => calls(page, "OpenDocker")).toBe(1);
   await expect(section(page, "Backups")).toBeDisabled();
   await page.evaluate(() => {
@@ -230,25 +230,25 @@ test("requirements stay absent when healthy, recheck throughout panel lifetime, 
   await expect(section(page, "Backups")).toBeEnabled();
 });
 
-test("Rancher download confirmation cancels without installation", async ({ page }) => {
+test("Engine download confirmation cancels without installation", async ({ page }) => {
   await openPanel(page, "panel-requirements");
   const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
   await expect(requirements).toBeVisible();
-  await expect(requirements).toContainText("Rancher Desktop needs setup");
+  await expect(requirements).toContainText("CARE engine needs setup");
   await expect(requirements.getByText("Runs the clinic software on this computer.", { exact: true })).toBeVisible();
   await expect(requirements.getByText(/^(Ready|Action required)$/)).toHaveCount(0);
-  await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
+  await requirements.getByRole("button", { name: "Install CARE engine", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
-  await expect(dialog.getByRole("heading", { name: "Download Rancher Desktop?" })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Download the CARE engine?" })).toBeVisible();
   expect(await calls(page, "InstallDocker")).toBe(0);
   await dialog.getByRole("button", { name: "Not now", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   expect(await calls(page, "InstallDocker")).toBe(0);
-  await expect(requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true })).toBeEnabled();
+  await expect(requirements.getByRole("button", { name: "Install CARE engine", exact: true })).toBeEnabled();
 });
 
 for (const stage of ["preview", "download"] as const) {
-  test(`Rancher repair ${stage} connection loss gives reconnect guidance and remains retryable`, async ({ page }) => {
+  test(`Engine repair ${stage} connection loss gives reconnect guidance and remains retryable`, async ({ page }) => {
     await openPanel(page, "panel-requirements");
     const saved = await page.evaluate(() => ({
       backups: window.careTest.fixtures.backups,
@@ -257,10 +257,10 @@ for (const stage of ["preview", "download"] as const) {
     }));
     const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
     await page.evaluate((stage) => {
-      window.careTest.failNext(stage === "preview" ? "RancherDownloadInfo" : "InstallDocker",
+      window.careTest.failNext(stage === "preview" ? "EngineDownloadInfo" : "InstallDocker",
         "download connection interrupted: private.example: connection reset by peer");
     }, stage);
-    await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
+    await requirements.getByRole("button", { name: "Install CARE engine", exact: true }).click();
     if (stage === "download") {
       await page.getByRole("alertdialog").getByRole("button", { name: "Download and install", exact: true }).click();
     }
@@ -269,7 +269,7 @@ for (const stage of ["preview", "download"] as const) {
     await expect(failure).toContainText("Check the internet connection, then try again.");
     await expect(failure).not.toContainText(/private\.example|connection reset by peer|Couldn't finish the fix/);
     expect(await calls(page, "InstallDocker")).toBe(stage === "preview" ? 0 : 1);
-    await requirements.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
+    await requirements.getByRole("button", { name: "Install CARE engine", exact: true }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Download and install", exact: true }).click();
     await expect(requirements).toHaveCount(0);
     await expect(failure).toHaveCount(0);
@@ -457,15 +457,15 @@ test("a failed startup-preference read has a safe read-only retry", async ({ pag
   expect(await calls(page, "SetAutostart")).toBe(2);
 });
 
-test("reopening stopped Rancher waits for native readiness, then unlocks clinic startup", async ({ page }) => {
+test("reopening stopped Engine waits for native readiness, then unlocks clinic startup", async ({ page }) => {
   await page.clock.install();
   await openPanel(page);
   await page.evaluate(() => {
     window.careTest.fixtures.health.active = false;
     window.careTest.fixtures.clinicStatus = "";
-    window.careTest.fixtures.docker = { ok: false, message: "Rancher Desktop is installed but not running." };
+    window.careTest.fixtures.docker = { ok: false, message: "CARE engine is installed but not running." };
     window.careTest.respond("DockerPlan", {
-      action: "open", label: "Open Rancher Desktop", detail: "", url: "", download_preview: false,
+      action: "open", label: "Start CARE engine", detail: "", url: "", download_preview: false,
     });
     window.careTest.hold("OpenDocker");
   });
@@ -473,9 +473,9 @@ test("reopening stopped Rancher waits for native readiness, then unlocks clinic 
   await page.clock.runFor(5_100);
   await page.locator(".panel-banner").getByRole("button", { name: "See what's wrong", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
-  await dialog.getByRole("button", { name: "Start Rancher Desktop", exact: true }).dblclick();
+  await dialog.getByRole("button", { name: "Start CARE engine", exact: true }).dblclick();
   await expect.poll(() => calls(page, "OpenDocker")).toBe(1);
-  const progress = dialog.getByRole("status").filter({ hasText: "Starting Rancher Desktop" });
+  const progress = dialog.getByRole("status").filter({ hasText: "Starting CARE engine" });
   await expect(progress).toContainText("this can take a minute");
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
   await page.clock.fastForward(60_000);
@@ -498,7 +498,7 @@ test("troubleshooting remains readable and keyboard accessible at minimum size",
     window.careTest.fixtures.clinicStatus = "";
     window.careTest.fixtures.docker = { ok: false, message: "private engine failure" };
     window.careTest.respond("DockerPlan", {
-      action: "open", label: "Open Rancher Desktop", detail: "", url: "", download_preview: false,
+      action: "open", label: "Start CARE engine", detail: "", url: "", download_preview: false,
     });
   });
   await page.clock.fastForward(95_000);
@@ -512,7 +512,7 @@ test("troubleshooting remains readable and keyboard accessible at minimum size",
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await capture(page, "panel-actual-troubleshooting-720");
   await page.evaluate(() => window.careTest.failNext("OpenDocker", "private startup details"));
-  await dialog.getByRole("button", { name: "Start Rancher Desktop", exact: true }).click();
+  await dialog.getByRole("button", { name: "Start CARE engine", exact: true }).click();
   await expect(dialog.getByRole("alert")).toContainText("Couldn't finish the fix");
   await expect(dialog).not.toContainText("private startup details");
   await capture(page, "panel-actual-troubleshooting-error-720");
@@ -713,4 +713,51 @@ test("unsupported CARE lines block the application install and display the reaso
   await expect(desktop(page)).toContainText("Upgrade the clinic's CARE release line before installing");
   await expect(desktop(page).getByRole("button", { name: "Update CARE Clinic", exact: true })).toBeDisabled();
   expect(await calls(page, "InstallAppUpdate")).toBe(0);
+});
+
+test("Linux requirements keep Docker labels and open the manual installation instructions", async ({ page }) => {
+  await page.clock.install();
+  await openPanel(page, "panel-current", "&platform=linux");
+  await page.evaluate(() => {
+    window.careTest.fixtures.docker.ok = false;
+    window.careTest.respond("DockerPlan", { action: "manual", label: "Get Docker", detail: "", url: "https://example.invalid/docker", download_preview: false });
+  });
+  await page.clock.fastForward(60_100);
+  const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
+  await expect(requirements).toContainText("Docker needs setup");
+  await expect(requirements).not.toContainText("CARE engine");
+  await requirements.getByRole("button", { name: "Get Docker", exact: true }).click();
+  await expect.poll(() => calls(page, "OpenURL")).toBe(1);
+  expect(await calls(page, "EngineDownloadInfo")).toBe(0);
+  expect(await calls(page, "InstallDocker")).toBe(0);
+});
+
+test("engine updates use the host plan label and the engine download preview", async ({ page }) => {
+  await page.clock.install();
+  await openPanel(page);
+  await page.evaluate(() => {
+    window.careTest.fixtures.docker.ok = false;
+    window.careTest.respond("DockerPlan", { action: "install", label: "Update CARE engine", detail: "", url: "", download_preview: true });
+  });
+  await page.clock.fastForward(60_100);
+  const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
+  await requirements.getByRole("button", { name: "Update CARE engine", exact: true }).click();
+  await expect(page.getByRole("alertdialog").getByRole("heading", { name: "Download the CARE engine?" })).toBeVisible();
+  expect(await calls(page, "EngineDownloadInfo")).toBe(1);
+  expect(await calls(page, "InstallDocker")).toBe(0);
+});
+
+test("Windows panel enables Hypervisor Platform and requires the engine restart", async ({ page }) => {
+  await page.clock.install();
+  await openPanel(page, "panel-current", "&platform=windows");
+  await page.evaluate(() => { window.careTest.fixtures.windowsVM.ok = false; });
+  await page.clock.fastForward(60_100);
+  const requirements = overview(page).getByRole("region", { name: "What the clinic needs" });
+  await expect(requirements).toContainText("Windows Hypervisor Platform needs setup");
+  await page.evaluate(() => { window.careTest.fixtures.restart.needed = true; });
+  await requirements.getByRole("button", { name: "Turn on Windows Hypervisor Platform", exact: true }).click();
+  await expect(page.getByRole("alertdialog").getByRole("heading", { name: "Restart to finish setting up the CARE engine" })).toBeVisible();
+  expect(await calls(page, "EnableWindowsVM")).toBe(1);
+  await page.getByRole("button", { name: "I'll restart later" }).click();
+  await expect(requirements).toContainText("Windows needs to restart before CARE can run.");
 });

@@ -125,9 +125,9 @@ export function CheckRows({
           <span className="mb-3 flex size-11 items-center justify-center rounded-xl bg-brand-bg text-brand-ink">
             <Download className="size-5" />
           </span>
-          <AlertDialogTitle>Download Rancher Desktop?</AlertDialogTitle>
+          <AlertDialogTitle>Download the CARE engine?</AlertDialogTitle>
           <AlertDialogDescription>
-            CARE needs Rancher Desktop to run the clinic. Review the download size
+            CARE needs the CARE engine to run the clinic. Review the download size
             before continuing, especially on a limited internet connection.
           </AlertDialogDescription>
           <div className="mt-4 rounded-xl border border-line bg-background p-4">

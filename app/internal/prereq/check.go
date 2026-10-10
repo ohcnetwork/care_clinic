@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 )
 
 const cmdTimeout = 5 * time.Second
@@ -22,7 +23,6 @@ func DockerCheck(run proc.Runner) Status {
 	cmd := proc.CommandContext(ctx, "docker", "version", "--format", "{{.Server.Os}}/{{.Server.Version}}")
 	cmd.Env = run.Env
 	out, err := cmd.Output()
-	missing, stopped := dockerAdvice()
 	switch {
 	case err == nil:
 		serverOS, version, _ := strings.Cut(strings.TrimSpace(string(out)), "/")
@@ -32,32 +32,38 @@ func DockerCheck(run proc.Runner) Status {
 		if !hasCompose(run) {
 			return Status{OK: false, Message: composeAdvice()}
 		}
+		if vm.Supported() {
+			return Status{OK: true, Message: engineName + " (Docker " + version + ")"}
+		}
 		return Status{OK: true, Message: "Docker " + version}
-	case !rancherDesktopInstalled():
-		if runtime.GOOS == "windows" && !wslReady() {
-			return Status{OK: false, Message: "Rancher Desktop is not installed, and WSL 2 has to be on before it can be."}
-		}
-		return Status{OK: false, Message: missing}
+	case vm.Supported():
+		return engineCheck()
+	case hasCommand("docker"):
+		return Status{OK: false, Message: "Docker is installed but not running."}
 	default:
-		if rancherDesktopRunning() {
-			return Status{OK: false, Message: dockerName() + " is running, but Docker is not answering yet. " +
-				"It may still be starting; if this does not clear, quit " + dockerName() + " and start it again."}
-		}
-		return Status{OK: false, Message: stopped}
+		return Status{OK: false, Message: "Docker is not installed."}
 	}
 }
 
-func dockerAdvice() (missing, stopped string) {
-	switch runtime.GOOS {
-	case "windows":
-		return "Rancher Desktop is not installed.",
-			"Rancher Desktop is installed but not running. If you just installed it, restart this computer."
-	case "darwin":
-		return "Rancher Desktop is not installed.",
-			"Rancher Desktop is installed but not running."
+func engineCheck() Status {
+	if runtime.GOOS == "windows" {
+		if err := vm.HypervisorReady(); err != nil {
+			return Status{OK: false, Message: "The " + engineName + " can't run yet: " + err.Error() + "."}
+		}
+	}
+	if _, err := vm.Installed(); err != nil || !vm.ToolsInstalled() {
+		return Status{OK: false, Message: "The " + engineName + " is not installed."}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	s := vm.Status(ctx)
+	switch {
+	case s.Error != "":
+		return Status{OK: false, Message: "The " + engineName + " could not start: " + s.Error}
+	case s.Running:
+		return Status{OK: false, Message: "The " + engineName + " is starting. This usually takes under a minute."}
 	default:
-		return "Docker is not installed.",
-			"Docker is installed but not running."
+		return Status{OK: false, Message: "The " + engineName + " is installed but not running."}
 	}
 }
 
@@ -65,15 +71,14 @@ func composeAdvice() string {
 	if runtime.GOOS == "linux" {
 		return "Docker is running, but the Compose plugin is missing. Choose Install Docker to add it."
 	}
-	return "Docker is running, but the Compose v2 plugin is missing. Update Rancher Desktop."
+	return "The " + engineName + " is running, but the Compose plugin is missing. Choose Update " + engineName + " to add it."
 }
 
 func wrongContainerOS(serverOS string) string {
 	if serverOS == "" || serverOS == "linux" {
 		return ""
 	}
-	return "Docker is set to " + serverOS + " containers, and CARE needs Linux containers. " +
-		"In Rancher Desktop, open Preferences and set the container engine to \"dockerd (moby)\"."
+	return "Docker is set to " + serverOS + " containers, and CARE needs Linux containers."
 }
 
 func hasCompose(run proc.Runner) bool {

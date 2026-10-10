@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"runtime"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 )
@@ -25,7 +24,6 @@ func downloadError(err error) error {
 }
 
 const (
-	rancherReleases   = "https://github.com/rancher-sandbox/rancher-desktop/releases/download/v"
 	dockerLinuxStatic = "https://download.docker.com/linux/static/stable/"
 	composeReleases   = "https://github.com/docker/compose/releases/download/v"
 )
@@ -39,14 +37,6 @@ type Download struct {
 type DownloadInfo struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
-}
-
-func (pr *Provisioner) RancherDownloadInfo() (DownloadInfo, error) {
-	d, err := rancherDownload(pr.pins, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return DownloadInfo{}, err
-	}
-	return inspectDownload(d)
 }
 
 // Only retrieve headers: the installer body is not requested before consent.
@@ -71,22 +61,6 @@ func inspectDownload(d Download) (DownloadInfo, error) {
 		return DownloadInfo{}, fmt.Errorf("the server did not provide the size of %s; try again before downloading", d.Name)
 	}
 	return DownloadInfo{Name: d.Name, Size: resp.ContentLength}, nil
-}
-
-func rancherDownload(p *release.Pins, goos, goarch string) (Download, error) {
-	var name, sum string
-	switch {
-	case goos == "darwin" && goarch == "arm64":
-		name, sum = "Rancher.Desktop-"+p.RancherVersion+".aarch64.dmg", p.RancherMacArm64SHA256
-	case goos == "darwin" && goarch == "amd64":
-		name, sum = "Rancher.Desktop-"+p.RancherVersion+".x86_64.dmg", p.RancherMacX8664SHA256
-	case goos == "windows" && goarch == "amd64":
-		name, sum = "Rancher.Desktop.Setup."+p.RancherVersion+".msi", p.RancherWindowsSHA256
-	default:
-		return Download{}, fmt.Errorf("CARE does not install Rancher Desktop on %s/%s - install it yourself from %s",
-			goos, goarch, rancherPageURL)
-	}
-	return Download{Name: name, URL: rancherReleases + p.RancherVersion + "/" + name, SHA256: sum}, nil
 }
 
 func linuxArch(goarch string) (string, bool) {

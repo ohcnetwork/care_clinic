@@ -2,11 +2,10 @@ package storage
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 )
 
 const (
@@ -61,16 +60,8 @@ func RunningLevel(free uint64) Level {
 }
 
 func DockerDataDir() string {
-	home, _ := os.UserHomeDir()
-	switch runtime.GOOS {
-	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "rancher-desktop", "lima")
-	case "windows":
-		base := os.Getenv("LOCALAPPDATA")
-		if base == "" {
-			base = filepath.Join(home, "AppData", "Local")
-		}
-		return filepath.Join(base, "rancher-desktop")
+	if vm.Supported() {
+		return vm.StateDir()
 	}
 	return "/var/lib/docker"
 }

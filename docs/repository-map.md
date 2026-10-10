@@ -14,6 +14,7 @@ care_desktop/
 |-- README.md
 |-- docs/
 |   |-- README.md
+|   |-- vm.md
 |   |-- desktop-workflows.md
 |   |-- architecture.md
 |   |-- repository-map.md
@@ -28,8 +29,15 @@ care_desktop/
 |   |-- development-and-release.md
 |   |-- releases.md
 |   `-- onboarding.md
+|-- vm/
+|   |-- flake.nix
+|   |-- nix/
+|   |-- agent/
+|   `-- VERSION
 |-- app/
 |   |-- main.go and app_*.go
+|   |-- engine_hook.go
+|   |-- internal/vm/
 |   |-- password.go
 |   |-- go.mod
 |   |-- go.sum
@@ -59,7 +67,8 @@ care_desktop/
 `-- .github/
     `-- workflows/
         |-- ci.yml
-        `-- release.yml
+        |-- release.yml
+        `-- care-vm.yml
 ```
 
 `deployments/` is versioned kit source. `app/install/` is generated build staging. The clinic computer's installed kit is a third location selected by the application, not either of those checkout directories. [Facility setup](onboarding.md) and its curated datasets live in the separate `ohcnetwork/care_onboarding_fe` plugin repository.
@@ -181,9 +190,17 @@ app/internal/
 |   `-- plugins_test.go
 |-- prereq/
 |   |-- check.go
-|   |-- profile.go
+|   |-- engine.go
 |   |-- provision.go
-|   `-- provision_test.go
+|   |-- rancher_remove.go
+|   `-- vmnet.go
+|-- vm/
+|   |-- host.go
+|   |-- driver_darwin.go
+|   |-- driver_windows.go
+|   |-- qemu.go
+|   |-- sync.go
+|   `-- client.go
 |-- release/
 |   |-- pins.go
 |   |-- pins_test.go
@@ -249,7 +266,8 @@ app/internal/
 | [`internal/health`](../app/internal/health) | HTTP readiness and port availability. | [Native integrations](native-integrations.md). |
 | [`internal/plugins`](../app/internal/plugins) | Active plugin list (`plugins.json`), inactive draft (`plugins-pending.json`), catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
 | [`internal/lines`](../app/internal/lines) | Release-line manifest parsing, validation, cache, line ordering and app-version compatibility. | [Images and release lines](images-and-lines.md). |
-| [`internal/prereq`](../app/internal/prereq) | Docker detection, action plans, Rancher Desktop provisioning and preconfiguration, and readiness waits. | [Native integrations](native-integrations.md). |
+| [`internal/prereq`](../app/internal/prereq) | Docker readiness, CARE engine provisioning, Windows Hypervisor Platform setup, native Linux Docker setup, and optional legacy Rancher Desktop removal. | [Native integrations](native-integrations.md), [CARE engine](vm.md). |
+| [`internal/vm`](../app/internal/vm) | CARE engine host lifecycle, macOS and Windows VM drivers, Docker client configuration, folder sharing/synchronization, networking, and helper process. | [CARE engine](vm.md). |
 | [`internal/release`](../app/internal/release) | Validated desktop release pins, line selection and image identity. | [Development and release](development-and-release.md#release-identity-and-pins). |
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
 | [`internal/storage`](../app/internal/storage) | Storage thresholds, backup-space estimates, policy/status reporting and backup-run state. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |

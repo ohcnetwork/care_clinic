@@ -59,9 +59,9 @@ func (a *App) GetState() (state AppState, err error) {
 	}, nil
 }
 
-func (a *App) DockerStatus() prereq.Status   { return prereq.DockerCheck(a.engine().Runner()) }
-func (a *App) RancherDesktopInstalled() bool { return prereq.RancherDesktopInstalled() }
-func (a *App) ClinicHealth() health.Health   { return health.Ping() }
+func (a *App) DockerStatus() prereq.Status  { return prereq.DockerCheck(a.engine().Runner()) }
+func (a *App) LegacyRancherInstalled() bool { return prereq.LegacyRancherInstalled() }
+func (a *App) ClinicHealth() health.Health  { return health.Ping() }
 
 func (a *App) NetworkStatus() netfix.Status { return netfix.Check(a.engine().Runner()) }
 
@@ -69,13 +69,13 @@ func (a *App) FixNetwork() error {
 	return a.withLabeledJob(jobPrereq, func() error { return netfix.Fix(a.engine().Log) })
 }
 
-func (a *App) WSLStatus() prereq.WSLStatus { return prereq.WSLCheck() }
+func (a *App) WindowsVMStatus() prereq.WindowsVMStatus { return prereq.WindowsVMCheck() }
 
-func (a *App) InstallWSL() (string, error) {
+func (a *App) EnableWindowsVM() (string, error) {
 	var result string
 	err := a.withLabeledJob(jobPrereq, func() error {
 		var err error
-		result, err = a.provisioner().InstallWSL()
+		result, err = a.provisioner().EnableWindowsVM()
 		return err
 	})
 	return result, err
@@ -83,12 +83,12 @@ func (a *App) InstallWSL() (string, error) {
 
 func (a *App) DockerPlan() prereq.ToolPlan { return a.provisioner().DockerPlan() }
 
-func (a *App) RancherDownloadInfo() (info prereq.DownloadInfo, err error) {
+func (a *App) EngineDownloadInfo() (info prereq.DownloadInfo, err error) {
 	defer a.logError(&err)
 	if err := a.requireServer(); err != nil {
 		return prereq.DownloadInfo{}, err
 	}
-	return a.provisioner().RancherDownloadInfo()
+	return a.provisioner().EngineDownloadInfo()
 }
 
 func (a *App) InstallDocker() (string, error) {
@@ -108,6 +108,7 @@ func (a *App) OpenDocker() error {
 func (a *App) provisioner() *prereq.Provisioner {
 	e := a.engine()
 	pr := prereq.NewProvisioner(e.Runner(), a.pins, e.Log)
+	pr.DiagnosticsDir = a.log.Folder()
 	pr.Progress = func(progress prereq.DownloadProgress) {
 		a.emit("prereq-download-progress", progress)
 	}

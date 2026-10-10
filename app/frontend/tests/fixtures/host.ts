@@ -1,7 +1,7 @@
 import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
   ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
-  CarePlugin, Health, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
+  CarePlugin, Health, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan, WindowsVMStatus,
 } from "../../src/types";
 
 type Host = Window["go"]["main"]["App"];
@@ -12,7 +12,7 @@ type Results = { [K in Method]: Awaited<ReturnType<Host[K]>> };
 type Fixtures = {
   disk: DiskStatus;
   docker: DockerStatus;
-  wsl: NetworkStatus;
+  windowsVM: WindowsVMStatus;
   network: NetworkStatus;
   restart: RestartPlan;
   residue: ResidueReport;
@@ -43,7 +43,7 @@ type Fixtures = {
   recoveryFailures: number;
   recoveryRetryAfter: number;
   canRemoveApp: boolean;
-  rancherInstalled: boolean;
+  legacyRancherInstalled: boolean;
   appRemoved: boolean;
   setupStarted: boolean;
 };
@@ -118,9 +118,9 @@ export function installTestHost() {
   const fixtures: Fixtures = {
     disk: { ok: true, message: "212 GB free", how: "", free: 212 * 2 ** 30, need: 30 * 2 ** 30 },
     docker: { ok: true, message: "" },
-    wsl: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
+    windowsVM: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
-    restart: { needed: false, title: "Restart Windows to finish", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
+    restart: { needed: false, title: "Restart to finish setting up the CARE engine", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
     residue: { clean: true, traces: [] },
     recovery: { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "", backup_key_stored: false, backup_key_needs_enrollment: false },
     preflight: { hosts_entry: false, old_certificate: false, unfinished_server_setup: false, engine_leftovers: "" },
@@ -137,7 +137,7 @@ export function installTestHost() {
       checked_at: now, level: "ok", headline: "",
       drives: [
         { id: "docker", label: "This computer's drive", path: "/preview", free: 212 * 2 ** 30, total: 500 * 2 ** 30, level: "ok", message: "", cleanable: false },
-        { id: "vm", label: "Rancher Desktop disk", path: "", free: 63 * 2 ** 30, total: 100 * 2 ** 30, level: "ok", message: "", cleanable: true },
+        { id: "vm", label: "CARE engine disk", path: "", free: 63 * 2 ** 30, total: 100 * 2 ** 30, level: "ok", message: "", cleanable: true },
       ],
       backup: backupSpace, last_run: { state: "ok", reason: "", at: now - 3_600, need_bytes: 0, free_bytes: 0, message: "" },
       newest_backup_at: now - 3_600, stale: false,
@@ -160,7 +160,7 @@ export function installTestHost() {
     recoveryFailures: 0,
     recoveryRetryAfter: 0,
     canRemoveApp: new URLSearchParams(location.search).get("removable") === "1",
-    rancherInstalled: true,
+    legacyRancherInstalled: true,
     appRemoved: false,
     setupStarted: false,
   };
@@ -172,15 +172,15 @@ export function installTestHost() {
   if (scenario === "setup-space") fixtures.disk = { ...fixtures.disk, ok: false, free: 12 * 2 ** 30 };
   if (scenario === "setup-windows") {
     state.platform = "windows";
-    fixtures.wsl.applicable = true;
-    fixtures.wsl.ok = false;
+    fixtures.windowsVM.applicable = true;
+    fixtures.windowsVM.ok = false;
     fixtures.network.applicable = true;
     fixtures.network.ok = false;
   }
   if (scenario === "setup-software") { fixtures.docker.ok = false; }
   if (scenario === "setup-cleanup") fixtures.residue = { clean: false, traces: [
     { id: "containers", label: "Containers and volumes from the earlier clinic", detail: "" },
-    { id: "images", label: "Images Rancher Desktop downloaded", detail: "" },
+    { id: "images", label: "Downloaded clinic images", detail: "" },
     { id: "config", label: "Saved settings and configuration files", detail: "" },
     { id: "hosts", label: "The old clinic address and its certificate", detail: "" },
   ] };
@@ -309,8 +309,8 @@ export function installTestHost() {
   };
   const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   const softwarePlan = (): ToolPlan => ({
-    action: "install", label: "Install Rancher Desktop",
-    detail: "Simulated installation only.", url: "", download_preview: true,
+    action: "install", label: state.platform === "linux" ? "Install Docker" : "Install CARE engine",
+    detail: "Simulated installation only.", url: "", download_preview: state.platform !== "linux",
   });
   const installSoftware = async (id: "docker") => {
     requireServer();
@@ -374,7 +374,7 @@ export function installTestHost() {
       };
     },
     DockerStatus: async () => ({ ...fixtures.docker }),
-    WSLStatus: async () => ({ ...fixtures.wsl }),
+    WindowsVMStatus: async () => ({ ...fixtures.windowsVM }),
     NetworkStatus: async () => ({ ...fixtures.network }),
     DiskStatus: async () => ({ ...fixtures.disk }),
     MDNSStatus: async () => ({ ok: !fixtures.addressTaken, message: fixtures.addressTaken ? "care.local is already in use on this network (192.0.2.1)" : "" }),
@@ -542,8 +542,8 @@ export function installTestHost() {
       fixtures.recoveryRetryAfter = 0;
       emit("admin-recovery-codes-changed", fixtures.recoveryCodes.filter(Boolean).length);
     },
-    RancherDesktopInstalled: async () => fixtures.rancherInstalled,
-    RunUninstall: async (_images: boolean, _backups: boolean, _rancher: boolean, password: string) => {
+    LegacyRancherInstalled: async () => fixtures.legacyRancherInstalled,
+    RunUninstall: async (_images: boolean, _backups: boolean, _legacyRancher: boolean, password: string) => {
       requireServer();
       if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       acceptJob("uninstall");
@@ -572,10 +572,10 @@ export function installTestHost() {
       fixtures.residue = { clean: true, traces: [] };
     },
     DockerPlan: async () => softwarePlan(),
-    RancherDownloadInfo: async () => ({ name: "Rancher Desktop preview", size: 612e6 }),
+    EngineDownloadInfo: async () => ({ name: "CARE engine", size: 612e6 }),
     InstallDocker: () => installSoftware("docker"),
     OpenDocker: async () => { requireServer(); fixtures.docker.ok = true; },
-    InstallWSL: async () => { requireServer(); fixtures.wsl.ok = true; return ""; },
+    EnableWindowsVM: async () => { requireServer(); fixtures.windowsVM.ok = true; return ""; },
     FixNetwork: async () => { requireServer(); fixtures.network.ok = true; },
     RestartPlan: async () => ({ ...fixtures.restart }),
     PurgeResidue: async (confirmed: boolean) => {
@@ -589,7 +589,7 @@ export function installTestHost() {
       requireServer();
       const result: SetupIssue[] = [];
       if (!fixtures.disk.ok || !fixtures.disk.need) result.push({ step: "space", message: "Space has run low since you checked." });
-      if (fixtures.wsl.applicable && (!fixtures.wsl.ok || fixtures.restart.needed)) result.push({ step: "windows", message: "Windows still needs to restart." });
+      if (fixtures.windowsVM.applicable && (!fixtures.windowsVM.ok || fixtures.restart.needed)) result.push({ step: "windows", message: "Windows still needs to restart." });
       if (!fixtures.docker.ok) result.push({ step: "software", message: "The required software is no longer ready." });
       if (!fixtures.residue.clean) result.push({ step: "cleanup", message: "Something from the earlier setup is back." });
       if (fixtures.network.applicable && !fixtures.network.ok) result.push({ step: "network", message: "This network is set to Public again." });

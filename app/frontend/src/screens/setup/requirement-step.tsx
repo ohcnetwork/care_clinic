@@ -29,7 +29,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
   onRestart: () => void;
 }) {
   const { platform, log } = useCare();
-  const engine = platform === "linux" ? "Docker" : "Rancher Desktop";
+  const engine = platform === "linux" ? "Docker" : "CARE engine";
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo | null>(null);
   const [sizeError, setSizeError] = useState<PrerequisiteProblem | null>(null);
   const [sizeAttempt, setSizeAttempt] = useState(0);
@@ -39,7 +39,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
     let live = true;
     setDownloadInfo(null);
     setSizeError(null);
-    void bridge.RancherDownloadInfo().then(
+    void bridge.EngineDownloadInfo().then(
       (value) => { if (live) setDownloadInfo(value); },
       (e) => {
         log(`download size: ${errorText(e)}`);
@@ -58,6 +58,8 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
   const softwarePlan = software?.dockerPlan;
   const softwareTone = softwareStatus?.ok ? "ok" : tool ? "" : "bad";
   const settingsDrive = !!disk && /settings/.test(disk.how);
+  const windowsStatus = checks.windows.value?.status;
+  const windowsBlocked = !!windowsStatus && !windowsStatus.ok && !windowsStatus.fixable;
   const footer = (label = "Check again") => <Button disabled={busy} onClick={onCheck}><RefreshCw aria-hidden="true" />{label}</Button>;
 
   if (checking && !check.value) {
@@ -84,11 +86,13 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
         </div>
       ) : page === "windows" ? (
         <div className="on-card on-pad">
-          <div className="on-card-head"><span className="on-tile on-large"><Monitor aria-hidden="true" /></span><div className="on-grow"><h2>{checks.windows.value?.restart.needed ? "WSL 2 installed — Windows needs to restart" : ready ? "Windows is ready" : "WSL 2 needs to be installed or turned on"}</h2><p>Windows Subsystem for Linux — {engine} runs the clinic inside it.</p></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Available" : checks.windows.value?.restart.needed ? "Restart" : "Needs setup"}</StatusBadge></div>
-          {!ready ? <div className="on-check-work"><Callout title={checks.windows.value?.restart.needed ? "Save anything you have open before restarting." : "CARE will install WSL 2 for you."}>
-            It switches on two Windows features — Virtual Machine Platform and Windows Subsystem for Linux — then installs WSL 2. Windows will ask for permission and usually needs to restart afterwards.
+          <div className="on-card-head"><span className="on-tile on-large"><Monitor aria-hidden="true" /></span><div className="on-grow"><h2>{checks.windows.value?.restart.needed ? "Windows Hypervisor Platform is on — Windows needs to restart" : ready ? "Windows is ready" : windowsBlocked ? "Windows virtualization needs attention" : "Windows Hypervisor Platform needs to be turned on"}</h2><p>Windows Hypervisor Platform — the CARE engine runs on this built-in Windows feature.</p></div><StatusBadge tone={ready ? "ok" : "bad"}>{ready ? "Available" : checks.windows.value?.restart.needed ? "Restart" : "Needs setup"}</StatusBadge></div>
+          {!ready ? <div className="on-check-work"><Callout title={checks.windows.value?.restart.needed ? "Save anything you have open before restarting." : checks.windows.value?.status.fixable ? "CARE will turn on Windows Hypervisor Platform for you." : windowsBlocked ? "Check virtualization in your computer’s BIOS or UEFI settings." : "Check the Windows virtualization setup."}>
+            {checks.windows.value?.status.fixable || checks.windows.value?.restart.needed
+              ? "It switches on one Windows feature — Windows Hypervisor Platform — that the CARE engine runs on. Windows will ask for permission and usually needs to restart afterwards."
+              : checks.windows.value?.status.how || checks.windows.value?.status.message || "Enable VT-x or AMD-V in your computer’s BIOS or UEFI settings, then check again."}
             <div className="on-actions">{checks.windows.value?.restart.needed ? <Button variant="primary" disabled={busy} onClick={onRestart}>Restart now</Button>
-              : checks.windows.value?.status.fixable ? <Button variant="primary" disabled={busy} onClick={() => onAction("windows")}>{tool ? <Spinner /> : null}{tool ? "Installing WSL 2…" : "Install WSL 2"}</Button> : null}{footer()}</div>
+              : checks.windows.value?.status.fixable ? <Button variant="primary" disabled={busy} onClick={() => onAction("windows")}>{tool ? <Spinner /> : null}{tool ? "Turning on Windows Hypervisor Platform…" : "Turn on Windows Hypervisor Platform"}</Button> : null}{footer()}</div>
           </Callout></div> : null}
           <p className="on-small" style={{ marginTop: 18 }}>The other Windows change comes at Network profile — switching this network from Public to Private, so staff devices can reach the clinic.</p>
         </div>
@@ -110,15 +114,15 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
           </div>
           {!ready && !tool ? <Callout title={checks.software.value?.dockerPlan?.action === "open" ? `${engine} isn't running, so the clinic can't be installed` : "Install the software CARE needs"}>
             {checks.software.value?.dockerPlan?.action === "open" ? "Starting it takes about a minute."
-              : <>Keep this computer connected to the internet. Your computer may ask for permission. {previewNeeded ? downloadInfo ? `${engine} download: ${diskSize(downloadInfo.size)}.` : sizeError ? "The download size couldn't be checked." : "Checking the download size…" : ""}</>}
+              : <>Keep this computer connected to the internet. {platform === "linux" ? "Your computer may ask for permission." : "CARE installs and manages its own engine."} {previewNeeded ? downloadInfo ? `${engine} download: ${diskSize(downloadInfo.size)}.` : sizeError ? "The download size couldn't be checked." : "Checking the download size…" : ""}</>}
             <div className="on-actions">
               <Button variant="primary" disabled={busy || !!previewNeeded && !downloadInfo} onClick={() => onAction("software")}>
-                {checks.software.value?.dockerPlan?.action === "open" ? `Start ${engine}` : checks.software.value?.dockerPlan?.action === "manual" ? `Get ${engine}` : `Install ${engine}`}
+                {checks.software.value?.dockerPlan?.action === "open" ? `Start ${engine}` : checks.software.value?.dockerPlan?.action === "manual" ? `Get ${engine}` : softwarePlan?.label || `Install ${engine}`}
               </Button>
               {footer()}
             </div>
           </Callout> : null}
-          {tool ? <Callout tone="info" title="Your computer may ask for permission">Look for a small window asking for a password, fingerprint or PIN. It can open behind this one. Keep CARE Clinic open.</Callout> : null}
+          {tool && (page !== "software" || platform === "linux") ? <Callout tone="info" title="Your computer may ask for permission">Look for a small window asking for a password, fingerprint or PIN. It can open behind this one. Keep CARE Clinic open.</Callout> : null}
           {sizeError ? <Callout tone="danger" title={sizeError.title ?? "Couldn't check the download"}>{sizeError.message}<div className="on-actions"><Button disabled={busy} onClick={() => setSizeAttempt((n) => n + 1)}>Try again</Button><LogButton /></div></Callout> : null}
         </>
       ) : page === "cleanup" ? (

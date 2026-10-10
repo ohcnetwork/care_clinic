@@ -477,7 +477,7 @@ for (const platform of ["darwin", "linux", "windows"]) {
       }
       if (title === "Installing what CARE needs") {
         await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available"]);
-        await expect(page.locator(".on-data-row").first().locator("strong")).toHaveText(platform === "linux" ? "Docker" : "Rancher Desktop");
+        await expect(page.locator(".on-data-row").first().locator("strong")).toHaveText(platform === "linux" ? "Docker" : "CARE engine");
       }
       await forward(page).click();
     }
@@ -556,12 +556,12 @@ test("software polling stops at Available without advancing the step", async ({ 
   await start(page);
   await page.evaluate(() => {
     window.careTest.fixtures.docker.ok = false;
-    window.careTest.respond("DockerPlan", { action: "open", label: "Start Rancher Desktop", detail: "", url: "", download_preview: false });
+    window.careTest.respond("DockerPlan", { action: "open", label: "Start CARE engine", detail: "", url: "", download_preview: false });
     window.careTest.respond("OpenDocker", undefined);
   });
   await page.getByRole("button", { name: "Start setup" }).click();
   await continueTo(page, "Installing what CARE needs");
-  await page.getByRole("button", { name: "Start Rancher Desktop", exact: true }).click();
+  await page.getByRole("button", { name: "Start CARE engine", exact: true }).click();
   await expect(forward(page)).toBeDisabled();
   await page.evaluate(() => { window.careTest.fixtures.docker.ok = true; });
   await page.clock.fastForward(5_100);
@@ -583,14 +583,14 @@ test("platform-inapplicable steps are omitted without skipping unknown failures"
   await address(page, "windows");
   await expect(page.getByRole("complementary", { name: "Setup progress" })).toContainText("Step 6 of 10");
   await start(page);
-  await page.evaluate(() => window.careTest.failNext("WSLStatus", "private WSL probe failed"));
+  await page.evaluate(() => window.careTest.failNext("WindowsVMStatus", "private Windows virtualization probe failed"));
   await page.getByRole("button", { name: "Start setup" }).click();
   await continueTo(page);
   await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
-  expect(await calls(page, "WSLStatus")).toBeGreaterThanOrEqual(2);
+  expect(await calls(page, "WindowsVMStatus")).toBeGreaterThanOrEqual(2);
 });
 
-test("required software shows missing Docker in red", async ({ page }) => {
+test("required software shows a missing CARE engine in red", async ({ page }) => {
   await start(page);
   await page.evaluate(() => { window.careTest.fixtures.docker.ok = false; });
   await page.getByRole("button", { name: "Start setup" }).click();
@@ -599,7 +599,7 @@ test("required software shows missing Docker in red", async ({ page }) => {
   const rows = page.locator(".on-data-row");
   const incomplete = rows.filter({ hasText: "Needs setup" });
   const ready = rows.filter({ has: page.getByText("Available", { exact: true }) });
-  await expect(rows.filter({ hasText: "Rancher Desktop" }).locator("p")).toHaveText("Runs the clinic software on this computer.");
+  await expect(rows.filter({ hasText: "CARE engine" }).locator("p")).toHaveText("Runs the clinic software on this computer.");
   await expect(page.getByText(/^(Ready|Action required)$/)).toHaveCount(0);
   await expect(incomplete).toHaveCount(1);
   await expect(ready).toHaveCount(0);
@@ -614,22 +614,22 @@ test("software downloads wait for a real size and remain single-flight", async (
   await start(page);
   await page.evaluate(() => {
     window.careTest.fixtures.docker.ok = false;
-    window.careTest.hold("RancherDownloadInfo");
+    window.careTest.hold("EngineDownloadInfo");
     window.careTest.hold("InstallDocker");
   });
   await page.getByRole("button", { name: "Start setup" }).click();
   await continueTo(page, "Installing what CARE needs");
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Install Rancher Desktop" })).toBeDisabled();
-  await page.evaluate(() => window.careTest.release("RancherDownloadInfo"));
-  await page.getByRole("button", { name: "Install Rancher Desktop" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+  await expect(page.getByRole("button", { name: "Install CARE engine" })).toBeDisabled();
+  await page.evaluate(() => window.careTest.release("EngineDownloadInfo"));
+  await page.getByRole("button", { name: "Install CARE engine" }).evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
   await expect.poll(() => calls(page, "InstallDocker")).toBe(1);
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
   await expect(forward(page)).toBeDisabled();
   await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Working"]);
   await expect(page.locator(".on-data-row .on-bad")).toHaveCount(0);
-  await page.evaluate(() => window.careTest.emit("prereq-download-progress", { name: "Rancher Desktop", phase: "downloading", done: 2e6, total: 0 }));
-  await expect(page.getByRole("progressbar", { name: "Rancher Desktop download progress" })).not.toHaveAttribute("aria-valuenow");
+  await page.evaluate(() => window.careTest.emit("prereq-download-progress", { name: "CARE engine", phase: "downloading", done: 2e6, total: 0 }));
+  await expect(page.getByRole("progressbar", { name: "CARE engine download progress" })).not.toHaveAttribute("aria-valuenow");
   await page.evaluate(() => window.careTest.release("InstallDocker"));
   await expect(forward(page)).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
@@ -650,7 +650,7 @@ for (const [platform, tool, method] of [
     }, { tool, method });
     await page.getByRole("button", { name: "Start setup" }).click();
     await continueTo(page, "Installing what CARE needs");
-    await page.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
+    await page.getByRole("button", { name: "Install CARE engine", exact: true }).click();
     await expect.poll(() => calls(page, method)).toBe(1);
     await page.evaluate(() => window.careTest.emit("prereq-download-progress", {
       name: "installer", phase: "downloading", done: 12e6, total: 612e6,
@@ -683,11 +683,11 @@ for (const [platform, tool, method] of [
   });
 }
 
-test("an offline Rancher size preview asks to reconnect before any download", async ({ page }) => {
+test("an offline Engine size preview asks to reconnect before any download", async ({ page }) => {
   await start(page);
   await page.evaluate(() => {
     window.careTest.fixtures.docker.ok = false;
-    window.careTest.failNext("RancherDownloadInfo", "could not check the download size: download connection interrupted: lookup private.example: no such host");
+    window.careTest.failNext("EngineDownloadInfo", "could not check the download size: download connection interrupted: lookup private.example: no such host");
   });
   await page.getByRole("button", { name: "Start setup" }).click();
   await continueTo(page, "Installing what CARE needs");
@@ -695,10 +695,10 @@ test("an offline Rancher size preview asks to reconnect before any download", as
   await expect(failure).toBeVisible();
   await expect(failure).toContainText("Check the internet connection, then try again.");
   await expect(failure).toContainText("Nothing has been downloaded yet.");
-  await expect(page.getByRole("button", { name: "Install Rancher Desktop", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Install CARE engine", exact: true })).toBeDisabled();
   expect(await calls(page, "InstallDocker")).toBe(0);
   await failure.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Install Rancher Desktop", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Install CARE engine", exact: true })).toBeEnabled();
   await expect(failure).toHaveCount(0);
   expect(await calls(page, "InstallDocker")).toBe(0);
 });
@@ -723,7 +723,7 @@ test("download guidance distinguishes connection loss, integrity and unrelated f
     "write /private/installer: no space left on device",
     "could not download installer: the server said 403 Forbidden",
     "could not download installer: x509: certificate signed by unknown authority",
-    "Rancher Desktop is installed but didn't start",
+    "CARE engine is installed but didn't start",
   ]) {
     expect(downloadProblem(cause)).toBeNull();
   }
@@ -742,7 +742,7 @@ for (const [detail, message] of [
     }, detail);
     await page.getByRole("button", { name: "Start setup" }).click();
     await continueTo(page, "Installing what CARE needs");
-    await page.getByRole("button", { name: "Install Rancher Desktop", exact: true }).click();
+    await page.getByRole("button", { name: "Install CARE engine", exact: true }).click();
     const failure = page.getByRole("alert").filter({ hasText: message });
     await expect(failure).toBeVisible();
     await expect(failure).not.toContainText(/The download was interrupted|private-hash|wrong-hash|\/private\/installer/);
@@ -869,8 +869,8 @@ test("Restart dialog live callback blocks native invocation before a rerender", 
 });
 
 for (const item of [
-  { method: "InstallWSL", button: "Install WSL 2", heading: "Getting Windows ready", fixture: "wsl" },
-  { method: "InstallDocker", button: "Install Rancher Desktop", heading: "Installing what CARE needs", fixture: "docker" },
+  { method: "EnableWindowsVM", button: "Turn on Windows Hypervisor Platform", heading: "Getting Windows ready", fixture: "windowsVM" },
+  { method: "InstallDocker", button: "Install CARE engine", heading: "Installing what CARE needs", fixture: "docker" },
   { method: "FixNetwork", button: "Set to Private", heading: "Setting this network to Private", fixture: "network" },
 ] as const) {
   test(`requirement Retry reruns ${item.method}, rather than just checking it`, async ({ page }) => {
@@ -1290,13 +1290,13 @@ test("Review Fix returns directly and preserves address, password and recovery d
   const savedCodes = await calls(page, "SaveAdminRecoveryCodes");
   await page.evaluate(() => {
     window.careTest.fixtures.docker.ok = false;
-    window.careTest.respond("DockerPlan", { action: "open", label: "Open Rancher Desktop", detail: "", url: "", download_preview: false });
+    window.careTest.respond("DockerPlan", { action: "open", label: "Start CARE engine", detail: "", url: "", download_preview: false });
   });
   await install(page).click();
   await page.getByRole("button", { name: "Fix Required software" }).click();
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
   await expect(page.locator('[aria-current="step"]')).toContainText("Review");
-  await page.getByRole("button", { name: "Start Rancher Desktop" }).click();
+  await page.getByRole("button", { name: "Start CARE engine" }).click();
   await expect(forward(page)).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
   await forward(page).click();
@@ -1464,7 +1464,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
       await fits(page); await capture(page, `onboarding-${scenario}-${size.width}x${size.height}`);
       await expect(forward(page)).toBeInViewport();
       if (scenario === "setup-windows") {
-        await page.evaluate(() => { window.careTest.fixtures.wsl.ok = true; });
+        await page.evaluate(() => { window.careTest.fixtures.windowsVM.ok = true; });
         await page.getByRole("button", { name: "Check again", exact: true }).click();
         await expect(forward(page)).toBeEnabled();
         await expect(page.getByRole("heading", { name: "Getting Windows ready" })).toBeVisible();
@@ -1506,3 +1506,21 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     await fits(page);
   });
 }
+
+test("Windows virtualization disabled in firmware gives BIOS guidance without a Turn on action", async ({ page }) => {
+  await start(page, "&platform=windows");
+  await page.evaluate(() => {
+    window.careTest.fixtures.windowsVM = {
+      applicable: true, ok: false, fixable: false,
+      message: "Virtualization is disabled in BIOS or UEFI.",
+      how: "Enable VT-x or AMD-V in your computer’s BIOS or UEFI settings, then check again.",
+    };
+  });
+  await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page, "Getting Windows ready");
+  await expect(page.getByRole("heading", { name: "Windows virtualization needs attention" })).toBeVisible();
+  await expect(page.getByRole("main", { name: "Getting Windows ready" })).toContainText("Enable VT-x or AMD-V in your computer’s BIOS or UEFI settings, then check again.");
+  await expect(page.getByRole("button", { name: "Turn on Windows Hypervisor Platform", exact: true })).toHaveCount(0);
+  await expect(forward(page)).toBeDisabled();
+  expect(await calls(page, "EnableWindowsVM")).toBe(0);
+});

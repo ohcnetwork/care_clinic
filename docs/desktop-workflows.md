@@ -215,11 +215,9 @@ Saving a new set invalidates every previous code. Cancelling or failing to save
 does not clear the reminder. Successful replacement in either the banner or
 Advanced clears it; using a recovery code updates the count immediately.
 
-Storage highlights the **currently used** amount under **CARE Clinic storage**,
-with Rancher Desktop's total capacity shown separately rather than as usage.
-This is usage inside the shared Rancher Desktop disk, including supporting
-software and potentially other apps; it is not an exact CARE-only measurement
-or the disk image's physical size on the host computer.
+Storage highlights the **currently used** amount under **CARE Clinic storage**.
+On macOS and Windows, **CARE engine disk** refers to the engine state folder;
+see the [CARE engine guide](vm.md) for its location and contents.
 
 The Overview backup summary shows useful status, size and encryption information
 without a `saved to /...` filesystem path. The actual destination remains

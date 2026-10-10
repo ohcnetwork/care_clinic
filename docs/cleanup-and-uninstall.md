@@ -70,7 +70,7 @@ settings may be forgotten.
 | Intent | App entry point and engine call | Removed or changed | Intentionally retained |
 | --- | --- | --- | --- |
 | Pause the clinic | `ClinicAction("stop", ...)` delegates to `Clinic.Stop()`. | Compose stops services. | Containers, all volumes, images/cache, installed files, backups, keys, saved settings, and native configuration. |
-| Remove an installed clinic | `RunUninstall(...)` delegates to `Clinic.Uninstall(options)`. | Live project containers, volumes, and networks; native changes; installed files. Optional known images/cache and owned backup files. Optional Rancher Desktop removal (see below). App also handles autostart and saved state. | Backups when not selected for removal; images/cache when not selected; Rancher Desktop when not selected; normal diagnostic logs. |
+| Remove an installed clinic | `RunUninstall(...)` delegates to `Clinic.Uninstall(options)`. | Live project containers, volumes, and networks; native changes; installed files. Optional known images/cache and owned backup files. Optional legacy Rancher Desktop removal (see below). App also handles autostart and saved state. | Backups when not selected for removal; images/cache and CARE engine state when not selected; legacy Rancher Desktop when not selected; normal diagnostic logs. |
 | Recover from failed first setup | `CleanupFailedInstall()` delegates to a specific `Clinic.Uninstall` option set. | Partial project resources, native changes, installed files, saved secret/config. A matching exported certificate is removed only if it is unused and the final file-deletion phase is reached. | Downloaded images/cache and backup data. Required backup certificates remain. |
 | Clean old installation residue | The UI's "Remove everything" path is `PurgeResidue(confirmed)`, delegating to `Clinic.Purge()`. | Owned project resources even without a kit, known images/cache, native changes, installed kit. App additionally removes old logs and saved state. | Backups and their backup certificate. The desktop executable, Docker installations, and unrelated user files are not an OS-package uninstall target. |
 
@@ -118,70 +118,19 @@ and waits for its exit code:
 If the app executable is missing or cannot start, the uninstaller removes the
 files as before. Linux has no packaged build, so there is no equivalent hook.
 
-### Optional Rancher Desktop removal
+### Optional legacy Rancher Desktop removal
 
-The uninstall panel shows **Also remove Rancher Desktop and its settings** only
-when `RancherDesktopInstalled()` finds it on macOS or Windows. When ticked,
-`RunUninstall` calls `Provisioner.RemoveRancherDesktop()`
-([`prereq/rancher_remove.go`](../app/internal/prereq/rancher_remove.go)) as the
-last step, after CARE's own cleanup has succeeded and saved state is reset, because
-Docker is needed until then. A failure here is logged as a warning with manual
-steps and does not fail the uninstall.
+The uninstall panel offers **Also remove Rancher Desktop left by an older CARE
+Clinic** only when `LegacyRancherInstalled()` detects it on macOS or Windows.
+`RunUninstall` accepts `removeLegacyRancher` and calls
+`Provisioner.RemoveRancherDesktop()` after CARE's own cleanup has succeeded and
+saved state is reset. This is an optional legacy cleanup; it is not part of
+`PurgeResidue()`, and a failure is logged as a warning with manual steps.
 
-- **Both platforms:** `rdctl shutdown` and `rdctl factory-reset` clear the VM,
-  Rancher's settings and its Docker context.
-- **macOS:** removes the profile written by `profile.go`
-  (`io.rancherdesktop.profile.defaults`), Rancher's Library folders, `~/.rd`, and
-  the `MANAGED BY RANCHER DESKTOP` blocks in shell rc files. Then one administrator
-  prompt removes the app, `/opt/rancher-desktop`, the sudoers files, the
-  docker-socket LaunchDaemon, and the `/var/run/docker.sock` link, but only if
-  that link points at `~/.rd`. The same prompt stops any socket_vmnet daemon
-  still running for Rancher and deletes its socket and pidfile (see below).
-- **Windows:** `winget uninstall SUSE.RancherDesktop`, falling back to
-  `msiexec /x` with the product code from the Uninstall registry keys. Then it
-  unregisters the `rancher-desktop` WSL distros, deletes the
-  `HKCU\Software\Policies\Rancher Desktop` profile, and removes Rancher's
-  AppData folders.
-
-This is deliberately **not** part of `Clinic.Purge()` / `PurgeResidue()`. Residue
-cleanup targets CARE's own leftovers, and a Rancher Desktop that is already
-installed may be serving other projects.
-
-### Stale Rancher network sockets (macOS)
-
-Rancher's VM reaches the network through root socket_vmnet daemons that it
-starts via the sudoers file CARE installs. Each daemon leaves
-`/private/var/run/socket_vmnet.<name>` and `/private/var/run/<name>_socket_vmnet.pid`
-behind when it is stopped, for the names `host` and `rancher-desktop-*`. A
-leftover socket lets Lima dial it before the new daemon is listening, so the
-next Rancher start fails with `dial unix /private/var/run/socket_vmnet.rancher-desktop-shared:
-connect: connection refused` even though the daemon comes up moments later.
-
-[`prereq/vmnet.go`](../app/internal/prereq/vmnet.go) finds these files and treats
-a daemon as live when its pidfile names a running process. Two paths use it:
-
-- **Before Rancher starts:** `rancherRootSetup` deletes every stale file (no live
-  process) inside its existing administrator prompt, both when the wizard
-  installs Rancher and in `ensureRancherRoot` before each `OpenDocker`. Live
-  daemons are never touched, so a running Rancher VM is unaffected, and a clean
-  machine adds no command and no prompt.
-- **Removing Rancher Desktop:** stops every live daemon with
-  `pkill -F <pidfile> socket_vmnet` (the name guard avoids killing a process that
-  reused the PID) and deletes all of the files in its existing administrator prompt.
-
-Purge and an uninstall that keeps Rancher do not clean these up: Rancher is
-running by then, so its daemons are live and nothing is stale.
-
-Windows and Linux have no socket_vmnet, so neither path does anything there.
-
-`PurgeEverything` is a useful informal description of the last UI choice, but
-it is **not the current Go method name**. The current boundary is
-`App.PurgeResidue()` versus `Clinic.Purge()`. Neither means "erase every piece
-of CARE-related data everywhere."
-
-`TeardownProject()` is a lower-level engine helper, not the safe equivalent of
-any complete App flow. It has no password prompt, installation-state guard,
-public certificate export, native cleanup, or configuration deletion.
+The legacy cleanup removes Rancher Desktop and its associated user/system
+files. On macOS it also cleans up matching legacy `socket_vmnet` daemons and
+files. It does not stop or remove the CARE engine. The checkbox is opt-in
+because Rancher Desktop may still serve other projects.
 
 ## 2. Source file roles
 
@@ -248,8 +197,10 @@ shared project identity important.
 
 ### What is not an automatic cleanup target
 
-The engine does not uninstall Rancher Desktop, Docker Engine, the desktop binary, or
-unrelated packages. It does not search every folder for copied backups,
+On macOS and Windows, Normal Uninstall always stops the CARE engine. Selecting
+**Also remove downloaded images and the CARE engine disk** removes its state folder. Cleanup
+does not remove the Linux Docker Engine, desktop binary, or unrelated packages.
+It does not search every folder for copied backups,
 remove certificates from other devices, or prove that no clinical data
 exists elsewhere. It also does not own arbitrary volumes/networks merely
 because their names contain `care`.

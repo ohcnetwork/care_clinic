@@ -13,6 +13,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/prereq"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/autostart"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/mdns"
+	"github.com/ohcnetwork/care_desktop/app/internal/vm"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -282,6 +283,10 @@ func (a *App) ensureDockerReady() error {
 	status := a.DockerStatus()
 	if plan.Action != prereq.ActionOpen {
 		return fmt.Errorf("%s CARE needs it to run the clinic; set it up from the requirements check", status.Message)
+	}
+	// The CARE engine belongs to this app, so starting it needs no permission.
+	if vm.Supported() {
+		return p.OpenDocker()
 	}
 	if !a.confirmDialog(plan.Label+"?", status.Message+"\n\nCARE needs it to run the clinic. "+
 		"Start it now and wait for it to be ready?") {
