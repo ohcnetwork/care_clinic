@@ -686,11 +686,15 @@ connections.
 [`docker-compose.yml`](../deployments/docker-compose.yml) declares the
 `care-clinic` project and a default network explicitly named `care-clinic`.
 All services join that network. Only Caddy publishes host ports. All nine
-services use `restart: unless-stopped`, and all share the `x-logging` anchor:
-the `json-file` driver capped at three 10 MB files per container. Without the
-cap Docker keeps every log line forever on the VM disk. A changed logging block
-changes the service's config hash, so existing installs pick it up the next
-time `docker compose up` recreates the containers (start, restart or update).
+services use `restart: unless-stopped`. Compose does not override the logging
+driver: new containers inherit the daemon configuration. CARE engine `0.1.1`
+uses journald with non-blocking 4 MiB buffers and a persistent guest journal
+limited to 200 MiB/seven days. The helper continuously copies guest and container
+logs into the host's [shared diagnostics folder](local-logs.md). Engine upgrades
+remove containers without volumes and recreate them, because old containers
+keep their original logging driver. Linux uses the host Docker daemon's logging
+configuration; this deployment kit does not impose a Linux log-size cap or
+collect Linux container logs into the host diagnostics folder.
 
 In this table, `healthy` means a Compose `service_healthy` dependency;
 `started` means the short-form dependency, not verified application readiness.

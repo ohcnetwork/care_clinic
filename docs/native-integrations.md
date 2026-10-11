@@ -241,7 +241,9 @@ See [Configuration and settings](configuration-and-settings.md) and
 
 Source: [applog.go](../app/internal/sys/applog/applog.go),
 [dir.go](../app/internal/sys/applog/dir.go), and
-[rotate.go](../app/internal/sys/applog/rotate.go).
+[rotate.go](../app/internal/sys/applog/rotate.go), and
+[stream.go](../app/internal/sys/applog/stream.go). See [local diagnostics](local-logs.md)
+for guest/container collection and export behavior.
 
 The file log makes a GUI application's operation trace available after the
 window closes. `Logger` serializes access with a mutex and also provides the
@@ -257,14 +259,14 @@ method shape Wails expects from its logger.
 
 CARE records launcher invocations, failures and Docker readiness in its main
 log, but discards inherited launcher stdout/stderr. For CARE engine startup
-failures, the app writes `care-engine-diagnostics.txt` beside `application.log`;
+failures, the app writes `care-engine-diagnostics.txt` beside `care-log.log`;
 see [CARE engine troubleshooting](vm.md#troubleshooting).
 
 The active filename is `care-log.log`. The code first needs `os.UserHomeDir` to
 succeed, even before checking the Windows or XDG overrides. A failed home lookup
 produces an empty log directory.
 
-- Opening creates the directory with mode `0755` and the file with mode `0644`,
+- Opening creates the directory with mode `0700` and the file with mode `0600`,
   subject to platform permissions and umask.
 - Each write removes trailing CR/LF, adds a millisecond timestamp with a timezone
   offset, and appends a newline.
@@ -277,6 +279,13 @@ produces an empty log directory.
   `care-log.1.log` through `care-log.4.log`. Rotation briefly uses slot 5 before
   removing it. Treat approximately 50 MiB as an intended normal bound, not an
   enforced quota when renames or deletes fail.
+
+Engine/collector streams instead rotate as `<name>.log.1` through `.log.4`.
+The shared retention sweep uses file modification time: old inactive files are
+removed, active `.log` files are truncated, and oldest files are reclaimed until
+the folder is within approximately 500 MiB. The engine sweeps every minute;
+the app also sweeps on writes at most once a minute. This is file-level retention,
+not deletion of individual records as they turn seven days old.
 
 `Open` appends a session separator. `Header(version, installDir, clinicName)`
 records version, OS/architecture, Go version, install directory, clinic name, and
@@ -616,8 +625,8 @@ be briefly unavailable during the restart.
    The unelevated helper checks the installer exit code and installed product
    version, then relaunches as the original user, not the UAC administrator.
 
-Post-exit failures appear in a native alert and in `helper.log` within the
-retained update cache directory; its exact path is also written to the desktop
+Post-exit failures appear in a native alert and in `app-update-helper.log` in
+the shared diagnostics directory; its exact path is also written to the desktop
 log before handoff. The helper attempts to reopen the installed app after a
 failure. A relaunch failure does not claim installation failed or clinic data
 was removed: open the installed app manually and inspect that log. On success

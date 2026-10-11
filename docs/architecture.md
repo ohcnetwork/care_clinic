@@ -90,7 +90,10 @@ This is where an operation is allowed or denied. Hiding a button or unlocking an
 
 `Clinic` combines lower-level operations into setup, start, stop, rebuild, backup, and removal flows. It knows the installation directory, clinic name, backup destination, image pins, and process runner.
 
-The `App.engine()` method constructs a `Clinic` from a configuration snapshot. The engine is not a separately running service or a second global application state store.
+The `App.engine()` method constructs a `Clinic` orchestration object from a
+configuration snapshot; this object is not a separately running service or
+global state store. It is distinct from the **CARE engine** VM and helper
+process that run Docker on macOS and Windows.
 
 The UI seam is deliberately small: `Log func(string)` and `Confirm func(title, message string) bool`. Wails-specific behavior is supplied by `App`; the engine does not need to know how a dialog is displayed.
 
@@ -139,7 +142,12 @@ These locks solve different problems. Protecting the `Config` struct does not ma
 
 The local configuration records setup completion, an incomplete-removal checkpoint, the clinic hostname, the backup directory, and the CARE Clinic administrator's bcrypt hash. Installed files include the deployment kit, editable environments, keys, and build material.
 
-The clinic manager keeps an exported private backup recovery file and a separate printable sheet of CARE Clinic admin recovery codes. Config stores only the public encryption certificate, recovery-code hashes and recovery metadata; there is no backup password or keyring entry. Restore also has its own durable journal and staging resources. `config.json` is not a complete inventory of everything the application owns.
+The clinic manager keeps an exported private backup recovery file and a separate printable sheet of CARE Clinic admin recovery codes. Config stores the public encryption certificate, recovery-code hashes and
+recovery metadata, plus a password-encrypted local copy of the backup private
+key after enrollment. The plaintext exported recovery file must be kept safe
+separately; a password reset cannot reconstruct its private key. Restore also
+has its own durable journal and staging resources. `config.json` is not a
+complete inventory of everything the application owns.
 
 Plugin changes also use a private durable recovery journal and a pinned backend image until runtime readiness is verified. See [configuration](configuration-and-settings.md) for locations, [restore](backups-and-restore.md) for its journal, and [plugin transactions](plugins.md#save-and-apply) for configuration/image recovery and its database-migration limits.
 

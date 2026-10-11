@@ -199,6 +199,7 @@ and [earlier-installation recovery](client-recovery.md).
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
 | Updates | Separate CARE backend/frontend updates and CARE Clinic application updates. |
+| Logs | Shared diagnostics folder, live engine/container collection state, retention and local ZIP export with a privacy warning. |
 | Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No CARE Clinic password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
 | Advanced | Ten everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
 
@@ -292,6 +293,15 @@ and recovery codes do not change the CARE web login after initial setup.
 
 ### Updates and running work
 
+On panel launch, CARE Clinic checks the installed and running CARE engine against
+its pinned version before the first clinic-health refresh. An outdated engine
+updates automatically; the panel shows **Updating**, not **Running**, until the
+engine-update job (including clinic startup) finishes. Pending restore or plugin
+recovery takes priority. The app downloads and verifies the engine before stopping
+containers, keeps volumes and the VM data disk, and recreates containers with the
+new logging configuration. Failure triggers a recovery attempt, not guaranteed
+rollback. A remaining mismatch offers a manual retry; see [CARE engine](vm.md).
+
 CARE updates download and stage backend/frontend images within the current release line.
 The Updates tab shows the current line and offers an explicit upgrade to a newer
 compatible line, after a safety backup. Desktop updates outside the line's app-version
@@ -299,8 +309,18 @@ range are blocked. See [images and release lines](images-and-lines.md). A failed
 check remains a retryable failure, not "Up to date". Installing a staged CARE
 update can interrupt service.
 
+After upgrading to a newer line, checks follow only that line's backend/frontend
+images, not older lines. The personal `3.1` branch test is available on Clinic
+`0.1.15`; it is not an official upstream release. Returning to an older line
+requires a backup restore, not an ordinary update button.
+
 A CARE Clinic update downloads a verified application installer or replaces
 the app bundle. Conflicting actions stay locked while it runs:
+
+The clinic can keep serving during desktop installer download/replacement.
+An included engine upgrade can then take it offline for a few minutes when
+the app reopens. CARE software, CARE Clinic and the CARE engine have separate
+versions; a CARE line upgrade does not redesign the desktop interface.
 
 | Desktop update state | How to proceed |
 | --- | --- |

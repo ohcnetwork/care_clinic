@@ -25,6 +25,7 @@ application's own user or API documentation.
 | [CARE images and release lines](images-and-lines.md) | Published images, runtime and compiled settings, release-line manifests, and explicit line upgrades. |
 | [Clinic lifecycle and deployment](clinic-lifecycle.md) | Setup, image builds, starting, migrations, service relationships, and stopping. |
 | [CARE engine](vm.md) | The app-managed Linux VM used for Docker on macOS and Windows, including setup, storage, migration, and troubleshooting. |
+| [Local diagnostics](local-logs.md) | Shared logs, live collection status, retention, privacy and diagnostics ZIP exports. |
 | [Backups and restore](backups-and-restore.md) | Encryption, key preservation, scheduling, retention, staged restore, and interruption recovery. |
 | [Cleanup and uninstall](cleanup-and-uninstall.md) | What each removal operation deletes or preserves, ownership checks, and partial-cleanup recovery. |
 | [Native integrations](native-integrations.md) | Process execution, file persistence, logs, prerequisites, elevation, TLS trust, mDNS, and OS differences. |
@@ -48,6 +49,7 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | "Why did a setting require a rebuild?" | [Applying settings](configuration-and-settings.md#applying-settings) and [the different builds](development-and-release.md#the-different-builds). |
 | "How are patient data and uploaded files stored?" | [Clinic lifecycle](clinic-lifecycle.md) and [backups](backups-and-restore.md). |
 | "How does Docker run on macOS and Windows?" | [CARE engine](vm.md). |
+| "Where are installation, engine and container logs?" | [Local diagnostics](local-logs.md). |
 | "What happens if restore or uninstall is interrupted?" | [Backups and restore](backups-and-restore.md) and [cleanup and uninstall](cleanup-and-uninstall.md). |
 | "How do I add a plugin to the catalog?" | [Plugins](plugins.md#adding-a-catalog-entry). |
 | "The app works here but not on another device." | [Native integrations](native-integrations.md). |

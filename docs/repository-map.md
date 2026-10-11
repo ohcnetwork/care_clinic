@@ -23,6 +23,8 @@ care_desktop/
 |   |-- plugins.md
 |   |-- clinic-lifecycle.md
 |   |-- images-and-lines.md
+|   |-- local-logs.md
+|   |-- vm.md
 |   |-- backups-and-restore.md
 |   |-- cleanup-and-uninstall.md
 |   |-- native-integrations.md
@@ -92,6 +94,8 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_recovery.go`](../app/app_recovery.go) | Recovery-key/code export and verification, replacement, CARE Clinic password changes and offline reset. | [Recovery materials](backups-and-restore.md#3-backup-recovery-file-and-care-clinic-admin-recovery). |
 | [`app_setup_retry.go`](../app/app_setup_retry.go) | Retained setup attempt, failure metadata, non-destructive retry validation and preparation/startup boundary. | [Installation retries](desktop-workflows.md#during-installation). |
 | [`app_update.go`](../app/app_update.go) | CARE line-update status/check/dismiss and explicit upgrades, the background update watcher, and the GitHub-release desktop updater. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
+| [`app_engine.go`](../app/app_engine.go) | Pinned/installed/running engine status and automatic engine-update job with recovery attempts. | [CARE engine](vm.md). |
+| [`app_diagnostics.go`](../app/app_diagnostics.go) | Privacy-confirmed bounded local ZIP exports of logs and version metadata. | [Local diagnostics](local-logs.md). |
 | [`app_selfupdate.go`](../app/app_selfupdate.go) | macOS bundle verification/replacement and post-exit reopening. | [Wails application](wails-application.md). |
 | [`app_status.go`](../app/app_status.go) | State/health/tool/network queries, provisioning controls, name/password/folder validation, pre-setup naming. | [Wails application](wails-application.md), [native integrations](native-integrations.md). |
 | [`app_ui.go`](../app/app_ui.go) | Native URL/folder/log actions and login-startup controls. | [Wails application](wails-application.md). |
@@ -276,6 +280,7 @@ app/internal/
 | [`sys/atomicfile`](../app/internal/sys/atomicfile) | Durable single-file replacement across OSes. | [Native integrations](native-integrations.md). |
 | [`sys/appremoval`](../app/internal/sys/appremoval) | Locating and removing the installed desktop app (macOS Trash, Windows uninstaller), other-instance and other-account checks. | [Cleanup](cleanup-and-uninstall.md#removing-the-desktop-app). |
 | [`sys/applog`](../app/internal/sys/applog) | Diagnostic sink, native log location, bounded rotation. | [Native integrations](native-integrations.md). |
+| [`internal/vm/logs.go`](../app/internal/vm/logs.go), [`sys/applog/stream.go`](../app/internal/sys/applog/stream.go) | Continuous guest journal/serial capture, stream rotation and shared file-level retention. | [Local diagnostics](local-logs.md). |
 | [`sys/elevate`](../app/internal/sys/elevate) | Interpreter quoting and batching privileged native steps. | [Native integrations](native-integrations.md). |
 | [`sys/hosts`](../app/internal/sys/hosts) | Owned loopback hostname entries and verified removal. | [Native integrations](native-integrations.md). |
 | [`sys/trust`](../app/internal/sys/trust) | Root-CA trust, removal, and native client certificate bootstrap. | [Native integrations](native-integrations.md). |
@@ -363,6 +368,7 @@ app/frontend/
 | [`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx), [`admin-recovery.tsx`](../app/frontend/src/screens/panel/admin-recovery.tsx) | Fixed 15-minute UI unlock, sensitive-state clearing, password/recovery controls and protected administration. |
 | [`remove-screen.tsx`](../app/frontend/src/screens/remove-screen.tsx) | The screen the Windows uninstaller opens: server uninstall, client disconnect or unfinished-setup cleanup, then exit. |
 | [`update-panel.tsx`](../app/frontend/src/screens/panel/update-panel.tsx) | The password-free Updates tab: CARE release-line status, explicit line upgrades and the compatibility-aware desktop release updater. |
+| [`logs-tab.tsx`](../app/frontend/src/screens/panel/logs-tab.tsx), [`engine-update.tsx`](../app/frontend/src/screens/panel/engine-update.tsx) | Logs page, live collection state and engine mismatch/retry controls. |
 | [`env-editor.tsx`](../app/frontend/src/screens/panel/env-editor.tsx) | Concurrent environment reads, draft changes, writes and apply action. |
 | [`env-file.ts`](../app/frontend/src/lib/env-file.ts) | Line-based environment parsing, value quoting, change application. |
 | [`env-schema.ts`](../app/frontend/src/screens/panel/env-schema.ts) | Key/file ownership, friendly field constraints, managed-value notes. |
@@ -397,8 +403,9 @@ Generated public trust files and restore/build working files belong to the insta
 [`images/`](../images) contains `lines.source.json`, the frontend runtime wrapper
 and runtime-key defaults, and scripts that prepare, verify and render publication
 metadata. Clinic machines download digest-pinned images; they do not check out
-CARE sources. The image publication workflow is still to be created separately
-from desktop CI. See [images and release lines](images-and-lines.md) for the file
+CARE sources. The personal fork's CARE images workflow publishes these on a
+six-hour schedule and on input changes, separately from desktop CI.
+See [images and release lines](images-and-lines.md) for the file
 inventory and publication contract.
 
 ## Build and automation

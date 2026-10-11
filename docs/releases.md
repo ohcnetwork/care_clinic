@@ -25,10 +25,27 @@ verifies the pinned engine and platform downloads before packaging. See the
 
 ## Prepare a version
 
+### Personal testing versus the general release workflow
+
+Current development publishes to `praffq/care_clinic`, not the organization
+repository. The latest personal desktop release is `v0.1.15`; its published
+assets are an Apple-silicon macOS DMG and `SHA256SUMS`. Windows runtime/packaging
+and an Intel macOS installation have not been validated in this test cycle.
+The fork's automated desktop release is blocked by the missing
+`qemu-10.1.0-windows-x86_64.zip` asset on the pinned engine release. The Mac
+test releases have therefore been built, ad-hoc signed, packaged and published
+manually after CI. This does not establish a working all-platform release
+pipeline or Developer ID notarization.
+
+Engine publication and CARE image/line publication are separate. The `3.1`
+branch test was published through image CI without a new desktop app release;
+Clinic `0.1.15` already supports it. See [images and lines](images-and-lines.md).
+
 1. Create a PR updating `deployments/.env`.
 2. Set `CARE_CLINIC_VERSION` to a new numeric version, for example `0.1.1`.
-   Use a new version even if only the backend, frontend, images, or deployment
-   settings changed.
+   Use a new version for embedded application or deployment-kit changes.
+   CARE images and line metadata published independently do not require a
+   desktop version bump when existing apps already support them.
 3. Update the dependency pins needed by that release.
 4. Review the PR, let CI pass, and merge it into `main`. The merge starts the
    release; see [Build the release](#build-the-release).
@@ -64,9 +81,11 @@ host-side tools change. Linux continues to use `DOCKER_LINUX_*` and
 pinned files before it packages the app.
 
 `deployments/.env` is the version source of truth. Do not maintain
-`app/wails.json`'s `info.productVersion` by hand. The staging script synchronizes
-it before native builds; a stale checked-in metadata version is not a separate
-release input.
+`app/wails.json`'s `info.productVersion` independently. Run
+`node app/frontend/scripts/stage-install.mjs` after changing the version and
+commit the synchronized `app/wails.json`. Invoke staging before Wails itself:
+Wails reads metadata before its pre-build hook, so relying on that hook alone
+can package a stale version.
 
 ## Build the release
 

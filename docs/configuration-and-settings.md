@@ -119,8 +119,16 @@ See [client removal](native-integrations.md#removing-client-access).
 | `recovery_failures` / `recovery_retry_after` | `RecoveryFailures` / `RecoveryRetryAfter` | Persisted failed-attempt count and Unix timestamp for offline recovery throttling. |
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
+| `backup_key_encrypted` | `BackupKeyEncrypted` | Password-encrypted local copy of the matching private backup key, allowing authorized recovery-file re-download after enrollment. |
+| `backup_key_needs_enrollment` | `BackupKeyNeedsEnrollment` | A surviving external recovery file must be explicitly enrolled before password-only exports are available again. |
 
-The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login.
+The plaintext administrator password and plaintext private recovery file are
+not stored in this object. The enrolled key is encrypted using the Clinic
+password; there is no separate backup password. Changing the Clinic password
+re-encrypts a usable enrolled key, while resetting it with recovery codes requires
+external-key enrollment to enable exports again. Setup passes the administrator
+password into CARE administrator creation, but later Clinic password changes
+do not change the CARE web login. See [recovery materials](backups-and-restore.md).
 
 ### Load rules
 

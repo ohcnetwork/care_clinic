@@ -67,7 +67,14 @@ flowchart TD
 
 [`refreshInstallDir()`](../app/app_lifecycle.go) runs under the mutation gate. It does nothing for an unconfigured or removing installation. It also leaves the installed kit untouched when a restore or plugin rollback is pending. Otherwise it refreshes kit files and reapplies the saved clinic domain. A refresh error is logged; the callback does not silently rewrite the configuration as uninstalled.
 
-The backend starts name advertising, but the desktop state store makes the normal "start CARE on launch" request. In [`care-store.tsx`](../app/frontend/src/state/care-store.tsx), `bootPanel()` requests Start if health is inactive, `restore_pending` is true, or `plugin_recovery_pending` is true. Overview also offers **Recover clinic** for unfinished plugin recovery.
+The backend starts name advertising, but the desktop state store owns panel boot.
+In [`care-store.tsx`](../app/frontend/src/state/care-store.tsx), `bootPanel()`
+reads role/recovery state, starts the storage query, and checks `EngineStatus()`
+before refreshing clinic health. If an installed/running engine mismatches the
+pin and no recovery is pending, it accepts an `engine-update` job automatically.
+Health refresh skips while busy; the panel reports **Updating** until completion.
+Otherwise it requests Start if health is inactive, `restore_pending` is true,
+or `plugin_recovery_pending` is true. Overview also offers **Recover clinic**.
 
 ### Advertiser lifetime
 
@@ -435,8 +442,9 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from the separate Storage tab's cleanable drive row. |
 | `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was prepared from published images in the current release line, and a second prompt would only encourage postponing it. |
+| `engine-update` | `App.updateEngine()` | Installed stable server and supported VM platform required. Automatic at panel boot or explicit retry, no second confirmation. Downloads/verifies before removing containers, installs/starts the engine and starts CARE; recovery on error is attempted, not guaranteed version rollback. |
 
-Every action except `stop` then passes `ensureDockerReady()`. A stopped container
+Every action except `stop` and `engine-update` then passes `ensureDockerReady()`. A stopped container
 engine would otherwise surface inside the engine as an unexplained subprocess
 failure, such as `inspect local images: exit status 1` from the image freshness
 check. The gate reuses `DockerPlan()`, so it names whichever engine the platform
@@ -445,7 +453,7 @@ uses rather than assuming one:
 | Plan action | Behavior |
 | --- | --- |
 | `""` | Docker answers; the action proceeds. |
-| `open` | Ask the operator for confirmation, then `OpenDocker()`, which starts the platform's Docker engine and waits for readiness. Declining returns the readiness message as the error. |
+| `open` | On macOS/Windows, start the app-owned engine without a prompt. On Linux, ask before starting the Docker service. `OpenDocker()` waits for readiness; declining the Linux prompt returns the readiness message. |
 | anything else | Return the readiness message and point at the requirements check; the engine is missing, not merely stopped. |
 
 `stop` is excluded deliberately: reporting that an unreachable clinic is not
@@ -480,7 +488,9 @@ File selection is not restore authorization. Full validation and data replacemen
 | `OpenURL(url)` | `void` | Opens the URL through the native browser integration. |
 | `ChooseFolder(title)` | `string` | Native directory dialog; empty string means cancellation. Starts at Windows' Desktop known folder on Windows and the user home elsewhere. Windows known-folder lookup failures and dialog errors reject and are logged. |
 | `LogPath()` | `string` | Current diagnostic log path; may be empty if file logging is unavailable. |
-| `OpenLogFolder()` | `void` | Opens/reveals the log with the OS file browser; errors if no log file is available. |
+| `OpenLogFolder()` | `void` | Opens the shared logs directory in the OS file browser; errors if logging is unavailable. |
+| `ExportDiagnostics()` | `void` | Privacy confirmation and ZIP save dialog outside the log directory; retained regular log files plus `versions.json`, no upload. See [local diagnostics](local-logs.md). |
+| `EngineStatus()` | `EngineState` | Supported platform, pinned/installed/running engine versions, mismatch and live collection state. Older helpers may omit collection state. |
 | `WasAutostartLaunched()` | `boolean` | Whether process arguments contain `--autostart`. |
 | `UninstallRequested()` | `boolean` | Whether the Windows uninstaller started this process with `--uninstall`. |
 | `ExitUninstall()` | `void` | Waits for any running job, then quits. The process exit code tells the uninstaller whether the setup is gone. |

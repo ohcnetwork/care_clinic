@@ -34,8 +34,10 @@ flowchart LR
   version and SHA-256 pinned in `deployments/.env`.
 - **Start.** `vm.Ensure` launches the engine helper (`care-clinic --vm-host`,
   the same executable). The helper boots the VM, waits for Docker inside it,
-  and exposes it to the computer. It keeps running when the window closes, so
-  the clinic stays up; quitting CARE Clinic from the menu stops it.
+  and exposes it to the computer. Quitting a running clinic offers **Leave
+  running** or **Stop**. Stop stops containers and the VM; leaving it running
+  preserves them, but the app's mDNS advertisement stops, so other devices'
+  `.local` access may fail until the app reopens.
 - **Run.** The app points every `docker` / `docker compose` call at the
   engine with `DOCKER_HOST`, `DOCKER_CONFIG` and a `PATH` that puts the
   engine's own CLI first (`vm.Env`). Nothing reads the user's Docker contexts.
@@ -43,14 +45,18 @@ flowchart LR
   VM, where Caddy publishes the clinic. Only those two ports are forwarded.
 - **Update.** When `CARE_VM_VERSION` changes in a new app release, the setup
   check shows "Update CARE engine". App self-updates leave a running engine in
-  place, so on its first launch the new app compares the installed and running
+  place, so on panel launch the app compares the installed and running
   engine with the pin and updates it automatically before reporting clinic
   status (the panel shows "Updating" rather than "Running"). It downloads and
   verifies the new engine first, then removes the clinic containers (volumes
   kept), stops the old helper, installs the pinned engine, starts it and starts
-  the clinic. If the update fails, the clinic is started on the previous engine
-  and Overview and Logs show "CARE engine update required" with a retry button. The data disk (images,
-  volumes, clinic data) is kept; only the engine files are replaced.
+  the clinic. An unfinished restore or plugin rollback takes priority and skips
+  this automatic upgrade until recovery completes. If the update fails, the app
+  attempts to start the currently installed engine and clinic, reporting recovery
+  errors too. There is no automatic engine-version rollback: after the installed
+  version pointer changes, the current engine can already be the new one.
+  A remaining version mismatch exposes **Update CARE engine** on Overview and
+  Logs as a retry. The data disk (images, volumes, clinic data) is kept.
 
 ## Platforms
 

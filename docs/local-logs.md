@@ -27,8 +27,15 @@ still running after an app update, the app updates it automatically on launch
 and recreates the containers so they use journald. If that fails, the page shows
 "CARE engine update required" with an **Update CARE engine** retry.
 
+Linux runs Docker directly: container logs stay in the Docker daemon and can be
+read with `docker compose logs` from the installation directory. Guest/VM
+collection applies only to the app-managed engine on macOS and Windows.
+
 Logs rotate at 10 MiB with four retained stream files. A minute-by-minute sweep
-expires logs after seven days and enforces a shared 500 MiB budget. The limit can
+expires files inactive for seven days (by modification time) and enforces a
+shared 500 MiB budget, reclaiming oldest files first. Active logs are truncated
+rather than unlinked. This does not remove individual old records inside a
+recently modified file. The limit can
 be briefly exceeded between sweeps. The guest journal also has a 200 MiB persistent
 budget and seven-day retention. Capture is best-effort: a hard crash, disk failure,
 journal expiry or a prolonged disconnection can lose messages; gaps are reported
@@ -43,6 +50,10 @@ of retained logs and app/engine version information, after a privacy warning.
 No automatic upload occurs. Exports exclude environment files, database contents,
 credentials and full journal metadata, but logged messages can still contain
 patient information, URLs or secrets printed by services. Review before sharing.
-Export snapshots may omit messages written during export or rotation.
+Export snapshots may omit messages written during export or rotation. They include
+only the last 10 MiB per file, with a 500 MiB combined log limit, and reject symlinks
+and destinations inside the log directory. `versions.json` records the app's
+engine pin, not a measurement of the running engine version; check the live
+engine status when diagnosing a version mismatch.
 
 GitHub Actions build logs remain on GitHub and are not included in local exports.

@@ -120,12 +120,22 @@ counts as "newer", and a removed line stops receiving updates.
 The backend image is CARE's own `docker/prod.Dockerfile` without changes:
 the final stage (`runtime`) is `image`, and `--target builder` is `builder`.
 
-## CI workflow (to be created on GitHub)
+## CI workflow
+
+The personal publishing fork runs
+[CARE images](https://github.com/praffq/care_clinic/blob/main/.github/workflows/care-images.yml)
+every six hours, on manual dispatch, and when image inputs change on `main`.
+It builds native amd64/arm64 jobs and publishes multi-architecture digest references
+to GitHub Pages. A forced/input-change run can rebuild an unchanged commit,
+so the manifest's digest, not just the commit SHA, identifies the current image.
+The workflow lives in the publishing fork; it is not present in every source
+checkout. Clinic update polling is separate: it checks hourly while eligible
+and healthy, not every six hours.
 
 For each line in `images/lines.source.json`, on a schedule and on demand:
 
-1. Check out `ohcnetwork/care` and `ohcnetwork/care_fe` at the line's
-   branches and record both commit SHAs. Skip the line if both match the
+1. Check out each line's configured backend and frontend repositories at its
+   branches and record both commit SHAs. Unless forced, skip the line if both match the
    current `lines.json` entry.
 2. Backend: `docker buildx build -f docker/prod.Dockerfile` for
    `linux/amd64,linux/arm64`, once as the final image and once with
