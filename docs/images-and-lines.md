@@ -19,10 +19,13 @@ Clinic `0.1.11` is the baseline with the personal app-update endpoint and CARE
 CARE line and engine version. New commits published on that line are CARE-only
 updates; they do not change the Clinic version.
 
-When separate CARE 3.1 branches are available, add line `3.1` after `3` and set
-its `min_app_version` to `0.2.0`. Clinic `0.2.0` then unlocks the optional CARE
-3.1 upgrade; it does not automatically move clinics off CARE 3. Leave line `3`
-published and maintained to keep delivering its fixes. An installed preview
+Line `3.1` tests upgrades using `ENG-737` in `praffq/care` and
+`bodhi/questionnaire-actions` in `praffq/care_fe`, copied from upstream.
+These are test branches, not an official upstream CARE 3.1 release.
+Clinic `0.1.15` unlocks this optional upgrade; no new app release is needed.
+The recommended/default line remains `3`, and publishing line `3.1` does not
+automatically move clinics off CARE 3. Leave line `3` published and maintained
+to keep delivering its fixes. An installed preview
 clinic must explicitly upgrade to line `3`; changing the app's default does
 not move existing clinics.
 

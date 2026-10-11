@@ -16,6 +16,15 @@
       "min_app_version": "0.1.11",
       "max_app_version": "",
       "supported_until": ""
+    },
+    {
+      "id": "3.1",
+      "title": "CARE 3.1 (branch upgrade testing)",
+      "backend": { "repo": "praffq/care", "branch": "ENG-737" },
+      "frontend": { "repo": "praffq/care_fe", "branch": "bodhi/questionnaire-actions" },
+      "min_app_version": "0.1.15",
+      "max_app_version": "",
+      "supported_until": ""
     }
   ]
 }
