@@ -28,7 +28,7 @@ verifies the pinned engine and platform downloads before packaging. See the
 ### Personal testing versus the general release workflow
 
 Current development publishes to `praffq/care_clinic`, not the organization
-repository. The latest personal desktop release is `v0.1.15`; its published
+repository. The personal macOS release prepared from this branch is `v0.1.16`; its
 assets are an Apple-silicon macOS DMG and `SHA256SUMS`. Windows runtime/packaging
 and an Intel macOS installation have not been validated in this test cycle.
 The fork's automated desktop release is still blocked by the missing
