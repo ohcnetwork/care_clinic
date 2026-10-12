@@ -27,6 +27,7 @@ type Provisioner struct {
 	Progress       func(DownloadProgress)
 	run            proc.Runner
 	pins           *release.Pins
+	testEngineOps  *engineOps
 }
 
 func NewProvisioner(run proc.Runner, pins *release.Pins, log func(string)) *Provisioner {

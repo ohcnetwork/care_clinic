@@ -102,44 +102,6 @@ func composePlugin() string {
 func qemuDir() string    { return filepath.Join(StateDir(), "qemu") }
 func qemuBinary() string { return filepath.Join(qemuDir(), "qemu-system-x86_64.exe") }
 
-// InstallEngine unpacks a downloaded engine bundle (.tar.gz), checks every
-// file against its manifest and makes it the active engine. The running VM,
-// if any, keeps using the old files until it restarts.
-func InstallEngine(archive string) (Manifest, error) {
-	tmp, err := os.MkdirTemp(engineDir0(), ".unpack-")
-	if err != nil {
-		return Manifest{}, err
-	}
-	defer func() { _ = os.RemoveAll(tmp) }()
-	if err := extract(archive, tmp, 0); err != nil {
-		return Manifest{}, err
-	}
-	m, err := readManifest(tmp)
-	if err != nil {
-		return m, err
-	}
-	for name, want := range m.Files {
-		got, err := fileSHA256(filepath.Join(tmp, name))
-		if err != nil {
-			return m, err
-		}
-		if !strings.EqualFold(got, want) {
-			return m, fmt.Errorf("engine file %s is corrupt", name)
-		}
-	}
-	dest := filepath.Join(engineDir(), m.Version)
-	_ = os.RemoveAll(dest)
-	if err := os.Rename(tmp, dest); err != nil {
-		return m, err
-	}
-	if err := os.WriteFile(currentFile(), []byte(m.Version+"\n"), 0o600); err != nil {
-		return m, err
-	}
-	pruneEngines(m.Version)
-	m.dir = dest
-	return m, nil
-}
-
 func engineDir0() string {
 	_ = os.MkdirAll(engineDir(), 0o700)
 	return engineDir()
@@ -152,37 +114,6 @@ func pruneEngines(keep string) {
 			_ = os.RemoveAll(filepath.Join(engineDir(), e.Name()))
 		}
 	}
-}
-
-// InstallDockerCLI extracts the docker binary from Docker's static archive
-// (docker/docker in a .tgz on macOS, docker/docker.exe in a .zip on Windows).
-func InstallDockerCLI(archive string) error {
-	tmp, err := os.MkdirTemp(filepath.Dir(archive), ".docker-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.RemoveAll(tmp) }()
-	if err := extract(archive, tmp, 0); err != nil {
-		return err
-	}
-	return installFile(filepath.Join(tmp, "docker", exe("docker")), dockerCLI())
-}
-
-// InstallCompose places the compose plugin where DOCKER_CONFIG finds it.
-func InstallCompose(binary string) error { return installFile(binary, composePlugin()) }
-
-// InstallQEMU unpacks the QEMU bundle (Windows only) the release publishes.
-func InstallQEMU(archive string) error {
-	tmp := qemuDir() + ".new"
-	_ = os.RemoveAll(tmp)
-	if err := extract(archive, tmp, 0); err != nil {
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(tmp, "qemu-system-x86_64.exe")); err != nil {
-		return errors.New("QEMU bundle has no qemu-system-x86_64.exe")
-	}
-	_ = os.RemoveAll(qemuDir())
-	return os.Rename(tmp, qemuDir())
 }
 
 func installFile(src, dst string) error {

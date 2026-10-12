@@ -65,13 +65,15 @@ flowchart TD
 
 `NewApp` does not treat a missing embedded release file, malformed saved configuration, or invalid restore journal as an ordinary first run. It returns an error rather than allowing initialization against uncertain state.
 
-[`refreshInstallDir()`](../app/app_lifecycle.go) runs under the mutation gate. It does nothing for an unconfigured or removing installation. It also leaves the installed kit untouched when a restore or plugin rollback is pending. Otherwise it refreshes kit files and reapplies the saved clinic domain. A refresh error is logged; the callback does not silently rewrite the configuration as uninstalled.
+During `startup`, a server first rolls back an interrupted CARE engine update under the mutation gate ([CARE engine](vm.md#engine-update-rollback)). [`refreshInstallDir()`](../app/app_lifecycle.go) runs under the mutation gate. It does nothing for an unconfigured or removing installation. It also leaves the installed kit untouched when a restore or plugin rollback is pending. Otherwise it refreshes kit files and reapplies the saved clinic domain. A refresh error is logged; the callback does not silently rewrite the configuration as uninstalled.
 
 The backend starts name advertising, but the desktop state store owns panel boot.
 In [`care-store.tsx`](../app/frontend/src/state/care-store.tsx), `bootPanel()`
 reads role/recovery state, starts the storage query, and checks `EngineStatus()`
 before refreshing clinic health. If an installed/running engine mismatches the
-pin and no recovery is pending, it accepts an `engine-update` job automatically.
+pin, no recovery is pending and `update_failed` is false, it accepts an
+`engine-update` job automatically. A rolled-back update is only logged; the
+Overview and Logs notices offer the explicit retry.
 Health refresh skips while busy; the panel reports **Updating** until completion.
 Otherwise it requests Start if health is inactive, `restore_pending` is true,
 or `plugin_recovery_pending` is true. Overview also offers **Recover clinic**.
@@ -442,9 +444,9 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from the separate Storage tab's cleanable drive row. |
 | `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was prepared from published images in the current release line, and a second prompt would only encourage postponing it. |
-| `engine-update` | `App.updateEngine()` | Installed stable server and supported VM platform required. Automatic at panel boot or explicit retry, no second confirmation. Downloads/verifies before removing containers, installs/starts the engine and starts CARE; recovery on error is attempted, not guaranteed version rollback. |
+| `engine-update` | `App.updateEngine()` | Installed stable server and supported VM platform required. Automatic at panel boot or explicit retry, no second confirmation. Stages and verifies the engine and tools before removing containers, activates and verifies the new engine, then starts CARE. A failed activation or engine start restores the previous engine and tools and restarts CARE on them; a failed update is not retried automatically. Data disk and migrations are not rolled back. See [CARE engine](vm.md#engine-update-rollback). |
 
-Every action except `stop` and `engine-update` then passes `ensureDockerReady()`. A stopped container
+Every action except `stop` and `engine-update` then passes `ensureDockerReady()`, which first rolls back any interrupted engine update. A stopped container
 engine would otherwise surface inside the engine as an unexplained subprocess
 failure, such as `inspect local images: exit status 1` from the image freshness
 check. The gate reuses `DockerPlan()`, so it names whichever engine the platform
@@ -490,7 +492,7 @@ File selection is not restore authorization. Full validation and data replacemen
 | `LogPath()` | `string` | Current diagnostic log path; may be empty if file logging is unavailable. |
 | `OpenLogFolder()` | `void` | Opens the shared logs directory in the OS file browser; errors if logging is unavailable. |
 | `ExportDiagnostics()` | `void` | Privacy confirmation and ZIP save dialog outside the log directory; retained regular log files plus `versions.json`, no upload. See [local diagnostics](local-logs.md). |
-| `EngineStatus()` | `EngineState` | Supported platform, pinned/installed/running engine versions, mismatch and live collection state. Older helpers may omit collection state. |
+| `EngineStatus()` | `EngineState` | Supported platform, pinned/installed/running engine versions, mismatch, `update_failed`/`update_error` for a rolled-back or interrupted update to the pinned version, and live collection state. Older helpers may omit collection state. |
 | `WasAutostartLaunched()` | `boolean` | Whether process arguments contain `--autostart`. |
 | `UninstallRequested()` | `boolean` | Whether the Windows uninstaller started this process with `--uninstall`. |
 | `ExitUninstall()` | `void` | Waits for any running job, then quits. The process exit code tells the uninstaller whether the setup is gone. |

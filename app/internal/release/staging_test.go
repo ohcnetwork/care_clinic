@@ -14,6 +14,17 @@ func TestWailsStagesMissingInstallBeforeGoBuild(t *testing.T) {
 	if !proc.Exists("node") {
 		t.Skip("Node.js is not installed")
 	}
+	deployment, err := os.ReadFile("../../../deployments/.env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pins, err := Load(deployment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qemuPins := "QEMU_WINDOWS_VERSION=" + pins.QEMUWindowsVersion + "\n" +
+		"QEMU_WINDOWS_SHA256=" + pins.QEMUWindowsSHA256 + "\n" +
+		"CARE_VM_BASE_URL=" + pins.CareVMBaseURL + "\n"
 	data, err := os.ReadFile("../../wails.json")
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +78,7 @@ func main() {
 		{"development", "2.3.4-dev"},
 	} {
 		t.Run(tc.state, func(t *testing.T) {
-			manifest := "CARE_CLINIC_VERSION=" + tc.version + "\n"
+			manifest := "CARE_CLINIC_VERSION=" + tc.version + "\n" + qemuPins
 			write("deployments/.env", manifest)
 			install := filepath.Join(root, "app", "install")
 			switch tc.state {
@@ -139,7 +150,7 @@ func main() {
 				t.Fatalf("invalid release version was accepted: %s", output)
 			}
 			data, err := os.ReadFile(filepath.Join(root, "app", "install", ".env"))
-			if err != nil || string(data) != "CARE_CLINIC_VERSION=2.3.4-dev\n" {
+			if err != nil || string(data) != "CARE_CLINIC_VERSION=2.3.4-dev\n"+qemuPins {
 				t.Fatalf("invalid version changed the staged kit: %q, %v", data, err)
 			}
 		})

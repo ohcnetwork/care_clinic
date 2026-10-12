@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -100,26 +99,18 @@ func writeTarGz(t *testing.T, p string, files map[string]string) {
 
 func sum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
-func TestInstallEngineChecksAndExtracts(t *testing.T) {
+func TestStagedEngineChecksAndExtracts(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("LOCALAPPDATA", home)
-	files := map[string]string{"kernel": "k", "initrd": "i", "system.img": "s", "data.img": "d"}
-	man := map[string]any{"version": "0.1.0", "arch": "arm64", "kernel": "kernel", "initrd": "initrd", "system": "/nix/store/x", "files": map[string]string{}}
-	for n, c := range files {
-		man["files"].(map[string]string)[n] = sum(c)
-	}
-	mb, _ := json.Marshal(man)
-	files["./manifest.json"] = string(mb)
+	files := engineFiles("0.1.0", "k")
 	files["../evil"] = "x"
 	arc := filepath.Join(t.TempDir(), "engine.tar.gz")
 	writeTarGz(t, arc, files)
-	m, err := InstallEngine(arc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := Installed(); err != nil || got.Version != "0.1.0" || got.dir != m.dir {
-		t.Fatalf("%+v %v", got, err)
+	installEngineForTest(t, arc)
+	m, err := Installed()
+	if err != nil || m.Version != "0.1.0" {
+		t.Fatalf("%+v %v", m, err)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(engineDir()), "evil")); !os.IsNotExist(err) {
 		t.Fatal("path traversal entry was extracted")
@@ -133,7 +124,7 @@ func TestInstallEngineChecksAndExtracts(t *testing.T) {
 
 	files["kernel"] = "tampered"
 	writeTarGz(t, arc, files)
-	if _, err := InstallEngine(arc); err == nil || !strings.Contains(err.Error(), "corrupt") {
+	if _, err := StageEngineUpdate(toolFiles(t, arc, "v2")); err == nil || !strings.Contains(err.Error(), "corrupt") {
 		t.Fatalf("tampered bundle accepted: %v", err)
 	}
 }

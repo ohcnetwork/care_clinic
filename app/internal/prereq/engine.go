@@ -103,8 +103,10 @@ func (pr *Provisioner) EngineVersions() (installed, expected string, toolsOK boo
 }
 
 // UpdateEngine replaces an installed CARE engine with the pinned version. Every
-// download is verified before beforeStop runs and the running engine is
-// stopped, so a failed download leaves the clinic untouched. The data disk is kept.
+// download is verified and unpacked before beforeStop runs and the running
+// engine is stopped, so a failed download leaves the clinic untouched. If the
+// new engine does not start, the previous engine and tools are restored. The
+// data disk is kept as it is and never rolled back.
 func (pr *Provisioner) UpdateEngine(beforeStop func() error) error {
 	return pr.installEngineThen(beforeStop)
 }
@@ -135,7 +137,34 @@ func (pr *Provisioner) enginePlan() ToolPlan {
 
 func (pr *Provisioner) installEngine() error { return pr.installEngineThen(nil) }
 
+// engineOps are the VM operations an engine update performs; tests replace them.
+type engineOps struct {
+	running func(context.Context) bool
+	stop    func(context.Context) error
+	boot    func() error
+	version func(context.Context) string
+}
+
+func (pr *Provisioner) engineOps() engineOps {
+	if pr.testEngineOps != nil {
+		return *pr.testEngineOps
+	}
+	return engineOps{
+		running: func(ctx context.Context) bool { return vm.Status(ctx).PID != 0 },
+		stop:    vm.Stop,
+		boot:    pr.bootEngine,
+		version: func(ctx context.Context) string { return vm.Status(ctx).Version },
+	}
+}
+
+// installEngineThen installs or updates the CARE engine. Every download is
+// verified and unpacked before beforeStop runs and the running engine is
+// stopped. An update is only kept once the new engine and Docker answer;
+// otherwise the previous engine and tools are put back.
 func (pr *Provisioner) installEngineThen(beforeStop func() error) error {
+	if err := pr.RecoverEngineUpdate(); err != nil {
+		return err
+	}
 	if runtime.GOOS == "windows" {
 		if err := vm.HypervisorReady(); err != nil {
 			return fmt.Errorf("%w; finish the Windows step first", err)
@@ -158,41 +187,123 @@ func (pr *Provisioner) installEngineThen(beforeStop func() error) error {
 		}
 		files = append(files, f)
 	}
+	ef := vm.EngineFiles{Engine: files[0], Docker: files[1], Compose: files[2]}
+	if len(files) > 3 {
+		ef.QEMU = files[3]
+	}
+	pr.logln("Preparing the " + engineName + "...")
+	staged, err := vm.StageEngineUpdate(ef)
+	if err != nil {
+		return fmt.Errorf("could not prepare the %s: %w", engineName, err)
+	}
+	return pr.applyEngine(staged, beforeStop)
+}
 
+func (pr *Provisioner) applyEngine(s *vm.StagedUpdate, beforeStop func() error) error {
+	ops := pr.engineOps()
 	if beforeStop != nil {
 		if err := beforeStop(); err != nil {
+			s.Discard()
 			return err
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), engineStopWait)
 	defer cancel()
-	if vm.Status(ctx).PID != 0 {
+	if ops.running(ctx) {
 		pr.logln("Stopping the " + engineName + " to update it...")
-		if err := vm.Stop(ctx); err != nil {
+		if err := ops.stop(ctx); err != nil {
+			s.Discard()
 			return fmt.Errorf("could not stop the %s to update it: %w", engineName, err)
 		}
 	}
 	pr.logln("Installing the " + engineName + "...")
-	m, err := vm.InstallEngine(files[0])
-	if err != nil {
-		return fmt.Errorf("could not install the %s: %w", engineName, err)
+	if err := s.Activate(); err != nil {
+		return pr.rollbackEngine(s.From, fmt.Errorf("could not install the %s: %w", engineName, err))
 	}
-	if err := vm.InstallDockerCLI(files[1]); err != nil {
-		return fmt.Errorf("could not install the docker command: %w", err)
-	}
-	if err := vm.InstallCompose(files[2]); err != nil {
-		return fmt.Errorf("could not install Docker Compose: %w", err)
-	}
-	if runtime.GOOS == "windows" {
-		if err := vm.InstallQEMU(files[3]); err != nil {
-			return fmt.Errorf("could not install QEMU: %w", err)
+	if s.From == "" {
+		// A first install has no previous engine to go back to.
+		if err := vm.CommitEngineUpdate(); err != nil {
+			return err
 		}
+		pr.logln(engineName + " " + s.Manifest.Version + " installed.")
+		return ops.boot()
 	}
-	pr.logln(engineName + " " + m.Version + " installed.")
-	return pr.startEngine()
+	pr.logln(engineName + " " + s.Manifest.Version + " installed; checking that it starts...")
+	if err := ops.boot(); err != nil {
+		return pr.rollbackEngine(s.From, err)
+	}
+	vctx, vcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer vcancel()
+	if got := ops.version(vctx); got != s.Manifest.Version {
+		return pr.rollbackEngine(s.From, fmt.Errorf("the %s reported version %q after the update instead of %s",
+			engineName, got, s.Manifest.Version))
+	}
+	if err := vm.CommitEngineUpdate(); err != nil {
+		return pr.rollbackEngine(s.From, fmt.Errorf("could not finish the %s update: %w", engineName, err))
+	}
+	pr.logln(engineName + " " + s.Manifest.Version + " is running; the previous engine was removed.")
+	return nil
+}
+
+// rollbackEngine stops whatever part of the new engine started and puts the
+// previous engine and tools back (or, on a first install, removes the partial
+// install). The error names both the update failure and, if it happened, the
+// failure to restore.
+func (pr *Provisioner) rollbackEngine(from string, cause error) error {
+	pr.logln("The " + engineName + " update failed: " + cause.Error())
+	what := engineName + " " + from
+	if from == "" {
+		what = "the state before the " + engineName + " was installed"
+	}
+	pr.logln("Restoring " + what + "...")
+	if err := pr.restorePreviousEngine(cause.Error()); err != nil {
+		pr.logln("Restoring " + what + " failed: " + err.Error())
+		return fmt.Errorf("%w; restoring %s also failed (%v) - it will be tried again before CARE starts",
+			cause, what, err)
+	}
+	pr.logln("Restored " + what + ".")
+	return fmt.Errorf("%w; restored %s", cause, what)
+}
+
+func (pr *Provisioner) restorePreviousEngine(cause string) error {
+	if err := vm.BeginEngineRollback(cause); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), engineStopWait)
+	defer cancel()
+	if err := pr.engineOps().stop(ctx); err != nil {
+		return fmt.Errorf("could not stop the updated %s: %w", engineName, err)
+	}
+	return vm.RollbackEngineUpdate(cause)
+}
+
+// RecoverEngineUpdate rolls back an engine update that was interrupted, for
+// example by the computer losing power, before the engine is started again.
+func (pr *Provisioner) RecoverEngineUpdate() error {
+	if !vm.Supported() {
+		return nil
+	}
+	u, ok, err := vm.PendingEngineUpdate()
+	if err != nil || !ok || !u.Interrupted() {
+		return err
+	}
+	pr.logln(fmt.Sprintf("The update of the %s from %s to %s didn't finish; restoring %s...",
+		engineName, u.From, u.To, u.From))
+	if err := pr.restorePreviousEngine("the update was interrupted before it finished"); err != nil {
+		return fmt.Errorf("the interrupted %s update could not be rolled back: %w", engineName, err)
+	}
+	pr.logln(engineName + " " + u.From + " was restored.")
+	return nil
 }
 
 func (pr *Provisioner) startEngine() error {
+	if err := pr.RecoverEngineUpdate(); err != nil {
+		return err
+	}
+	return pr.bootEngine()
+}
+
+func (pr *Provisioner) bootEngine() error {
 	pr.logln("Starting the " + engineName + "...")
 	ctx, cancel := context.WithTimeout(context.Background(), dockerReadyTimeout)
 	defer cancel()

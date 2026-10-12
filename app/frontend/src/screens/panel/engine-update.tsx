@@ -38,10 +38,12 @@ export function EngineUpdateNotice({ engine }: { engine: EngineState | null }) {
       if (locked || updateLock.isActive()) return;
       void task.run(() => care.runAction("engine-update"),
         "The CARE engine update didn't start. Try again, or open the logs folder for support.");
-    }}><RefreshCw aria-hidden="true" />Update CARE engine</Button>
+    }}><RefreshCw aria-hidden="true" />{engine.update_failed ? "Try the update again" : "Update CARE engine"}</Button>
   </>}>
     This version of CARE Clinic needs CARE engine {engine.expected_version}, but {current ? `${current} is ${engine.running ? "running" : "installed"}` : "an older engine is installed"}.
-    {" "}The automatic update didn&apos;t finish, so the clinic is still on the previous engine and engine and container logs are not collected.
+    {engine.update_failed
+      ? <>{" "}The last update didn&apos;t finish and the previous engine was put back{engine.update_error ? `: ${engine.update_error}` : ""}. It isn&apos;t tried again automatically.</>
+      : <>{" "}The automatic update didn&apos;t finish, so the clinic is still on the previous engine and engine and container logs are not collected.</>}
     {" "}Updating takes the clinic offline for a few minutes; patient records, files and backups are kept.
     {task.error ? <p className="panel-inline-error" role="alert">{task.error}</p> : null}
   </PanelNotice>;

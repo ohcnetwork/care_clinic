@@ -636,7 +636,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
     if (!restorePending && !pluginPending) {
       try {
         const engine = await bridge.EngineStatus();
-        if (engine.supported && engine.update_needed && !busyRef.current) {
+        // A failed update was rolled back; it is retried only from the panel.
+        if (engine.supported && engine.update_failed) {
+          log(`\nThe CARE engine ${engine.expected_version} update failed earlier and the previous engine was kept: ${engine.update_error}`);
+        } else if (engine.supported && engine.update_needed && !busyRef.current) {
           log(`\nCARE engine ${engine.expected_version} is required — updating it now...`);
           engineUpdating = await runAction("engine-update");
         }

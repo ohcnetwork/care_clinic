@@ -25,7 +25,9 @@ The Logs page shows the live collection state reported by the helper
 (collecting, connecting, reconnecting, engine stopped). If an older engine is
 still running after an app update, the app updates it automatically on launch
 and recreates the containers so they use journald. If that fails, the page shows
-"CARE engine update required" with an **Update CARE engine** retry.
+"CARE engine update required" with an **Update CARE engine** retry, or **Try the
+update again** when the new engine was rolled back
+([details](vm.md#engine-update-rollback)).
 
 Linux runs Docker directly: container logs stay in the Docker daemon and can be
 read with `docker compose logs` from the installation directory. Guest/VM

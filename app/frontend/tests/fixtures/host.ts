@@ -120,7 +120,7 @@ export function installTestHost() {
   const fixtures: Fixtures = {
     disk: { ok: true, message: "212 GB free", how: "", free: 212 * 2 ** 30, need: 30 * 2 ** 30 },
     docker: { ok: true, message: "" },
-    engine: { supported: state.platform !== "linux", expected_version: "0.1.1", installed_version: "0.1.1", running_version: "0.1.1", running: true, update_needed: false, logs: "collecting" },
+    engine: { supported: state.platform !== "linux", expected_version: "0.1.1", installed_version: "0.1.1", running_version: "0.1.1", running: true, update_needed: false, update_failed: false, update_error: "", logs: "collecting" },
     windowsVM: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     restart: { needed: false, title: "Restart to finish setting up the CARE engine", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
@@ -222,6 +222,7 @@ export function installTestHost() {
   }
   if (scenario === "panel-requirements") { fixtures.docker.ok = false; }
   if (scenario === "panel-engine-outdated" || scenario === "panel-engine-update-failed") fixtures.engine = { ...fixtures.engine, installed_version: "0.1.0", running_version: "0.1.0", update_needed: true, logs: "" };
+  if (scenario === "panel-engine-rolled-back") fixtures.engine = { ...fixtures.engine, installed_version: "0.1.0", running_version: "0.1.0", update_needed: true, update_failed: true, update_error: "CARE engine: Docker did not start", logs: "" };
   if (scenario === "panel-update") fixtures.channel.pending_backend = "preview-backend-next";
   const available = ["available", "downloading", "installing", "verifying", "restarting", "installer", "failed", "download-failed", "unavailable"].includes(scenario);
   let update: AppUpdate = {
@@ -472,7 +473,7 @@ export function installTestHost() {
           return;
         }
         window.setTimeout(() => {
-          fixtures.engine = { ...fixtures.engine, installed_version: fixtures.engine.expected_version, running_version: fixtures.engine.expected_version, update_needed: false, logs: "collecting" };
+          fixtures.engine = { ...fixtures.engine, installed_version: fixtures.engine.expected_version, running_version: fixtures.engine.expected_version, update_needed: false, update_failed: false, update_error: "", logs: "collecting" };
           finishJob(action);
         }, 600);
         return;

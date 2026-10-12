@@ -283,6 +283,10 @@ func (a *App) ClinicAction(action, adminPassword string) (err error) {
 // engine to report that a clinic which cannot be reached is not running.
 func (a *App) ensureDockerReady() error {
 	p := a.provisioner()
+	// Docker may still answer from an engine whose update was interrupted.
+	if err := p.RecoverEngineUpdate(); err != nil {
+		return err
+	}
 	plan := p.DockerPlan()
 	if plan.Action == prereq.ActionNone {
 		return nil

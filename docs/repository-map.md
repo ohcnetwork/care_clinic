@@ -94,7 +94,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_recovery.go`](../app/app_recovery.go) | Recovery-key/code export and verification, replacement, CARE Clinic password changes and offline reset. | [Recovery materials](backups-and-restore.md#3-backup-recovery-file-and-care-clinic-admin-recovery). |
 | [`app_setup_retry.go`](../app/app_setup_retry.go) | Retained setup attempt, failure metadata, non-destructive retry validation and preparation/startup boundary. | [Installation retries](desktop-workflows.md#during-installation). |
 | [`app_update.go`](../app/app_update.go) | CARE line-update status/check/dismiss and explicit upgrades, the background update watcher, and the GitHub-release desktop updater. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
-| [`app_engine.go`](../app/app_engine.go) | Pinned/installed/running engine status and automatic engine-update job with recovery attempts. | [CARE engine](vm.md). |
+| [`app_engine.go`](../app/app_engine.go) | Pinned/installed/running engine status, failed-update state, launch recovery and the engine-update job. | [CARE engine](vm.md). |
 | [`app_diagnostics.go`](../app/app_diagnostics.go) | Privacy-confirmed bounded local ZIP exports of logs and version metadata. | [Local diagnostics](local-logs.md). |
 | [`app_selfupdate.go`](../app/app_selfupdate.go) | macOS bundle verification/replacement and post-exit reopening. | [Wails application](wails-application.md). |
 | [`app_status.go`](../app/app_status.go) | State/health/tool/network queries, provisioning controls, name/password/folder validation, pre-setup naming. | [Wails application](wails-application.md), [native integrations](native-integrations.md). |
@@ -271,7 +271,7 @@ app/internal/
 | [`internal/plugins`](../app/internal/plugins) | Active plugin list (`plugins.json`), inactive draft (`plugins-pending.json`), catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
 | [`internal/lines`](../app/internal/lines) | Release-line manifest parsing, validation, cache, line ordering and app-version compatibility. | [Images and release lines](images-and-lines.md). |
 | [`internal/prereq`](../app/internal/prereq) | Docker readiness, CARE engine provisioning, Windows Hypervisor Platform setup, native Linux Docker setup, and optional legacy Rancher Desktop removal. | [Native integrations](native-integrations.md), [CARE engine](vm.md). |
-| [`internal/vm`](../app/internal/vm) | CARE engine host lifecycle, macOS and Windows VM drivers, Docker client configuration, folder sharing/synchronization, networking, and helper process. | [CARE engine](vm.md). |
+| [`internal/vm`](../app/internal/vm) | CARE engine host lifecycle, transactional engine/tool updates with rollback ([`update.go`](../app/internal/vm/update.go)), macOS and Windows VM drivers, Docker client configuration, folder sharing/synchronization, networking, and helper process. | [CARE engine](vm.md). |
 | [`internal/release`](../app/internal/release) | Validated desktop release pins, line selection and image identity. | [Development and release](development-and-release.md#release-identity-and-pins). |
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
 | [`internal/storage`](../app/internal/storage) | Storage thresholds, backup-space estimates, policy/status reporting and backup-run state. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
@@ -288,6 +288,13 @@ app/internal/
 | [`sys/netfix`](../app/internal/sys/netfix) | Windows network profiles and application-owned firewall rules. | [Native integrations](native-integrations.md). |
 | [`sys/autostart`](../app/internal/sys/autostart) | Platform login-startup records. | [Native integrations](native-integrations.md). |
 | [`sys/reboot`](../app/internal/sys/reboot) | Restart requirement and restart request. | [Native integrations](native-integrations.md). |
+
+Windows engine support packaging uses [`vm/qemu-windows.json`](../vm/qemu-windows.json)
+for the upstream installer pin, [`vm/package_qemu.py`](../vm/package_qemu.py)
+for deterministic extraction/packaging,
+[`vm/test_package_qemu.py`](../vm/test_package_qemu.py) for packaging regressions,
+and [`vm/validate_qemu_windows.ps1`](../vm/validate_qemu_windows.ps1) for native
+runtime validation. See [QEMU packaging](vm.md#packaging-qemu-for-windows).
 
 ### Smaller domain source files
 

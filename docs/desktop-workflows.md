@@ -299,8 +299,11 @@ updates automatically; the panel shows **Updating**, not **Running**, until the
 engine-update job (including clinic startup) finishes. Pending restore or plugin
 recovery takes priority. The app downloads and verifies the engine before stopping
 containers, keeps volumes and the VM data disk, and recreates containers with the
-new logging configuration. Failure triggers a recovery attempt, not guaranteed
-rollback. A remaining mismatch offers a manual retry; see [CARE engine](vm.md).
+new logging configuration. If the new engine does not start and answer, the
+previous engine and tools are restored and the clinic is started on them; an
+interrupted update is rolled back on the next launch. The data disk and database
+migrations are not rolled back. A failed update is not retried automatically;
+the panel offers **Try the update again**. See [CARE engine](vm.md#engine-update-rollback).
 
 CARE updates download and stage backend/frontend images within the current release line.
 The Updates tab shows the current line and offers an explicit upgrade to a newer

@@ -22,6 +22,9 @@ func (a *App) startup(ctx context.Context) {
 	if a.osUninstall {
 		return
 	}
+	if a.loadConfig().Role == roleServer {
+		a.recoverEngineUpdate()
+	}
 	a.refreshInstallDir()
 	a.advStop = make(chan struct{})
 	_ = a.startAdvertise()

@@ -45,3 +45,13 @@ test("a failed automatic engine update offers a retry", async ({ page }) => {
   await expect(logs.getByRole("status", { name: "Engine log collection" })).toContainText("Collecting");
   await expect(page.getByText("CARE engine update required")).toHaveCount(0);
 });
+
+test("an engine update that was rolled back isn't retried automatically on launch", async ({ page }) => {
+  await page.goto("/tests/fixtures/index.html?scenario=panel-engine-rolled-back");
+  const status = page.getByRole("region", { name: "Clinic status" });
+  await expect(status.getByRole("heading", { name: "Running" })).toBeVisible();
+  const overview = page.locator('.panel-page[aria-label="Overview"]');
+  await expect(overview.getByText(/previous engine was put back: CARE engine: Docker did not start\. It isn.t tried again automatically/)).toBeVisible();
+  await overview.getByRole("button", { name: "Try the update again", exact: true }).click();
+  await expect(page.getByText("CARE engine update required")).toHaveCount(0);
+});

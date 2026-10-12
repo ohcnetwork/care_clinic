@@ -31,8 +31,12 @@ Current development publishes to `praffq/care_clinic`, not the organization
 repository. The latest personal desktop release is `v0.1.15`; its published
 assets are an Apple-silicon macOS DMG and `SHA256SUMS`. Windows runtime/packaging
 and an Intel macOS installation have not been validated in this test cycle.
-The fork's automated desktop release is blocked by the missing
-`qemu-10.1.0-windows-x86_64.zip` asset on the pinned engine release. The Mac
+The fork's automated desktop release is still blocked by the missing
+`qemu-10.1.0-windows-x86_64.zip` asset on the pinned engine release. A
+checksum-pinned, reproducible package is prepared locally; native Windows
+validation and support-asset publication remain pending. The package script
+and validation instructions are in [the engine guide](vm.md#packaging-qemu-for-windows).
+The Mac
 test releases have therefore been built, ad-hoc signed, packaged and published
 manually after CI. This does not establish a working all-platform release
 pipeline or Developer ID notarization.

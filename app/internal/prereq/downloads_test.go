@@ -309,6 +309,25 @@ func pinnedDownloads(t *testing.T, p *release.Pins) []Download {
 	return all
 }
 
+func TestWindowsQEMUUsesDeploymentPins(t *testing.T) {
+	p := deploymentPins(t)
+	downloads, err := engineDownloads(p, "windows", "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantName := "qemu-" + p.QEMUWindowsVersion + "-windows-x86_64.zip"
+	want := Download{
+		Name: wantName, URL: strings.TrimRight(p.CareVMBaseURL, "/") + "/" + wantName,
+		SHA256: p.QEMUWindowsSHA256,
+	}
+	if len(downloads) != 4 || downloads[3] != want {
+		t.Fatalf("Windows provisioning must automatically include pinned QEMU: %+v", downloads)
+	}
+	if want.SHA256 == strings.Repeat("0", 64) {
+		t.Fatal("QEMU must have a real bundle checksum")
+	}
+}
+
 func TestEngineDownloadsMatchPlatform(t *testing.T) {
 	p := &release.Pins{
 		CareVMVersion: "0.1.0", CareVMBaseURL: "https://example.test/engine/",
@@ -318,6 +337,7 @@ func TestEngineDownloadsMatchPlatform(t *testing.T) {
 		ComposeMacAarch64SHA256: "compose-arm", ComposeMacX8664SHA256: "compose-intel", ComposeWindowsSHA256: "compose-win",
 		QEMUWindowsVersion: "10.1.0", QEMUWindowsSHA256: "qemu",
 	}
+
 	compose := "https://github.com/docker/compose/releases/download/v5.5.1/"
 	for _, tc := range []struct {
 		goos, goarch string

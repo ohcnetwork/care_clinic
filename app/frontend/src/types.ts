@@ -39,6 +39,8 @@ export type EngineState = {
   running_version: string;
   running: boolean;
   update_needed: boolean;
+  update_failed: boolean;
+  update_error: string;
   logs: "" | "connecting" | "collecting" | "interrupted";
 };
 export type PrereqDownloadProgress = {
