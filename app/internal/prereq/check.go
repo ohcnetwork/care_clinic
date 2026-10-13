@@ -39,6 +39,10 @@ func DockerCheck(run proc.Runner) Status {
 		}
 		return Status{OK: false, Message: missing}
 	default:
+		if RancherStuck() {
+			return Status{OK: false, Message: "Rancher Desktop is open, but its virtual machine has stopped. CARE restarts it automatically; " +
+				"choose Start Rancher Desktop to restart it now."}
+		}
 		if rancherDesktopRunning() {
 			return Status{OK: false, Message: dockerName() + " is running, but Docker is not answering yet. " +
 				"It may still be starting; if this does not clear, quit " + dockerName() + " and start it again."}

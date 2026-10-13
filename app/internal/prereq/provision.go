@@ -374,7 +374,7 @@ func (pr *Provisioner) OpenDocker() error {
 	pr.logln("Starting Docker...")
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		if err := pr.startRancher(); err != nil {
+		if err := pr.relaunchRancher(); err != nil {
 			return err
 		}
 	case "linux":
@@ -388,6 +388,26 @@ func (pr *Provisioner) OpenDocker() error {
 // rancherRestartPause gives Rancher Desktop's virtual machine time to go away
 // before the second attempt below.
 const rancherRestartPause = 5 * time.Second
+
+// relaunchRancher starts Rancher Desktop, or restarts it when its window is
+// open but its virtual machine is gone: `rdctl start` alone is ignored then.
+func (pr *Provisioner) relaunchRancher() error {
+	if RancherStuck() {
+		return pr.restartRancher()
+	}
+	return pr.startRancher()
+}
+
+func (pr *Provisioner) restartRancher() error {
+	pr.logln("Rancher Desktop is open, but its virtual machine has stopped; restarting Rancher Desktop...")
+	if rdctl := rdctlPath(); rdctl != "" {
+		if err := pr.run.RunLauncher(rancherCommandTimeout, rdctl, "shutdown"); err != nil {
+			pr.logln("Warning: could not shut down Rancher Desktop before restarting it: " + err.Error())
+		}
+		time.Sleep(rancherRestartPause)
+	}
+	return pr.startRancher()
+}
 
 func (pr *Provisioner) startRancher() error {
 	pr.logln("Rancher launcher output is discarded; use Rancher Desktop's Troubleshooting logs for startup diagnostics.")
@@ -453,7 +473,10 @@ func EnsureRancherSettings() {
 func (pr *Provisioner) waitForDocker(limit time.Duration) error {
 	ready := func() bool { return DockerCheck(pr.run).OK }
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
-		return waitForDockerReady(limit, ready, rancherDesktopRunning, pr.startRancher, pr.logln)
+		// An open window over a failed VM counts as not running, so it is
+		// restarted instead of waited on until the deadline.
+		running := func() bool { return rancherDesktopRunning() && !RancherStuck() }
+		return waitForDockerReady(limit, ready, running, pr.relaunchRancher, pr.logln)
 	}
 	return waitForDockerReady(limit, ready, nil, nil, pr.logln)
 }

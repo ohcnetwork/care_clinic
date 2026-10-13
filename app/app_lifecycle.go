@@ -34,6 +34,7 @@ func (a *App) startup(ctx context.Context) {
 	}()
 	go a.watchForCareUpdates()
 	go a.watchStorage()
+	go a.watchEngine()
 }
 
 const screenMargin = 80
