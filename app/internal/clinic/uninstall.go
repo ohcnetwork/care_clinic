@@ -19,6 +19,10 @@ type UninstallOptions struct {
 	RemoveInstallDir        bool
 	RemoveBackups           bool
 	RemoveUnusedCertificate bool
+	// ReleaseInstallDir, when set, is called once if the install folder cannot
+	// be deleted, before trying again. On Windows a Rancher Desktop started
+	// from that folder keeps it open until Rancher stops.
+	ReleaseInstallDir func() error
 }
 
 func (e *Clinic) Uninstall(opts UninstallOptions) error {
@@ -74,7 +78,14 @@ func (e *Clinic) Uninstall(opts UninstallOptions) error {
 		}
 	}
 	if opts.RemoveInstallDir {
-		if err := e.removeInstallFiles(opts.RemoveUnusedCertificate); err != nil {
+		err := e.removeInstallFiles(opts.RemoveUnusedCertificate)
+		if err != nil && opts.ReleaseInstallDir != nil && !os.IsNotExist(err) {
+			if releaseErr := opts.ReleaseInstallDir(); releaseErr != nil {
+				e.logln("Warning: could not release the install folder: " + releaseErr.Error())
+			}
+			err = e.removeInstallFiles(opts.RemoveUnusedCertificate)
+		}
+		if err != nil {
 			return err
 		}
 	}

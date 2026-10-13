@@ -3,6 +3,7 @@ package prereq
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -14,6 +15,45 @@ import (
 const rancherDistro = "rancher-desktop"
 
 const rancherStateTimeout = 10 * time.Second
+
+// launcher runs Rancher Desktop commands from the home folder rather than the
+// clinic's install folder. Rancher hands its working directory down to its
+// long-lived WSL helpers, which would otherwise keep the install folder open
+// and make uninstalling fail with "being used by another process".
+func (pr *Provisioner) launcher() proc.Runner {
+	run := pr.run
+	if home, err := os.UserHomeDir(); err == nil {
+		run.Dir = home
+	} else {
+		run.Dir = os.TempDir()
+	}
+	return run
+}
+
+// StopRancher shuts Rancher Desktop down, releasing any folder its processes
+// hold open. It does nothing where CARE does not use Rancher Desktop.
+func (pr *Provisioner) StopRancher() error {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		return nil
+	}
+	rdctl := rdctlPath()
+	if rdctl == "" || !rancherDesktopRunning() {
+		return nil
+	}
+	pr.logln("Stopping Rancher Desktop, which is holding CARE's files open...")
+	if err := pr.launcher().RunLauncher(rancherCommandTimeout, rdctl, "shutdown"); err != nil {
+		return err
+	}
+	// rdctl can return before the VM's helpers have exited and let go.
+	for deadline := time.Now().Add(rancherStopWait); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		if runtime.GOOS != "windows" || !rancherDistroRunning() {
+			return nil
+		}
+	}
+	return nil
+}
+
+const rancherStopWait = 30 * time.Second
 
 // RancherDown reports whether an installed Rancher Desktop has quit or is
 // stuck, as opposed to running or still starting. Always false where CARE

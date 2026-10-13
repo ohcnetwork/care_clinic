@@ -1,6 +1,10 @@
 package prereq
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+)
 
 func TestVMStuck(t *testing.T) {
 	up := func() bool { return true }
@@ -57,5 +61,12 @@ func TestDistroListedReadsWSLOutput(t *testing.T) {
 	}
 	if distroListed(nil, rancherDistro) {
 		t.Fatal("empty output listed a distribution")
+	}
+}
+
+func TestRancherIsNotLaunchedFromTheInstallFolder(t *testing.T) {
+	pr := NewProvisioner(proc.Runner{Dir: `C:\Users\someone\care-clinic\install`}, nil, nil)
+	if dir := pr.launcher().Dir; dir == pr.run.Dir || dir == "" {
+		t.Fatalf("Rancher would run from %q, keeping the install folder open", dir)
 	}
 }

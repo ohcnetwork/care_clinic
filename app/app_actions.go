@@ -420,6 +420,7 @@ func (a *App) CleanupFailedInstall() error {
 		if err := e.Uninstall(clinic.UninstallOptions{
 			RemoveInstallDir:        true,
 			RemoveUnusedCertificate: true,
+			ReleaseInstallDir:       a.provisioner().StopRancher,
 		}); err != nil {
 			return err
 		}

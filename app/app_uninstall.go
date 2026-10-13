@@ -30,6 +30,9 @@ func (a *App) RunUninstall(removeImages, removeBackups, removeRancher bool, admi
 			RemoveImages:     removeImages,
 			RemoveInstallDir: true,
 			RemoveBackups:    removeBackups,
+			// An earlier version started Rancher from the install folder,
+			// and its helpers keep that folder open until Rancher stops.
+			ReleaseInstallDir: a.provisioner().StopRancher,
 		}); err != nil {
 			return err
 		}
