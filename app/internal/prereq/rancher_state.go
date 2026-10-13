@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
@@ -54,20 +55,50 @@ func RancherStuck() bool {
 		return false
 	}
 	if !rancherDesktopRunning() {
+		silentRancher.reset()
 		return false
 	}
 	state, known := rancherVMState()
-	return vmStuck(state, known, runtime.GOOS == "windows", rancherDistroRunning)
+	return vmStuck(state, known, runtime.GOOS == "windows", rancherDistroRunning,
+		silentRancher.observe(known, time.Now()))
 }
+
+// rancherSilenceGrace is how long Rancher's API may stay silent before a
+// missing VM counts as stuck. A normal start answers within seconds.
+const rancherSilenceGrace = 2 * time.Minute
+
+// silentRancher times how long an open Rancher has gone without answering.
+var silentRancher silence
+
+type silence struct {
+	mu    sync.Mutex
+	since time.Time
+}
+
+func (s *silence) observe(answered bool, now time.Time) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if answered {
+		s.since = time.Time{}
+		return 0
+	}
+	if s.since.IsZero() {
+		s.since = now
+	}
+	return now.Sub(s.since)
+}
+
+func (s *silence) reset() { s.observe(true, time.Time{}) }
 
 // vmStuck decides from Rancher's reported state, consulting WSL only when the
 // state alone cannot tell. A starting or stopping VM is never stuck: those
-// are Rancher's own transitions, and the caller waits them out. Neither is an
-// unknown state: Rancher's API does not answer for its first moments, before
-// the VM exists, and that is a normal startup.
-func vmStuck(state string, known, windows bool, distroRunning func() bool) bool {
+// are Rancher's own transitions, and the caller waits them out. An unknown
+// state is a normal start at first, since Rancher's API does not answer
+// before its VM exists; only after silentFor passes the grace does a missing
+// VM count as stuck.
+func vmStuck(state string, known, windows bool, distroRunning func() bool, silentFor time.Duration) bool {
 	if !known {
-		return false
+		return windows && silentFor >= rancherSilenceGrace && !distroRunning()
 	}
 	switch state {
 	case "ERROR", "STOPPED":
