@@ -31,7 +31,8 @@ type engineWatch struct {
 // Rancher that is merely slow to answer is left alone.
 func (w *engineWatch) observe(now time.Time, broken bool) bool {
 	if !broken {
-		w.downSince = time.Time{}
+		// A recovered engine starts over: a later outage gets its own attempt.
+		w.downSince, w.lastAttempt = time.Time{}, time.Time{}
 		return false
 	}
 	if w.downSince.IsZero() {
@@ -65,11 +66,14 @@ func (a *App) watchEngine() {
 
 func (a *App) engineBroken() bool {
 	cfg := a.loadConfig()
-	if cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing || a.closing {
+	if cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing {
 		return false
 	}
 	if a.runningJob() != "" {
 		// A start, update or restore owns Docker for now and reports its own failures.
+		return false
+	}
+	if a.isClosing() {
 		return false
 	}
 	if prereq.DockerCheck(a.engine().Runner()).OK {

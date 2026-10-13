@@ -62,20 +62,21 @@ func RancherStuck() bool {
 
 // vmStuck decides from Rancher's reported state, consulting WSL only when the
 // state alone cannot tell. A starting or stopping VM is never stuck: those
-// are Rancher's own transitions, and the caller waits them out.
+// are Rancher's own transitions, and the caller waits them out. Neither is an
+// unknown state: Rancher's API does not answer for its first moments, before
+// the VM exists, and that is a normal startup.
 func vmStuck(state string, known, windows bool, distroRunning func() bool) bool {
-	switch state {
-	case "ERROR":
-		return true
-	case "STARTING", "STOPPING":
+	if !known {
 		return false
 	}
-	if windows {
-		// Rancher can still claim STARTED, or not answer at all, after WSL
-		// stopped its distribution.
-		return !distroRunning()
+	switch state {
+	case "ERROR", "STOPPED":
+		return true
+	case "STARTED":
+		// Rancher can still claim STARTED after WSL stopped its distribution.
+		return windows && !distroRunning()
 	}
-	return known && state == "STOPPED"
+	return false
 }
 
 func rancherVMState() (state string, known bool) {

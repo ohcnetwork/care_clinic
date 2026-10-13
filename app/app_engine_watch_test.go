@@ -33,3 +33,16 @@ func TestEngineWatchRestartsOnceThenBacksOff(t *testing.T) {
 		t.Fatal("never retried after the back-off")
 	}
 }
+
+func TestEngineWatchForgetsBackoffAfterRecovery(t *testing.T) {
+	var w engineWatch
+	start := time.Now()
+	w.observe(start, true)
+	w.observe(start.Add(engineDownGrace), true)
+	w.observe(start.Add(2*engineDownGrace), false)
+	next := start.Add(3 * engineDownGrace)
+	w.observe(next, true)
+	if !w.observe(next.Add(engineDownGrace), true) {
+		t.Fatal("a new outage after recovery waited out the earlier attempt's back-off")
+	}
+}

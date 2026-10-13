@@ -25,6 +25,9 @@ func (a *App) startup(ctx context.Context) {
 	a.advStop = make(chan struct{})
 	_ = a.startAdvertise()
 	go a.watchAdvertise()
+	// Before the role check: a first-run setup records the server role later in
+	// this same process. engineBroken stays inert until setup is done.
+	go a.watchEngine()
 	if a.loadConfig().Role != roleServer {
 		return
 	}
@@ -34,7 +37,6 @@ func (a *App) startup(ctx context.Context) {
 	}()
 	go a.watchForCareUpdates()
 	go a.watchStorage()
-	go a.watchEngine()
 }
 
 const screenMargin = 80
