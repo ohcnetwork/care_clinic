@@ -1,6 +1,11 @@
 package prereq
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
+)
 
 func TestVMStuck(t *testing.T) {
 	up := func() bool { return true }
@@ -11,20 +16,23 @@ func TestVMStuck(t *testing.T) {
 		known   bool
 		windows bool
 		distro  func() bool
+		silent  time.Duration
 		want    bool
 	}{
-		{"error after a WSL update", "ERROR", true, true, down, true},
-		{"error on macOS", "ERROR", true, false, up, true},
-		{"starting is waited on", "STARTING", true, true, down, false},
-		{"stopping is waited on", "STOPPING", true, true, down, false},
-		{"started with its VM gone", "STARTED", true, true, down, true},
-		{"started and running", "STARTED", true, true, up, false},
-		{"no answer and no VM", "", false, true, down, true},
-		{"no answer but VM running", "", false, true, up, false},
-		{"stopped on macOS", "STOPPED", true, false, up, true},
-		{"no answer on macOS", "", false, false, up, false},
+		{"error after a WSL update", "ERROR", true, true, down, 0, true},
+		{"error on macOS", "ERROR", true, false, up, 0, true},
+		{"starting is waited on", "STARTING", true, true, down, 0, false},
+		{"stopping is waited on", "STOPPING", true, true, down, 0, false},
+		{"started with its VM gone", "STARTED", true, true, down, 0, true},
+		{"started and running", "STARTED", true, true, up, 0, false},
+		{"no answer yet while starting", "", false, true, down, 10 * time.Second, false},
+		{"stopped on Windows", "STOPPED", true, true, down, 0, true},
+		{"no answer but VM running", "", false, true, up, time.Hour, false},
+		{"stopped on macOS", "STOPPED", true, false, up, 0, true},
+		{"no answer on macOS", "", false, false, up, time.Hour, false},
+		{"silent past the grace with its VM gone", "", false, true, down, rancherSilenceGrace, true},
 	} {
-		if got := vmStuck(tc.state, tc.known, tc.windows, tc.distro); got != tc.want {
+		if got := vmStuck(tc.state, tc.known, tc.windows, tc.distro, tc.silent); got != tc.want {
 			t.Errorf("%s: vmStuck = %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -57,5 +65,31 @@ func TestDistroListedReadsWSLOutput(t *testing.T) {
 	}
 	if distroListed(nil, rancherDistro) {
 		t.Fatal("empty output listed a distribution")
+	}
+}
+
+func TestRancherIsNotLaunchedFromTheInstallFolder(t *testing.T) {
+	pr := NewProvisioner(proc.Runner{Dir: `C:\Users\someone\care-clinic\install`}, nil, nil)
+	if dir := pr.launcher().Dir; dir == pr.run.Dir || dir == "" {
+		t.Fatalf("Rancher would run from %q, keeping the install folder open", dir)
+	}
+}
+
+func TestSilenceTimesOnlyAnUnbrokenStretch(t *testing.T) {
+	var s silence
+	start := time.Now()
+	if got := s.observe(false, start); got != 0 {
+		t.Fatalf("first silence = %s, want 0", got)
+	}
+	if got := s.observe(false, start.Add(time.Minute)); got != time.Minute {
+		t.Fatalf("silence = %s, want 1m", got)
+	}
+	s.observe(true, start.Add(2*time.Minute))
+	if got := s.observe(false, start.Add(3*time.Minute)); got != 0 {
+		t.Fatalf("an answer did not restart the timer: %s", got)
+	}
+	s.reset()
+	if got := s.observe(false, start.Add(4*time.Minute)); got != 0 {
+		t.Fatalf("a launch did not restart the timer: %s", got)
 	}
 }
