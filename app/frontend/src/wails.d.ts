@@ -19,6 +19,7 @@ import type {
   DockerStatus,
   DownloadInfo,
   Health,
+  HomeAccess,
   ImportedBackup,
   NameStatus,
   NetworkStatus,
@@ -50,6 +51,9 @@ declare global {
           MDNSStatus(name: string): Promise<NameStatus>;
           NetworkStatus(): Promise<NetworkStatus>;
           FixNetwork(): Promise<void>;
+          HomeAccessStatus(): Promise<HomeAccess>;
+          EnableHomeAccess(): Promise<boolean>;
+          DisableHomeAccess(): Promise<void>;
           WSLStatus(): Promise<WSLStatus>;
           InstallWSL(): Promise<string>;
           DockerPlan(): Promise<ToolPlan>;

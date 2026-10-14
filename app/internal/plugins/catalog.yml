@@ -9,3 +9,17 @@
       meta:
         config:
           redirect_after_login: true
+- description: Lets files open and upload when CARE is reached from more than one address, such as the clinic network and home access.
+  default: true
+  add_to_existing: true
+  plugin:
+    id: care_multihost_files_be
+    label: Files on every address
+    backend:
+      name: care_multihost_files_be
+      package_name: git+https://github.com/ohcnetwork/care_multihost_files_be.git
+      version: "@main"
+      configs:
+        ALLOWED_HOSTS:
+          - "*.local"
+          - "*.ts.net"

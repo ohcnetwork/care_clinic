@@ -256,6 +256,9 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. Offline/isolated peers cannot be ruled out. |
 | `NetworkStatus()` | `NetworkStatus` | Query. Platform-specific networking inspection. |
 | `FixNetwork()` | `void` | Sync. Runs the native networking repair. |
+| `HomeAccessStatus()` | `HomeAccess` | Query. Installed server required. Reads Tailscale's status and serve configuration, and whether the clinic's loopback port answers. Takes no job lock. |
+| `EnableHomeAccess()` | `boolean` | Sync server job. Installed server required. Updates managed settings for home access, then serves the clinic on Tailscale HTTPS port 8443. Returns whether the clinic must restart for it to work. |
+| `DisableHomeAccess()` | `void` | Sync server job. Removes only CARE Clinic's own Tailscale serve handler. |
 | `WSLStatus()` | `WSLStatus` | Query. Windows-only; `applicable` is false elsewhere and the row is hidden. |
 | `InstallWSL()` | `string` | Sync. Turns on WSL 2. A non-empty result is the restart instruction, not an error. |
 | `DockerPlan()` | `ToolPlan` | Query. Describes the available Docker install/open/manual action. |
@@ -609,6 +612,7 @@ The core serialized shapes are:
 | `DockerStatus`, `NameStatus` | `ok`, `message`. |
 | `Health` | `active`, `code`, `detail`. |
 | `NetworkStatus`, `WSLStatus` | `applicable`, `ok`, `message`, `how`, `fixable`. |
+| `HomeAccess` | `installed`, `running`, `https`, `host`, `url`, `ip`, `enabled`, `conflict`, `detail`, `clinic_ready`. |
 | `ToolPlan` | `action`, `label`, `detail`, `url`, `download_preview`. |
 | `RestartPlan` | `needed`, `title`, `detail`, `label`. |
 | `ResidueReport` | `clean`, `traces`; each trace has `id`, `label`, `detail`. |
