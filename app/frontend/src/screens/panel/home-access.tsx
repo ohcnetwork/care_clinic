@@ -33,6 +33,7 @@ function view(status: HomeAccess | null, error: string): View {
     detail: "Install Tailscale on this computer and sign in with the clinic's Tailscale account. Only people you share this computer with can reach CARE.",
   };
   if (!status.running) return { badge: "Not connected", tone: "neutral", title: "Tailscale is not connected", detail: status.detail };
+  if (status.unknown) return { badge: "Couldn't check", tone: "danger", title: "Couldn't check home access", detail: status.detail };
   if (status.conflict) return { badge: "Needs attention", tone: "danger", title: "Tailscale is busy with something else", detail: status.detail };
   if (!status.https) return {
     badge: "One more step", tone: "neutral", title: "Turn on HTTPS in Tailscale",
@@ -113,10 +114,10 @@ export function HomeAccessCard({ locked }: { locked: boolean }) {
       {status && !status.installed ? <Button variant="primary" disabled={open.working} onClick={() => openURL(DOWNLOAD_URL)}>
         <ExternalLink aria-hidden="true" />Get Tailscale
       </Button> : null}
-      {status?.running && !status.https && !status.conflict ? <Button variant="primary" disabled={open.working} onClick={() => openURL(DNS_SETTINGS_URL)}>
+      {status?.running && !status.unknown && !status.https && !status.conflict ? <Button variant="primary" disabled={open.working} onClick={() => openURL(DNS_SETTINGS_URL)}>
         <ExternalLink aria-hidden="true" />Open Tailscale settings
       </Button> : null}
-      {status?.running && status.https && !status.conflict && !status.enabled ? <Button variant="primary" disabled={busy} onClick={enable}>
+      {status?.running && status.https && !status.unknown && !status.conflict && !status.enabled ? <Button variant="primary" disabled={busy} onClick={enable}>
         <Power aria-hidden="true" />Turn on home access
       </Button> : null}
       {status?.enabled ? <>

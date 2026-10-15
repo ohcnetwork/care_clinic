@@ -15,11 +15,12 @@ import (
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/atomicfile"
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/tailscale"
 )
 
 const HomePort = 8480
 
-const homeOrigin = "https://*.ts.net"
+var homeOrigin = fmt.Sprintf("https://*.ts.net:%d", tailscale.Port)
 
 func (e *Clinic) HomePortOpen() bool {
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(HomePort)), 2*time.Second)

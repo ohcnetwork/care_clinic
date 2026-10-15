@@ -30,6 +30,7 @@ type Status struct {
 	IP        string `json:"ip"`
 	Enabled   bool   `json:"enabled"`
 	Conflict  bool   `json:"conflict"`
+	Unknown   bool   `json:"unknown"`
 	Detail    string `json:"detail"`
 }
 
@@ -46,6 +47,8 @@ type serveConfig struct {
 	Web map[string]struct {
 		Handlers map[string]struct {
 			Proxy string
+			Path  string
+			Text  string
 		}
 	}
 }
@@ -136,6 +139,7 @@ func Check(run proc.Runner, target string) Status {
 	}
 	proxy, err := servedAt(run, cli, status.Host, Port)
 	if err != nil {
+		status.Unknown = true
 		status.Detail = "Couldn't read Tailscale's sharing settings. Open Tailscale and check that it is running."
 		return status
 	}
@@ -180,7 +184,13 @@ func rootProxy(out, host string, port int) (string, error) {
 			continue
 		}
 		if handler, ok := web.Handlers["/"]; ok {
-			return handler.Proxy, nil
+			switch {
+			case handler.Proxy != "":
+				return handler.Proxy, nil
+			case handler.Path != "":
+				return "path:" + handler.Path, nil
+			}
+			return "text", nil
 		}
 	}
 	return "", nil
@@ -189,7 +199,7 @@ func rootProxy(out, host string, port int) (string, error) {
 func Enable(run proc.Runner, target string) error {
 	status := Check(run, target)
 	switch {
-	case !status.Installed, !status.Running, !status.HTTPS, status.Conflict:
+	case !status.Installed, !status.Running, !status.HTTPS, status.Unknown, status.Conflict:
 		return errors.New(status.Detail)
 	case status.Enabled:
 		return nil

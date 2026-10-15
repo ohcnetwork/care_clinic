@@ -6,6 +6,11 @@
 		protocols h1 h2
 	}
 
+	servers :8480 {
+		protocols h1 h2
+		trusted_proxies static private_ranges
+	}
+
 	pki {
 		ca local {
 			name "CARE Clinic"
@@ -77,6 +82,7 @@ example.local:443 {
 }
 
 http://:8480 {
+	request_header X-Forwarded-Proto https
 	import site
 }
 

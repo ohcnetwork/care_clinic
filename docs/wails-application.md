@@ -257,8 +257,8 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `NetworkStatus()` | `NetworkStatus` | Query. Platform-specific networking inspection. |
 | `FixNetwork()` | `void` | Sync. Runs the native networking repair. |
 | `HomeAccessStatus()` | `HomeAccess` | Query. Installed server required. Reads Tailscale's status and serve configuration, and whether the clinic's loopback port answers. Takes no job lock. |
-| `EnableHomeAccess()` | `boolean` | Sync server job. Installed server required. Updates managed settings for home access, then serves the clinic on Tailscale HTTPS port 8443. Returns whether the clinic must restart for it to work. |
-| `DisableHomeAccess()` | `void` | Sync server job. Removes only CARE Clinic's own Tailscale serve handler. |
+| `EnableHomeAccess()` | `boolean` | Sync server job. Stable clinic required: refused while a plugin rollback or restore is unfinished. Serves the clinic on Tailscale HTTPS port 8443 first, then updates managed settings, so a failed serve leaves the settings unchanged. Returns whether the clinic must restart for it to work. |
+| `DisableHomeAccess()` | `void` | Sync server job. Stable clinic required. Removes only CARE Clinic's own Tailscale serve handler. |
 | `WSLStatus()` | `WSLStatus` | Query. Windows-only; `applicable` is false elsewhere and the row is hidden. |
 | `InstallWSL()` | `string` | Sync. Turns on WSL 2. A non-empty result is the restart instruction, not an error. |
 | `DockerPlan()` | `ToolPlan` | Query. Describes the available Docker install/open/manual action. |
@@ -612,7 +612,7 @@ The core serialized shapes are:
 | `DockerStatus`, `NameStatus` | `ok`, `message`. |
 | `Health` | `active`, `code`, `detail`. |
 | `NetworkStatus`, `WSLStatus` | `applicable`, `ok`, `message`, `how`, `fixable`. |
-| `HomeAccess` | `installed`, `running`, `https`, `host`, `url`, `ip`, `enabled`, `conflict`, `detail`, `clinic_ready`. |
+| `HomeAccess` | `installed`, `running`, `https`, `host`, `url`, `ip`, `enabled`, `conflict`, `unknown`, `detail`, `clinic_ready`. `unknown` means Tailscale's serve configuration couldn't be read; enabling is refused until it can. |
 | `ToolPlan` | `action`, `label`, `detail`, `url`, `download_preview`. |
 | `RestartPlan` | `needed`, `title`, `detail`, `label`. |
 | `ResidueReport` | `clean`, `traces`; each trace has `id`, `label`, `detail`. |

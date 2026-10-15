@@ -704,3 +704,20 @@ test("home access failure is readable and leaves the card usable", async ({ page
   await expect(card.getByRole("alert")).toContainText("Couldn't turn on home access");
   await expect(card.getByRole("button", { name: "Turn on home access", exact: true })).toBeEnabled();
 });
+
+test("home access says so when Tailscale's sharing settings can't be read", async ({ page }) => {
+  await openPanel(page);
+  await page.evaluate(() => Object.assign(window.careTest.fixtures.homeAccess, {
+    installed: true, running: true, https: true, host: "care.tail1234.ts.net", url: "https://care.tail1234.ts.net:8443/",
+    unknown: true, detail: "Couldn't read Tailscale's sharing settings. Open Tailscale and check that it is running.",
+  }));
+  const card = overview(page).getByRole("region", { name: "Home access", exact: true });
+  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(card.getByRole("heading", { name: "Couldn't check home access", exact: true })).toBeVisible();
+  await expect(card.getByText("Couldn't read Tailscale's sharing settings.", { exact: false })).toBeVisible();
+  await expect(card.getByRole("heading", { name: "Home access is off", exact: true })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Turn on home access", exact: true })).toHaveCount(0);
+  await page.evaluate(() => Object.assign(window.careTest.fixtures.homeAccess, { unknown: false, detail: "" }));
+  await card.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(card.getByRole("heading", { name: "Home access is off", exact: true })).toBeVisible();
+});

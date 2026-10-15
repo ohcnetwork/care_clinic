@@ -1,6 +1,10 @@
 package tailscale
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
@@ -19,6 +23,8 @@ func TestRootProxy(t *testing.T) {
 		{"other port", `{"Web":{"care.tail1234.ts.net:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3000"}}}}}`, ""},
 		{"sub path only", `{"Web":{"care.tail1234.ts.net:443":{"Handlers":{"/grafana":{"Proxy":"http://127.0.0.1:3000"}}}}}`, ""},
 		{"someone else", `{"Web":{"CARE.tail1234.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3000"}}}}}`, "http://127.0.0.1:3000"},
+		{"files", `{"Web":{"care.tail1234.ts.net:443":{"Handlers":{"/":{"Path":"/srv/share"}}}}}`, "path:/srv/share"},
+		{"text", `{"Web":{"care.tail1234.ts.net:443":{"Handlers":{"/":{"Text":"hello"}}}}}`, "text"},
 	}
 	for _, tc := range cases {
 		got, err := rootProxy(tc.out, host, 443)
@@ -58,5 +64,67 @@ func TestSignInDetail(t *testing.T) {
 		if signInDetail(state) == "" {
 			t.Errorf("no detail for %q", state)
 		}
+	}
+}
+
+func fakeCLI(t *testing.T, serveStatus string) (string, string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Tailscale command is a shell script")
+	}
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	script := filepath.Join(dir, "tailscale")
+	body := "#!/bin/sh\necho \"$*\" >> " + calls + "\n" +
+		"if [ \"$1\" = status ]; then echo '{\"BackendState\":\"Running\",\"CertDomains\":[\"care.tail1234.ts.net\"],\"Self\":{\"DNSName\":\"care.tail1234.ts.net.\",\"TailscaleIPs\":[\"100.64.0.1\"]}}'; exit 0; fi\n" +
+		"if [ \"$1 $2\" = \"serve status\" ]; then " + serveStatus + "; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	previous := findCLI
+	findCLI = func() string { return script }
+	t.Cleanup(func() { findCLI = previous })
+	return script, calls
+}
+
+func TestUnreadableServeStatusBlocksEnable(t *testing.T) {
+	_, calls := fakeCLI(t, "echo broken >&2; exit 1")
+	status := Check(proc.Runner{}, Target(8480))
+	if !status.Unknown || status.Enabled || status.Conflict || status.Detail == "" {
+		t.Fatalf("unexpected status %+v", status)
+	}
+	if err := Enable(proc.Runner{}, Target(8480)); err == nil {
+		t.Fatal("enable should refuse while the serve configuration is unknown")
+	}
+	log, _ := os.ReadFile(calls)
+	if strings.Contains(string(log), "--bg") {
+		t.Fatalf("serve configuration was changed: %s", log)
+	}
+}
+
+func TestExistingFileHandlerIsAConflict(t *testing.T) {
+	_, calls := fakeCLI(t, `echo '{"Web":{"care.tail1234.ts.net:8443":{"Handlers":{"/":{"Path":"/srv/share"}}}}}'; exit 0`)
+	status := Check(proc.Runner{}, Target(8480))
+	if !status.Conflict || status.Enabled {
+		t.Fatalf("unexpected status %+v", status)
+	}
+	if err := Enable(proc.Runner{}, Target(8480)); err == nil {
+		t.Fatal("enable should refuse to replace another handler")
+	}
+	log, _ := os.ReadFile(calls)
+	if strings.Contains(string(log), "--bg") {
+		t.Fatalf("serve configuration was changed: %s", log)
+	}
+}
+
+func TestEnableServesWhenFree(t *testing.T) {
+	_, calls := fakeCLI(t, "echo '{}'; exit 0")
+	if err := Enable(proc.Runner{}, Target(8480)); err != nil {
+		t.Fatal(err)
+	}
+	log, _ := os.ReadFile(calls)
+	if !strings.Contains(string(log), "serve --bg --yes --https=8443 http://127.0.0.1:8480") {
+		t.Fatalf("serve was not turned on: %s", log)
 	}
 }

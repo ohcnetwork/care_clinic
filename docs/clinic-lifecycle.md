@@ -707,7 +707,7 @@ flowchart LR
 | `/static/*`, `/ping/*`, `/health/*` | Proxy to the backend without the API-specific WAF block. |
 | Configured patient/facility bucket path prefixes | Proxy to `minio:9000` without exposing an object-storage host port. |
 | Remaining clinic site paths | Proxy to `frontend:80`. |
-| HTTP `:8480` | Home access. Published only on `127.0.0.1`, so only Tailscale on this computer reaches it. Imports normal site routing without bootstrap or TLS; Tailscale terminates HTTPS. See [Home access](home-access.md). |
+| HTTP `:8480` | Home access. Published only on `127.0.0.1`, so only Tailscale on this computer reaches it. Imports normal site routing without bootstrap or TLS; Tailscale terminates HTTPS. Only this listener trusts private-range proxies, and it sets `X-Forwarded-Proto: https` so CARE sees the scheme the doctor used. See [Home access](home-access.md). |
 | `localhost:443` | Dedicated internal-TLS site that proxies `/ping/*` to the backend for desktop health checks, not a second full clinical frontend. |
 
 The normal site enables gzip and removes the `Strict-Transport-Security`

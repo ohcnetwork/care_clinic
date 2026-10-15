@@ -124,7 +124,7 @@ export function installTestHost() {
     wsl: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     homeAccess: {
-      installed: false, running: false, https: false, host: "", url: "", ip: "", enabled: false, conflict: false,
+      installed: false, running: false, https: false, host: "", url: "", ip: "", enabled: false, conflict: false, unknown: false,
       detail: "Tailscale is not installed on this computer.", clinic_ready: true,
     },
     restart: { needed: false, title: "Restart Windows to finish", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
