@@ -17,7 +17,7 @@ func TestApplyHomeAccessSettingsMigratesManagedValues(t *testing.T) {
 	if got, want := readDomainFile(t, dir, "frontend.env"), "REACT_CARE_API_URL=\nREACT_TITLE=CARE\n"; got != want {
 		t.Errorf("frontend.env:\ngot  %q\nwant %q", got, want)
 	}
-	if got, want := readDomainFile(t, dir, "backend.env"), "DEBUG=False\r\nCSRF_TRUSTED_ORIGINS=[\"https://north.local\",\"https://*.ts.net\"]\r\nBUCKET_EXTERNAL_ENDPOINT=https://north.local\r\n"; got != want {
+	if got, want := readDomainFile(t, dir, "backend.env"), "DEBUG=False\r\nCSRF_TRUSTED_ORIGINS=[\"https://north.local\",\"https://*.ts.net:8443\"]\r\nBUCKET_EXTERNAL_ENDPOINT=https://north.local\r\n"; got != want {
 		t.Errorf("backend.env:\ngot  %q\nwant %q", got, want)
 	}
 	changed, err = e.ApplyHomeAccessSettings()
@@ -32,7 +32,7 @@ func TestApplyHomeAccessSettingsMigratesManagedValues(t *testing.T) {
 func TestApplyHomeAccessSettingsKeepsCustomValues(t *testing.T) {
 	dir := t.TempDir()
 	frontend := "REACT_CARE_API_URL=https://care.example.org\n"
-	backend := "CSRF_TRUSTED_ORIGINS='[\"https://north.local\",\"https://*.ts.net\"]'\n"
+	backend := "CSRF_TRUSTED_ORIGINS='[\"https://north.local\",\"https://*.ts.net:8443\"]'\n"
 	writeDomainFile(t, dir, "frontend.env", frontend)
 	writeDomainFile(t, dir, "backend.env", backend)
 	e := &Clinic{InstallDir: dir, MDNSName: "north"}
@@ -58,7 +58,7 @@ func TestApplyHomeAccessSettingsKeepsQuoting(t *testing.T) {
 	if _, err := e.ApplyHomeAccessSettings(); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := readDomainFile(t, dir, "backend.env"), "CSRF_TRUSTED_ORIGINS='[\"https://north.local\",\"https://*.ts.net\"]'\n"; got != want {
+	if got, want := readDomainFile(t, dir, "backend.env"), "CSRF_TRUSTED_ORIGINS='[\"https://north.local\",\"https://*.ts.net:8443\"]'\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

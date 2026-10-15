@@ -19,10 +19,10 @@ flowchart LR
 | Piece | Where | Why |
 | --- | --- | --- |
 | Loopback port `8480` | `deployments/docker-compose.yml` publishes `127.0.0.1:8480:8480` | Only this computer can reach it. The clinic Wi-Fi cannot, so it never offers CARE over plain HTTP to the LAN. |
-| `http://:8480` site | `deployments/Caddyfile`, `import site` | Serves the same routes as the `.local` site. TLS is handled by Tailscale. |
+| `http://:8480` site | `deployments/Caddyfile`, `import site` | Serves the same routes as the `.local` site. TLS is handled by Tailscale, so this listener alone trusts its local proxy (`trusted_proxies static private_ranges`) and sets `X-Forwarded-Proto: https`, so CARE builds `https` links and redirects. The LAN listeners still ignore a forwarded scheme sent by a client. |
 | `tailscale serve --bg --https=8443 http://127.0.0.1:8480` | [`internal/sys/tailscale`](../app/internal/sys/tailscale/tailscale.go) | Gives the computer a `*.ts.net` address with a certificate phones already trust, so doctors install no certificate. Port 8443, not 443: on macOS, Tailscale listens on the serve port on every address of the computer, so serving on 443 takes the port away from the clinic and `<clinic>.local` stops working. |
 | Empty `REACT_CARE_API_URL` | `deployments/frontend.env` | The CARE frontend calls the API on the address the page was opened from, so one build works as `<clinic>.local` and as the `ts.net` address. |
-| `https://*.ts.net` in `CSRF_TRUSTED_ORIGINS` | `deployments/backend.env` | Django admin forms work from the `ts.net` address. |
+| `https://*.ts.net:8443` in `CSRF_TRUSTED_ORIGINS` | `deployments/backend.env` | Django admin forms work from the `ts.net` address. Django matches the port too, so the origin must include `:8443`. |
 
 ## Existing clinics
 
@@ -32,7 +32,7 @@ origin. Turning on home access runs `ApplyHomeAccessSettings`
 ([`home_access.go`](../app/internal/clinic/home_access.go)), which:
 
 - clears `REACT_CARE_API_URL` only when it is exactly the clinic's own `.local` address;
-- appends `https://*.ts.net` to `CSRF_TRUSTED_ORIGINS` when it is a JSON list without it.
+- appends `https://*.ts.net:8443` to `CSRF_TRUSTED_ORIGINS` when it is a JSON list without it.
 
 Custom values are left alone. When anything changed, or the loopback port is
 not answering yet, `EnableHomeAccess` reports that a restart is needed and the
@@ -50,7 +50,16 @@ Tailscale admin console.
 
 CARE Clinic only ever changes the `/` handler on port 8443 that points at its
 own loopback port, and removes a port 443 handler pointing there that an early
-test build created. If something else is already served there, the card
+test build created. Any other `/` handler on port 8443, whether it proxies,
+serves files or serves text, is reported as a conflict and left alone. If
+Tailscale's serve configuration can't be read, the card says so and turning
+home access on is refused, rather than risking an overwrite.
+
+Turning home access on serves the clinic through Tailscale first, then updates
+the settings, so a failed attempt leaves the settings unchanged and a retry still
+restarts the clinic when it needs to. Both turning it on and off are refused
+while a plugin rollback or restore is unfinished, because recovery restores the
+earlier `backend.env`. If something else is already served there, the card
 reports a conflict and does not overwrite it. Uninstall turns home access off
 on a best-effort basis and logs, rather than fails, if Tailscale cannot be
 reached.

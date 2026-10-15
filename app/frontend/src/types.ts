@@ -20,6 +20,7 @@ export type HomeAccess = {
   ip: string;
   enabled: boolean;
   conflict: boolean;
+  unknown: boolean;
   detail: string;
   clinic_ready: boolean;
 };

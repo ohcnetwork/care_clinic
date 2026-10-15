@@ -23,26 +23,35 @@ func (a *App) HomeAccessStatus() (status HomeAccess, err error) {
 
 func (a *App) EnableHomeAccess() (restart bool, err error) {
 	err = a.withServerJob(func() error {
-		if err := a.requireSetup(); err != nil {
+		if err := a.requireStableClinic(); err != nil {
 			return err
 		}
 		e := a.engine()
-		changed, err := e.ApplyHomeAccessSettings()
-		if err != nil {
-			return err
+		restart, err = enableHomeAccess(e, func() error { return tailscale.Enable(e.Runner(), homeTarget()) })
+		if err == nil {
+			a.logln("Home access turned on through Tailscale.")
 		}
-		if err := tailscale.Enable(e.Runner(), homeTarget()); err != nil {
-			return err
-		}
-		a.logln("Home access turned on through Tailscale.")
-		restart = changed || !e.HomePortOpen()
-		return nil
+		return err
 	})
 	return restart, err
 }
 
+func enableHomeAccess(e *clinic.Clinic, serve func() error) (bool, error) {
+	if err := serve(); err != nil {
+		return false, err
+	}
+	changed, err := e.ApplyHomeAccessSettings()
+	if err != nil {
+		return false, err
+	}
+	return changed || !e.HomePortOpen(), nil
+}
+
 func (a *App) DisableHomeAccess() error {
 	return a.withServerJob(func() error {
+		if err := a.requireStableClinic(); err != nil {
+			return err
+		}
 		if err := tailscale.Disable(a.engine().Runner(), homeTarget()); err != nil {
 			return err
 		}
