@@ -1,7 +1,7 @@
 import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
   ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
-  CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
+  CarePlugin, Health, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
 } from "../../src/types";
 
 type Host = Window["go"]["main"]["App"];
@@ -15,7 +15,6 @@ type Fixtures = {
   git: DockerStatus;
   wsl: NetworkStatus;
   network: NetworkStatus;
-  homeAccess: HomeAccess;
   restart: RestartPlan;
   residue: ResidueReport;
   recovery: SetupRecoveryStatus;
@@ -123,10 +122,6 @@ export function installTestHost() {
     git: { ok: true, message: "" },
     wsl: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
-    homeAccess: {
-      installed: false, running: false, https: false, host: "", url: "", ip: "", enabled: false, conflict: false,
-      detail: "Tailscale is not installed on this computer.", clinic_ready: true,
-    },
     restart: { needed: false, title: "Restart Windows to finish", detail: "Save anything you have open. CARE Clinic opens again afterwards.", label: "Restart now" },
     residue: { clean: true, traces: [] },
     recovery: { backup_saved: false, backup_verified: false, codes_saved: false, backup_path: "", codes_path: "", backup_problem: "", codes_problem: "", backup_key_stored: false, backup_key_needs_enrollment: false },
@@ -376,14 +371,6 @@ export function installTestHost() {
     GitStatus: async () => ({ ...fixtures.git }),
     WSLStatus: async () => ({ ...fixtures.wsl }),
     NetworkStatus: async () => ({ ...fixtures.network }),
-    HomeAccessStatus: async () => { requireServer(); return { ...fixtures.homeAccess }; },
-    EnableHomeAccess: async () => {
-      requireServer();
-      if (!fixtures.homeAccess.running || !fixtures.homeAccess.https) throw new Error(fixtures.homeAccess.detail);
-      fixtures.homeAccess.enabled = true;
-      return !fixtures.homeAccess.clinic_ready;
-    },
-    DisableHomeAccess: async () => { requireServer(); fixtures.homeAccess.enabled = false; },
     DiskStatus: async () => ({ ...fixtures.disk }),
     MDNSStatus: async () => ({ ok: !fixtures.addressTaken, message: fixtures.addressTaken ? "care.local is already in use on this network (192.0.2.1)" : "" }),
     ScanResidue: async () => ({ ...fixtures.residue }),

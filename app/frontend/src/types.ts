@@ -11,18 +11,6 @@ export type NetworkStatus = {
   fixable: boolean;
 };
 export type WSLStatus = NetworkStatus;
-export type HomeAccess = {
-  installed: boolean;
-  running: boolean;
-  https: boolean;
-  host: string;
-  url: string;
-  ip: string;
-  enabled: boolean;
-  conflict: boolean;
-  detail: string;
-  clinic_ready: boolean;
-};
 export type Health = { active: boolean; code: number; detail: string };
 
 /** Whether this machine must restart before the prerequisites will work. */

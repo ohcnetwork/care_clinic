@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
@@ -28,7 +27,6 @@ func New(dir string) *Manager { return &Manager{Dir: dir} }
 const (
 	additionalPlugsKey = "ADDITIONAL_PLUGS"
 	listFile           = "plugins.json"
-	offeredFile        = "plugins-offered.json"
 	ManagedKey         = "managed_by"
 	ManagedValue       = "care-clinic"
 )
@@ -55,10 +53,9 @@ type Plugin struct {
 }
 
 type CatalogEntry struct {
-	Plugin        Plugin `json:"plugin"`
-	Description   string `json:"description,omitempty"`
-	Default       bool   `json:"default,omitempty"`
-	AddToExisting bool   `json:"add_to_existing,omitempty"`
+	Plugin      Plugin `json:"plugin"`
+	Description string `json:"description,omitempty"`
+	Default     bool   `json:"default,omitempty"`
 }
 
 //go:embed catalog.yml
@@ -136,120 +133,12 @@ func (m *Manager) InitializeDefaults() error {
 	for _, p := range list {
 		ids[p.ID] = true
 	}
-	offered := []string{}
 	for _, entry := range catalog {
-		if !entry.Default {
-			continue
-		}
-		offered = append(offered, entry.Plugin.ID)
-		if !ids[entry.Plugin.ID] {
+		if entry.Default && !ids[entry.Plugin.ID] {
 			list = append(list, entry.Plugin)
 		}
 	}
-	if err := m.SavePlugins(list); err != nil {
-		return err
-	}
-	return m.recordOffered(offered)
-}
-
-func (m *Manager) AddNewDefaults() ([]Plugin, error) {
-	if _, err := os.Stat(filepath.Join(m.Dir, pendingFile)); err == nil {
-		return nil, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	catalog, err := Catalog()
-	if err != nil {
-		return nil, err
-	}
-	offered, err := m.readOffered()
-	if err != nil {
-		return nil, err
-	}
-	var due []Plugin
-	for _, entry := range catalog {
-		if entry.Default && entry.AddToExisting && !offered[entry.Plugin.ID] {
-			due = append(due, entry.Plugin)
-		}
-	}
-	if len(due) == 0 {
-		return nil, nil
-	}
-	list, err := m.ReadPlugins()
-	if err != nil {
-		return nil, err
-	}
-	var added []Plugin
-	ids := make([]string, 0, len(due))
-	for _, p := range due {
-		ids = append(ids, p.ID)
-		if !installed(list, p) {
-			list = append(list, p)
-			added = append(added, p)
-		}
-	}
-	if len(added) > 0 {
-		if err := m.SavePlugins(list); err != nil {
-			return nil, err
-		}
-	}
-	return added, m.recordOffered(ids)
-}
-
-func installed(list []Plugin, p Plugin) bool {
-	for _, have := range list {
-		switch {
-		case have.ID == p.ID:
-			return true
-		case have.Backend != nil && p.Backend != nil && have.Backend.Name == p.Backend.Name:
-			return true
-		case have.Frontend != nil && p.Frontend != nil && have.Frontend.Slug == p.Frontend.Slug:
-			return true
-		}
-	}
-	return false
-}
-
-func (m *Manager) readOffered() (map[string]bool, error) {
-	b, err := os.ReadFile(filepath.Join(m.Dir, offeredFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return map[string]bool{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var ids []string
-	if err := json.Unmarshal(b, &ids); err != nil {
-		return nil, fmt.Errorf("%s is not valid JSON: %w", offeredFile, err)
-	}
-	offered := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		offered[id] = true
-	}
-	return offered, nil
-}
-
-func (m *Manager) recordOffered(ids []string) error {
-	offered, err := m.readOffered()
-	if err != nil {
-		return err
-	}
-	all := make([]string, 0, len(offered)+len(ids))
-	for id := range offered {
-		all = append(all, id)
-	}
-	for _, id := range ids {
-		if !offered[id] {
-			offered[id] = true
-			all = append(all, id)
-		}
-	}
-	sort.Strings(all)
-	b, err := json.Marshal(all)
-	if err != nil {
-		return err
-	}
-	return atomicfile.Write(filepath.Join(m.Dir, offeredFile), append(b, '\n'), 0o600)
+	return m.SavePlugins(list)
 }
 
 func (m *Manager) SavePlugins(list []Plugin) error {

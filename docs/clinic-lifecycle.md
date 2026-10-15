@@ -688,11 +688,6 @@ flowchart LR
     HTTPS --> OtherAPI["Static, ping, health: backend:9000"]
     HTTPS --> Buckets["Configured bucket paths: minio:9000"]
     HTTPS --> Web["Other paths: frontend:80"]
-    Tailscale["tailscale serve on this computer"] --> Home["Caddy TCP 8480, loopback only"]
-    Home --> API
-    Home --> OtherAPI
-    Home --> Buckets
-    Home --> Web
     Probe["Desktop HTTP probe"] --> Local["localhost:443"]
     Local --> Ping["Only ping path to backend:9000"]
 ```
@@ -707,7 +702,6 @@ flowchart LR
 | `/static/*`, `/ping/*`, `/health/*` | Proxy to the backend without the API-specific WAF block. |
 | Configured patient/facility bucket path prefixes | Proxy to `minio:9000` without exposing an object-storage host port. |
 | Remaining clinic site paths | Proxy to `frontend:80`. |
-| HTTP `:8480` | Home access. Published only on `127.0.0.1`, so only Tailscale on this computer reaches it. Imports normal site routing without bootstrap or TLS; Tailscale terminates HTTPS. See [Home access](home-access.md). |
 | `localhost:443` | Dedicated internal-TLS site that proxies `/ping/*` to the backend for desktop health checks, not a second full clinical frontend. |
 
 The normal site enables gzip and removes the `Strict-Transport-Security`

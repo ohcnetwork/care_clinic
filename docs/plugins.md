@@ -21,7 +21,7 @@ Staff browsers download a frontend plugin's bundle straight from its `url`. If t
 
 ## The catalog: `catalog.yml`
 
-[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. The catalog currently contains CARE Onboarding and [Files on every address](https://github.com/ohcnetwork/care_multihost_files_be) (`care_multihost_files_be`, which makes file links follow the address a request came in on; see [Home access](home-access.md)). Both are enabled by default for new clinic installations only. Custom plugins and previously saved plugins remain supported.
+[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. The catalog currently contains only CARE Onboarding, enabled by default for new clinic installations only. Custom plugins and previously saved plugins remain supported.
 
 ### Structure
 
@@ -52,8 +52,7 @@ The file is a YAML list. Each item is one catalog entry:
 | Field | Required | Meaning | Rules enforced on save |
 | --- | --- | --- | --- |
 | `description` | No | Subtitle in the panel. Not saved with the plugin. | None. |
-| `default` | No | Enable during new-clinic setup. Defaults to `false`; never auto-added on an ordinary read. | Boolean. |
-| `add_to_existing` | No | With `default: true`, also add the plugin once to clinics set up before it joined the catalog, the first time they start this CARE Clinic version. See [Defaults for existing clinics](#defaults-for-existing-clinics). | Boolean. |
+| `default` | No | Enable during new-clinic setup. Defaults to `false`; never auto-added on upgrade or an ordinary read. | Boolean. |
 | `plugin.id` | Yes | Identity of the plugin. Also how a saved plugin is matched back to its catalog entry. | Letters, numbers, `.`, `_`, `-`; unique. |
 | `plugin.label` | No | Display name, such as `CARE Onboarding`. Falls back to `id`. | Spaces allowed; surrounding whitespace trimmed. |
 | `plugin.backend` | One of `backend`/`frontend` | Present when the plugin has a Django part. | |
@@ -132,20 +131,7 @@ The saved list lives in `plugins.json` in the install directory, next to `backen
 
 When the file does not exist, `ReadPlugins` builds the list from `ADDITIONAL_PLUGS`. Each entry becomes a backend-only custom plugin. This carries over installations from before the file existed. The first successful apply keeps the new list file; a failed apply restores its absence.
 
-New-clinic `Clinic.Setup` calls `InitializeDefaults` before building images. If `plugins.json` is absent, it preserves those legacy backend entries, adds catalog entries marked `default: true` (without replacing an existing ID), persists the list, and records every default it offered in `plugins-offered.json`. If a list already exists, it is left untouched, including an empty list. Reads, restarts and rebuilds never initialize defaults. Existing clinics must explicitly add CARE Onboarding; removing it and saving keeps it removed.
-
-### Defaults for existing clinics
-
-A catalog entry with both `default: true` and `add_to_existing: true` also reaches clinics set up before it existed. On every start, after the installed kit is refreshed, `refreshInstallDir` calls `AddNewDefaults`, which:
-
-1. Does nothing while `plugins-pending.json` exists, so an unapplied draft cannot overwrite the addition. It tries again on the next start.
-2. Takes the `add_to_existing` defaults not yet listed in `plugins-offered.json`.
-3. Adds each one that is not already installed. A plugin counts as installed when an entry has the same ID, the same backend module, or the same frontend slug.
-4. Saves the list with `SavePlugins`, so `ADDITIONAL_PLUGS` gains the backend part, and records each entry as offered, whether it was added or was already there.
-
-Because the offer is recorded once, removing the plugin afterwards keeps it removed, and a new clinic is never offered the defaults it got at setup again. The plugin is built into the backend the next time CARE starts; a CARE Clinic upgrade already rebuilds the backend image, since the image fingerprint includes the app version. Startup skips this step, like the rest of the kit refresh, while a restore or plugin recovery is unfinished.
-
-`plugins-offered.json` is a sorted JSON list of catalog IDs, mode `0600`, written atomically. `Files on every address` (`care_multihost_files_be`) is the only entry that sets `add_to_existing`.
+New-clinic `Clinic.Setup` calls `InitializeDefaults` before building images. If `plugins.json` is absent, it preserves those legacy backend entries, adds catalog entries marked `default: true` (without replacing an existing ID), and persists the list. If a list already exists, it is left untouched, including an empty list. Reads, restarts, rebuilds and upgrades never initialize defaults. Existing clinics must explicitly add CARE Onboarding; removing it and saving keeps it removed.
 
 CARE Onboarding uses the hosted GitHub Pages remote with `{"config":{"redirect_after_login":true}}`. After normal login, it redirects a superuser from the home dashboard to setup only when no facility exists. The CARE frontend must be built with `UserDashboard` included in `REACT_MFE_REGISTERED_COMPONENTS`; the bundled frontend environment sets this for new installations. Existing installations must update their preserved frontend environment and rebuild the frontend. No CARE source changes or new backend endpoint are needed; see [facility setup](onboarding.md#care-compatibility-and-startup).
 

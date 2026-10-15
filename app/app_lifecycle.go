@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ohcnetwork/care_desktop/app/internal/plugins"
 	"github.com/ohcnetwork/care_desktop/app/internal/prereq"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 
@@ -103,13 +102,6 @@ func (a *App) refreshInstallDir() {
 		}
 		if err := a.syncInstallKit(); err != nil {
 			return err
-		}
-		added, err := plugins.New(a.engine().InstallDir).AddNewDefaults()
-		if err != nil {
-			return err
-		}
-		for _, p := range added {
-			a.logln("Added the " + p.Label + " plugin. It is installed the next time CARE starts.")
 		}
 		updated = true
 		return nil
