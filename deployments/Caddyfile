@@ -76,6 +76,10 @@ example.local:443 {
 	import site
 }
 
+http://:8480 {
+	import site
+}
+
 localhost:443 {
 	tls internal
 	reverse_proxy /ping/* backend:9000

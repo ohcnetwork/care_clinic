@@ -633,14 +633,32 @@ test("software downloads wait for a real size and remain single-flight", async (
   await expect(forward(page)).toBeDisabled();
   await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Working", "Waiting"]);
   await expect(page.locator(".on-data-row .on-bad")).toHaveCount(0);
+  await expect(page.getByText("Usually 5 to 15 minutes, depending on your internet speed.", { exact: true })).toBeVisible();
   await page.evaluate(() => window.careTest.emit("prereq-download-progress", { name: "Rancher Desktop", phase: "downloading", done: 2e6, total: 0 }));
   await expect(page.getByRole("progressbar", { name: "Rancher Desktop download progress" })).not.toHaveAttribute("aria-valuenow");
   await page.evaluate(() => window.careTest.release("InstallDocker"));
   await expect(forward(page)).toBeEnabled();
   await expect(page.getByRole("heading", { name: "Installing what CARE needs" })).toBeVisible();
   await expect(page.locator(".on-data-row .on-badge")).toHaveText(["Available", "Available"]);
+  await expect(page.getByText(/^Usually \d+ to \d+ minutes/)).toHaveCount(0);
   expect(await calls(page, "InstallGit")).toBe(1);
   expect(await calls(page, "RunSetup")).toBe(0);
+});
+
+test("installing WSL 2 shows how long it usually takes while it runs", async ({ page }) => {
+  await start(page, "&platform=windows");
+  await page.evaluate(() => {
+    window.careTest.fixtures.wsl.ok = false;
+    window.careTest.hold("InstallWSL");
+  });
+  await page.getByRole("button", { name: "Start setup" }).click();
+  await continueTo(page, "Getting Windows ready");
+  const estimate = page.getByText("This usually takes 5 to 10 minutes. Keep this window open.", { exact: true });
+  await expect(estimate).toHaveCount(0);
+  await page.getByRole("button", { name: "Install WSL 2", exact: true }).click();
+  await expect(estimate).toBeVisible();
+  await page.evaluate(() => window.careTest.release("InstallWSL"));
+  await expect(estimate).toHaveCount(0);
 });
 
 for (const [platform, tool, method] of [
@@ -770,6 +788,7 @@ test("cleanup requires the destructive button and verifies partial removal befor
   });
   await page.getByRole("button", { name: "Remove it all" }).click();
   await expect(page.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
+  await expect(page.getByText("This usually takes 1 to 3 minutes.", { exact: true })).toBeVisible();
   await page.evaluate(() => {
     window.careTest.fixtures.residue.traces = [{ id: "hosts", label: "The old clinic address and its certificate", detail: "" }];
     window.careTest.release("PurgeResidue");

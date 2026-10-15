@@ -11,6 +11,7 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/elevate"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/hosts"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/netfix"
+	"github.com/ohcnetwork/care_desktop/app/internal/sys/tailscale"
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/trust"
 )
 
@@ -63,6 +64,9 @@ func (e *Clinic) Uninstall(opts UninstallOptions) error {
 	}
 	for _, detail := range e.revertSystemChanges(rootPEM) {
 		failed = append(failed, errors.New(detail))
+	}
+	if err := tailscale.Disable(e.Runner(), tailscale.Target(HomePort)); err != nil {
+		e.logln("Couldn't turn off home access in Tailscale (" + err.Error() + "). Turn it off in Tailscale if it is still shared.")
 	}
 	if err := errors.Join(failed...); err != nil {
 		return err

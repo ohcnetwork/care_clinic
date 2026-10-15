@@ -58,6 +58,7 @@ install/
 |-- frontend.env
 |-- plugins.json
 |-- plugins-pending.json       # inactive draft, until apply consumes it
+|-- plugins-offered.json       # catalog defaults already offered to this clinic
 |-- plugin-recovery.json      # only while apply or recovery is unfinished
 |-- Caddyfile
 |-- backup.Dockerfile
@@ -196,7 +197,7 @@ This is why the commit a clinic currently runs is kept in `channel.lock` rather 
 
 Writes go through a process-wide mutex and a temporary file renamed into place, because the background check and an operator pressing "Install now" can reach the lock at the same time, and a half-written lock would lose the record of what the clinic is running.
 
-Facility setup lives in the [CARE Onboarding frontend plugin](onboarding.md); its assets are not bundled into the kit. Existing `plugins.json` choices are preserved and catalog defaults are initialized only during new-clinic setup.
+Facility setup lives in the [CARE Onboarding frontend plugin](onboarding.md); its assets are not bundled into the kit. Existing `plugins.json` choices are preserved. Catalog defaults are initialized during new-clinic setup; only entries marked `add_to_existing` are added to existing clinics, once, on start ([details](plugins.md#defaults-for-existing-clinics)).
 
 Refresh copies the current kit but is not a general recursive deletion or a migration framework for all generated files. Similarly, preserving environments means a new template key is not automatically merged into an existing environment.
 

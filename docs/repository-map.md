@@ -78,6 +78,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_update.go`](../app/app_update.go) | CARE branch-update status/check/dismiss, the background update watcher, and the GitHub-release desktop updater. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
 | [`app_selfupdate.go`](../app/app_selfupdate.go) | macOS bundle verification/replacement and post-exit reopening. | [Wails application](wails-application.md). |
 | [`app_status.go`](../app/app_status.go) | State/health/tool/network queries, provisioning controls, name/password/folder validation, pre-setup naming. | [Wails application](wails-application.md), [native integrations](native-integrations.md). |
+| [`app_home_access.go`](../app/app_home_access.go) | Home access bindings: Tailscale status, enable and disable. | [Home access](home-access.md). |
 | [`app_ui.go`](../app/app_ui.go) | Native URL/folder/log actions and login-startup controls. | [Wails application](wails-application.md). |
 | [`app_env.go`](../app/app_env.go) | Authorized reads and atomic writes of the two installed environment files. | [Configuration](configuration-and-settings.md). |
 | [`app_plugins.go`](../app/app_plugins.go) | Lifecycle-guarded, password-free plugin access through the domain manager. | [Plugins](plugins.md). |
@@ -233,7 +234,7 @@ app/internal/
 | [`internal/backup`](../app/internal/backup) | Backup inventory, recovery files/public certificates, decryption, staged replacement, journal recovery. | [Backups and restore](backups-and-restore.md). |
 | [`internal/compose`](../app/internal/compose) | Infrastructure and CARE image building, source checkout, freshness inputs. | [Clinic lifecycle](clinic-lifecycle.md). |
 | [`internal/health`](../app/internal/health) | HTTP readiness and port availability. | [Native integrations](native-integrations.md). |
-| [`internal/plugins`](../app/internal/plugins) | Active plugin list (`plugins.json`), inactive draft (`plugins-pending.json`), catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
+| [`internal/plugins`](../app/internal/plugins) | Active plugin list (`plugins.json`), inactive draft (`plugins-pending.json`), defaults already offered (`plugins-offered.json`), catalog, validation, derived `ADDITIONAL_PLUGS`, and frontend `PlugConfig` rows. | [Configuration](plugins.md). |
 | [`internal/prereq`](../app/internal/prereq) | Docker/Git detection, action plans, Rancher Desktop provisioning and preconfiguration, and readiness waits. | [Native integrations](native-integrations.md). |
 | [`internal/release`](../app/internal/release) | Validated release manifest and source/image identity. | [Development and release](development-and-release.md#release-identity-and-pins). |
 | [`internal/residue`](../app/internal/residue) | Owned-resource inventory, unknown-state errors, old kit location. | [Cleanup](cleanup-and-uninstall.md). |
@@ -247,6 +248,7 @@ app/internal/
 | [`sys/hosts`](../app/internal/sys/hosts) | Owned loopback hostname entries and verified removal. | [Native integrations](native-integrations.md). |
 | [`sys/trust`](../app/internal/sys/trust) | Root-CA trust, removal, and native client certificate bootstrap. | [Native integrations](native-integrations.md). |
 | [`sys/mdns`](../app/internal/sys/mdns) | LAN address selection, name advertisement, response probing. | [Native integrations](native-integrations.md). |
+| [`sys/tailscale`](../app/internal/sys/tailscale) | Tailscale CLI discovery, status, and CARE Clinic's own `tailscale serve` handler. | [Home access](home-access.md). |
 | [`sys/netfix`](../app/internal/sys/netfix) | Windows network profiles and application-owned firewall rules. | [Native integrations](native-integrations.md). |
 | [`sys/autostart`](../app/internal/sys/autostart) | Platform login-startup records. | [Native integrations](native-integrations.md). |
 | [`sys/reboot`](../app/internal/sys/reboot) | Restart requirement and restart request. | [Native integrations](native-integrations.md). |
@@ -259,6 +261,7 @@ The larger subsystem guides contain their own file tables. These smaller package
 | --- | --- |
 | [`plugins/plugins.go`](../app/internal/plugins/plugins.go) | `Plugin`, `Manager`, `Prepare`, `Catalog`, `FrontendRows`, dotenv/JSON read, safe variable replacement. |
 | [`plugins/pending.go`](../app/internal/plugins/pending.go), [`pending_test.go`](../app/internal/plugins/pending_test.go) | Private draft staging/consumption without changing active inputs, and persistence regressions. |
+| [`clinic/home_access.go`](../app/internal/clinic/home_access.go), [`home_access_test.go`](../app/internal/clinic/home_access_test.go) | Loopback home-access port and the one-time settings update for existing clinics. | [Home access](home-access.md). |
 | [`clinic/plugin_transaction.go`](../app/internal/clinic/plugin_transaction.go), [`plugin_transaction_test.go`](../app/internal/clinic/plugin_transaction_test.go) | Durable configuration/image/frontend-row rollback and injected failure/recovery regressions. |
 | [`clinic/plugin_health.go`](../app/internal/clinic/plugin_health.go), [`plugin_health_test.go`](../app/internal/clinic/plugin_health_test.go), [`plugin_live_check_test.go`](../app/internal/clinic/plugin_live_check_test.go) | Sustained container/endpoint readiness, Docker metadata compatibility, and opt-in read-only live checks. |
 | [`plugins/catalog.yml`](../app/internal/plugins/catalog.yml) | Embedded list of plugins offered in the panel. |

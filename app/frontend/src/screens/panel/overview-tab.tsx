@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { bridge } from "@/lib/bridge";
 import { diskSize } from "@/lib/format";
 import { RESTORE_PENDING_NOTICE, useCare } from "@/state/care-store";
+import { HomeAccessCard } from "./home-access";
 import { PhoneDialog } from "./phone-dialog";
 import { RequirementsCard, usePanelRequirements } from "./panel-requirements";
 import { backupFailureDetail, panelStatus } from "./panel-status";
@@ -136,6 +137,7 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
       </section>
       <BackupSummary locked={locked} available={status.available} onBackup={() => run("backup-now")} />
     </div>
+    <HomeAccessCard locked={locked} />
     {phoneOpen ? <PhoneDialog onClose={() => setPhoneOpen(false)} /> : null}
   </div>;
 }

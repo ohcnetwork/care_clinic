@@ -62,18 +62,30 @@ func TestExistingBackendPluginsAreReadWithoutAList(t *testing.T) {
 	}
 }
 
-func TestNewInstallDefaultsRegisterOnboarding(t *testing.T) {
+var multihostBackend = Backend{
+	Name:        "care_multihost_files_be",
+	PackageName: "git+https://github.com/ohcnetwork/care_multihost_files_be.git",
+	Version:     "@main",
+	Configs:     map[string]any{"ALLOWED_HOSTS": []any{"*.local", "*.ts.net"}},
+}
+
+func TestNewInstallDefaultsRegisterOnboardingAndMultihostFiles(t *testing.T) {
 	m := withEnv(t, "OTHER=value\n")
 	if err := m.InitializeDefaults(); err != nil {
 		t.Fatal(err)
 	}
 	list, err := m.ReadPlugins()
-	if err != nil || len(list) != 1 {
-		t.Fatalf("expected only onboarding by default: %#v, %v", list, err)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("expected onboarding and multihost files by default: %#v, %v", list, err)
 	}
 	p := list[0]
 	if p.ID != "care_onboarding_fe" || p.Label != "CARE Onboarding" || !p.Catalog || p.Backend != nil {
 		t.Fatalf("incorrect default plugin: %#v", p)
+	}
+	files := list[1]
+	if files.ID != "care_multihost_files_be" || !files.Catalog || files.Frontend != nil ||
+		files.Backend == nil || !reflect.DeepEqual(*files.Backend, multihostBackend) {
+		t.Fatalf("incorrect default plugin: %#v", files)
 	}
 	rows, err := m.FrontendRows()
 	if err != nil {
@@ -90,8 +102,8 @@ func TestNewInstallDefaultsRegisterOnboarding(t *testing.T) {
 	if !reflect.DeepEqual(rows, want) {
 		t.Fatalf("onboarding runtime configuration: %#v", rows)
 	}
-	if raw, err := m.AdditionalPlugs(); err != nil || raw != "" {
-		t.Fatalf("frontend default changed backend dependencies: %q, %v", raw, err)
+	if backends, err := m.readBackends(); err != nil || !reflect.DeepEqual(backends, []Backend{multihostBackend}) {
+		t.Fatalf("default backend dependencies: %#v, %v", backends, err)
 	}
 	if err := m.InitializeDefaults(); err != nil {
 		t.Fatal(err)
@@ -161,10 +173,10 @@ func TestDefaultInitializationPreservesBackendPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 	after, err := m.readBackends()
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("backend plugins changed: %#v, %v", after, err)
+	if err != nil || !reflect.DeepEqual(after, append(before, multihostBackend)) {
+		t.Fatalf("existing backend plugins were not kept ahead of the default: %#v, %v", after, err)
 	}
-	if got, err := m.ReadPlugins(); err != nil || len(got) != 2 {
+	if got, err := m.ReadPlugins(); err != nil || len(got) != 3 {
 		t.Fatalf("defaults not added alongside backend plugin: %#v, %v", got, err)
 	}
 }
@@ -268,13 +280,14 @@ func TestCatalogPluginsTakeSourcesFromTheCatalogAndKeepSettings(t *testing.T) {
 	}
 }
 
-func TestCatalogOnlyOffersOnboarding(t *testing.T) {
+func TestCatalogOffersOnboardingAndMultihostFiles(t *testing.T) {
 	catalog, err := Catalog()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 1 || catalog[0].Plugin.ID != "care_onboarding_fe" || !catalog[0].Default {
-		t.Fatalf("expected only onboarding, enabled by default: %#v", catalog)
+	if len(catalog) != 2 || catalog[0].Plugin.ID != "care_onboarding_fe" || !catalog[0].Default ||
+		catalog[1].Plugin.ID != "care_multihost_files_be" || !catalog[1].Default {
+		t.Fatalf("expected onboarding and multihost files, both enabled by default: %#v", catalog)
 	}
 }
 

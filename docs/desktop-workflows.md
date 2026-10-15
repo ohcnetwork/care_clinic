@@ -40,6 +40,11 @@ screen's time estimate is not a deadline or measured installation progress.
    Required software uses green **Available** and red **Needs setup** badges, with
    a plain-language description of what each program does.
    A failed check keeps an explanation, a fix where available, and **Check again**.
+   While a slow fix runs, one line gives a typical duration so the wait doesn't
+   look stuck: installing WSL 2 (5 to 10 minutes), Rancher Desktop or Docker (5 to
+   15 minutes, depending on internet speed), Git (5 to 10 minutes on macOS, 1 to
+   3 minutes elsewhere), and removing an earlier setup (1 to 3 minutes). These
+   are estimates, not measured progress.
    The free-space screen shows both the space needed and the amount available:
    green when sufficient, red when space needs freeing. CARE Clinic needs at least
    **30 GB** on the clinic data drive (`storage.InstallMinFree`); a separate settings
@@ -195,7 +200,7 @@ and [earlier-installation recovery](client-recovery.md).
 
 | Tab | What to use it for |
 | --- | --- |
-| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary and actionable problems. |
+| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary, home access and actionable problems. |
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
 | Updates | Separate CARE backend/frontend updates and CARE Clinic application updates. |
@@ -206,6 +211,12 @@ and [earlier-installation recovery](client-recovery.md).
 `http://<clinic>.local/setup`. Phones and tablets still need to follow their
 platform's certificate instructions; displaying or scanning the code is not
 proof that trust was installed.
+
+The **Home access** card lets doctors open CARE from home through Tailscale. It
+leads the manager through installing Tailscale, signing in and turning on HTTPS
+certificates, then offers **Turn on home access**, a **Doctor instructions**
+QR code for the `ts.net` address, **Share with a doctor** and **Turn off**. See
+[Home access](home-access.md).
 
 When two or fewer admin recovery codes remain, a persistent banner appears at
 the top of every control-panel tab. It shows the unused count, turns red at zero,

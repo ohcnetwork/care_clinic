@@ -84,6 +84,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
             It switches on two Windows features — Virtual Machine Platform and Windows Subsystem for Linux — then installs WSL 2. Windows will ask for permission and usually needs to restart afterwards.
             <div className="on-actions">{checks.windows.value?.restart.needed ? <Button variant="primary" disabled={busy} onClick={onRestart}>Restart now</Button>
               : checks.windows.value?.status.fixable ? <Button variant="primary" disabled={busy} onClick={() => onAction("windows")}>{tool ? <Spinner /> : null}{tool ? "Installing WSL 2…" : "Install WSL 2"}</Button> : null}{footer()}</div>
+            {tool ? <p className="on-small" role="status" style={{ marginTop: 8 }}>This usually takes 5 to 10 minutes. Keep this window open.</p> : null}
           </Callout></div> : null}
           <p className="on-small" style={{ marginTop: 18 }}>The other Windows change comes at Network profile — switching this network from Public to Private, so staff devices can reach the clinic.</p>
         </div>
@@ -105,6 +106,8 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
                     : download?.phase === "verifying" ? "Checking the downloaded file"
                     : download?.phase === "complete" ? "Downloaded — installing now"
                     : plan?.action === "open" ? "Starting — this can take a minute" : "Preparing the installation"}</p> : null}
+                  {active && plan?.action !== "open" ? <p className="on-small">{id === "docker" ? "Usually 5 to 15 minutes, depending on your internet speed."
+                    : platform === "darwin" ? "Usually 5 to 10 minutes." : "Usually 1 to 3 minutes."}</p> : null}
                   {active && download ? <Progress className="on-progress" aria-label={`${name} download progress`} value={download.total > 0 ? Math.max(0, Math.min(100, download.done / download.total * 100)) : null} /> : null}
                 </div>
                 <StatusBadge tone={tone}>{active ? "Working" : status?.ok ? "Available" : tool ? "Waiting" : "Needs setup"}</StatusBadge>
@@ -135,6 +138,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
           {!ready ? <><p>This deletes the earlier clinic's database and files from this computer and can't be undone. Backups that clinic made are kept.</p>
             <p className="on-small" style={{ marginTop: 8 }}>Any recovery materials saved during this setup will need to be saved again after removal. Your computer may ask for a password, fingerprint or PIN.</p>
             <div className="on-actions"><Button variant="destructive" disabled={busy} onClick={() => onAction("cleanup")}>{tool ? <Spinner /> : <Trash2 aria-hidden="true" />}{tool ? "Removing…" : cleanupBefore ? "Try again" : "Remove it all"}</Button></div>
+            {tool ? <p className="on-small" role="status" style={{ marginTop: 8 }}>This usually takes 1 to 3 minutes.</p> : null}
           </> : <p className="on-success">The check found no leftovers. Your backups have been kept.</p>}
         </div>
       ) : (

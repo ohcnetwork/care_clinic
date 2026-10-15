@@ -29,6 +29,7 @@ application's own user or API documentation.
 | [Development and release](development-and-release.md) | Local builds, embedded assets, release pins, CI, packaging, and changing the backend safely. |
 | [Releasing CARE Clinic](releases.md) | Preparing a version, how merging a version bump starts the release, reviewing and publishing the draft, signing limitations, and retrying safely. |
 | [Facility setup](onboarding.md) | The CARE Onboarding frontend plugin, enabled by default for new installations, and its CARE startup requirements. |
+| [Home access](home-access.md) | Letting doctors open CARE from home through Tailscale, without exposing the clinic to the internet. |
 
 For a first reading, follow the table from top to bottom. If you are fixing one behavior, use the task map below instead.
 
