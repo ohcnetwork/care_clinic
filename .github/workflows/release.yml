@@ -63,6 +63,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       sign_windows: ${{ steps.signpath.outputs.sign_windows }}
+      windows_signing: ${{ steps.signpath.outputs.windows_signing }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -120,9 +121,16 @@ jobs:
           case "${#configured[@]}" in
             0)
               echo "::warning::SignPath is not configured; the Windows installer will be unsigned."
-              echo "sign_windows=false" >> "$GITHUB_OUTPUT" ;;
+              echo "sign_windows=false" >> "$GITHUB_OUTPUT"
+              echo "windows_signing=unsigned" >> "$GITHUB_OUTPUT" ;;
             4)
-              echo "sign_windows=true" >> "$GITHUB_OUTPUT" ;;
+              echo "sign_windows=true" >> "$GITHUB_OUTPUT"
+              if [ "$POLICY_SLUG" = "test-signing" ]; then
+                echo "::warning::SignPath policy test-signing uses an untrusted test certificate; do not publish this release."
+                echo "windows_signing=signpath-test" >> "$GITHUB_OUTPUT"
+              else
+                echo "windows_signing=signpath-foundation" >> "$GITHUB_OUTPUT"
+              fi ;;
             *)
               echo "::error::SignPath is partly configured (${configured[*]}). Set the SIGNPATH_API_TOKEN secret and the SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG and SIGNPATH_SIGNING_POLICY_SLUG variables, or none of them."
               exit 1 ;;
@@ -265,12 +273,15 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          WINDOWS_SIGNING: ${{ needs.prepare.outputs.windows_signing }}
         run: |
+          $accepted = @('Valid')
+          if ($env:WINDOWS_SIGNING -eq 'signpath-test') { $accepted += 'UnknownError', 'NotTrusted' }
           $app = Join-Path $env:GITHUB_WORKSPACE "signed-app\CARE Clinic.exe"
           $uninstaller = Join-Path $env:GITHUB_WORKSPACE "signed-app\uninstall.exe"
           foreach ($file in @($app, $uninstaller)) {
             $signature = Get-AuthenticodeSignature $file
-            if ($signature.Status -ne 'Valid') { throw "$file signature is $($signature.Status): $($signature.StatusMessage)" }
+            if ($signature.Status -notin $accepted -or -not $signature.SignerCertificate) { throw "$file signature is $($signature.Status): $($signature.StatusMessage)" }
             "$file signed by $($signature.SignerCertificate.Subject)"
           }
           git diff --exit-code -- app/build/windows/installer/project.nsi
@@ -340,6 +351,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       SIGN_MACOS: ${{ secrets.MACOS_CERT_P12 != '' }}
       SIGN_WINDOWS: ${{ needs.prepare.outputs.sign_windows }}
+      WINDOWS_SIGNING: ${{ needs.prepare.outputs.windows_signing }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -471,7 +483,7 @@ jobs:
             configuration_sha256: hash("release-assets/release-config.env"),
             signing: {
               macos: process.env.SIGN_MACOS === "true" ? "developer-id-notarized" : "ad-hoc",
-              windows: process.env.SIGN_WINDOWS === "true" ? "signpath-foundation" : "unsigned",
+              windows: process.env.WINDOWS_SIGNING,
             },
             run_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
           };
@@ -498,7 +510,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.prepare.outputs.version }}
-      SIGN_WINDOWS: ${{ needs.prepare.outputs.sign_windows }}
+      WINDOWS_SIGNING: ${{ needs.prepare.outputs.windows_signing }}
     steps:
       - uses: actions/download-artifact@v8.0.1
         with:
@@ -528,11 +540,17 @@ jobs:
             gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
               -f "ref=refs/tags/$tag" -f "sha=$GITHUB_SHA"
           fi
-          if [ "$SIGN_WINDOWS" = "true" ]; then
-            windows_note="The Windows installer and application are signed with a certificate issued to SignPath Foundation (free code signing provided by SignPath.io)."
-          else
-            windows_note="Windows downloads are unsigned and may be blocked by SmartScreen."
-          fi
+          case "$WINDOWS_SIGNING" in
+            signpath-foundation)
+              windows_note="The Windows installer and application are signed with a certificate issued to SignPath Foundation (free code signing provided by SignPath.io)." ;;
+            signpath-test)
+              windows_note="**Test build: do not publish.** The Windows installer and application are signed with SignPath's untrusted test certificate." ;;
+            unsigned)
+              windows_note="Windows downloads are unsigned and may be blocked by SmartScreen." ;;
+            *)
+              echo "::error::Unknown Windows signing status '$WINDOWS_SIGNING'"
+              exit 1 ;;
+          esac
           cat > release-notes.md <<EOF
           ## CARE Clinic $VERSION
 
