@@ -17,6 +17,7 @@ import {
   AdvancedError, AdvancedLockProvider, AdvancedLogButton, AdvancedNotice, AdvancedSecretInput, advancedProblem, useAdvancedLock, type AdvancedProblem,
 } from "./advanced-ui";
 import { EnvEditor } from "./env-editor";
+import { ExportBackupRecovery } from "./export-backup-recovery";
 import { PanelPageHeader } from "./panel-ui";
 
 const UNLOCK_MS = 15 * 60 * 1000;
@@ -91,6 +92,7 @@ function AdvancedContent() {
       <AdminGate onUnlock={unlock} />
     </> : <>
       <AdminRecoverySettings adminPassword={adminPassword} onPasswordChanged={unlock} />
+      <ExportBackupRecovery adminPassword={adminPassword} />
       <EnvEditor adminPassword={adminPassword} groupId={groupId} onGroupChange={setGroupId} onWorkingChange={setWorking}
         pendingFiles={pendingSettings} onPendingFilesChange={setPendingSettings} onApplicationAccepted={() => setApplyingSettings(true)} />
       <>
@@ -163,7 +165,7 @@ export function AdminGate({ onUnlock }: { onUnlock: (password: string) => void }
   if (recovering) return <section className="advanced-card advanced-gate-recovery">
     <h2>Reset the CARE Clinic admin password</h2>
     <AdminPasswordForm onCancel={() => { setRecovering(false); setProblem(null); }} onSuccess={(next) => {
-      toast("CARE Clinic password reset. Mark that recovery code used. Your CARE web login is unchanged. Re-enroll a surviving backup PEM in Backups before using password-only key downloads.");
+      toast("CARE Clinic password reset. Mark that recovery code used. Your CARE web login is unchanged. Re-enroll a surviving backup PEM under Backup recovery key in Advanced before using password-only key downloads.");
       onUnlock(next);
     }} />
   </section>;

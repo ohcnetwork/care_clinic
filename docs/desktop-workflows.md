@@ -244,8 +244,13 @@ at a fixed nightly clock time. The displayed retention comes from the installed
 settings; zero means keep backups indefinitely. Start CARE before taking a
 manual backup.
 
-**Re-download backup key** asks for the current CARE Clinic admin password and saves
-another copy of the original recovery file. After installation or explicit
+The backup recovery key is re-downloaded from the Advanced tab, not Backups.
+Backups shows a **Backup recovery key** card whose **Open Advanced** button
+switches tabs; it cannot export anything. After Advanced is unlocked,
+**Re-download backup key** uses the unlocked CARE Clinic admin password, without
+a second prompt, and saves another copy of the original recovery file. If the
+password was changed since unlocking, the export is rejected and Advanced asks
+you to lock and unlock again. After installation or explicit
 enrollment, CARE can unlock its encrypted local copy without asking you to find
 the original file. For an older installation without a usable encrypted copy,
 use the tracked recovery file or **Select another saved copy** to enroll a
@@ -290,7 +295,8 @@ its values override the defaults. Email, SMS and MFA settings remain excluded.
 
 Click a category to expand its settings inline; click it again to collapse it,
 or choose another category to switch. The Advanced header, other categories,
-password/recovery tools, log and removal controls stay on the same page.
+password/recovery tools, backup recovery key, log and removal controls stay on
+the same page.
 Collapsing or switching with unsaved edits asks whether to keep editing or
 discard them; navigation never saves settings. Each expanded category contains
 its own save/discard controls and apply status.
