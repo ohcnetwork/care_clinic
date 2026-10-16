@@ -23,3 +23,18 @@
         ALLOWED_HOSTS:
           - "*.local"
           - "*.ts.net"
+- description: "AI scribe: Medispeak dictation that fills CARE forms. Needs a Medispeak API key and internet access; enable its frontend from CARE's plugin marketplace."
+  default: false
+  required_configs:
+    - MEDISPEAK_API_KEY
+    - MEDISPEAK_BASE_URL
+  plugin:
+    id: care_filly
+    label: Filly
+    backend:
+      name: care_filly
+      package_name: git+https://github.com/ohcnetwork/care_filly.git
+      version: "@develop"
+      configs:
+        MEDISPEAK_API_KEY: ""
+        MEDISPEAK_BASE_URL: ""

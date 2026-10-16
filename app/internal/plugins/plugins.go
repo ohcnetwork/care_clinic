@@ -55,10 +55,11 @@ type Plugin struct {
 }
 
 type CatalogEntry struct {
-	Plugin        Plugin `json:"plugin"`
-	Description   string `json:"description,omitempty"`
-	Default       bool   `json:"default,omitempty"`
-	AddToExisting bool   `json:"add_to_existing,omitempty"`
+	Plugin          Plugin   `json:"plugin"`
+	Description     string   `json:"description,omitempty"`
+	Default         bool     `json:"default,omitempty"`
+	AddToExisting   bool     `json:"add_to_existing,omitempty"`
+	RequiredConfigs []string `json:"required_configs,omitempty"`
 }
 
 //go:embed catalog.yml
@@ -305,9 +306,9 @@ func Prepare(list []Plugin) ([]Plugin, error) {
 	if err != nil {
 		return nil, err
 	}
-	byID := map[string]Plugin{}
+	byID := map[string]CatalogEntry{}
 	for _, e := range catalog {
-		byID[e.Plugin.ID] = e.Plugin
+		byID[e.Plugin.ID] = e
 	}
 	out := make([]Plugin, 0, len(list))
 	ids, modules, slugs := map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -316,7 +317,10 @@ func Prepare(list []Plugin) ([]Plugin, error) {
 		p.Label = strings.TrimSpace(p.Label)
 		if p.Catalog {
 			if entry, ok := byID[p.ID]; ok {
-				p = fromCatalog(p, entry)
+				p = fromCatalog(p, entry.Plugin)
+				if err := checkRequired(p, entry.RequiredConfigs); err != nil {
+					return nil, err
+				}
 			} else {
 				p.Catalog = false
 			}
@@ -362,6 +366,23 @@ func fromCatalog(p, entry Plugin) Plugin {
 		out.Frontend = &f
 	}
 	return out
+}
+
+func checkRequired(p Plugin, keys []string) error {
+	name := p.Label
+	if name == "" {
+		name = p.ID
+	}
+	for _, key := range keys {
+		var value any
+		if p.Backend != nil {
+			value = p.Backend.Configs[key]
+		}
+		if text, ok := value.(string); value == nil || (ok && strings.TrimSpace(text) == "") {
+			return fmt.Errorf("%s needs %s before it can be installed", name, key)
+		}
+	}
+	return nil
 }
 
 func check(p *Plugin) error {

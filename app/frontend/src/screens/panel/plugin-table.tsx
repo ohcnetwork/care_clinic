@@ -31,7 +31,7 @@ import type { CarePlugin, PluginCatalogEntry } from "@/types";
 
 import {
   catalogConflicts, emptyBackend, emptyFrontend, hasPluginProblems, pluginProblems,
-  pluginSnapshot, reconcileCatalog, serializePlugins, toPluginRow,
+  pluginSnapshot, reconcileCatalog, requiredConfig, secretConfig, serializePlugins, toPluginRow,
   type BackendDraft, type ConfigRow, type FrontendDraft, type PluginRow,
 } from "./plugin-model";
 import { PanelLogButton } from "./panel-ui";
@@ -175,7 +175,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
     [catalog],
   );
   const available = catalog.filter((entry) => !rows.some((row) => catalogConflicts(row, entry.plugin)));
-  const problems = useMemo(() => new Map(rows.map((row) => [row.uid, pluginProblems(row, rows)])), [rows]);
+  const problems = useMemo(() => new Map(rows.map((row) => [row.uid, pluginProblems(row, rows, catalog)])), [rows, catalog]);
   const invalid = [...problems.values()].some(hasPluginProblems);
 
   const changeRows = (change: (current: PluginRow[]) => PluginRow[]) => {
@@ -485,48 +485,56 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
                         </div>
                       ) : null}
                       <div className="flex flex-col gap-[7px]">
-                        {row.backend.configs.map((config, ci) => (
-                          <div key={ci} className="care-plugin-config-row">
-                            <Field id={field(`setting-${ci}-name`)} label={`Setting ${ci + 1} name`}
-                              className="care-plugin-config-name" hiddenLabel error={errors.configs[ci]}>
-                              <Input
-                                id={field(`setting-${ci}-name`)}
-                                className="h-9 rounded-[8px] px-[11px] font-mono text-[13px]"
-                                placeholder="SETTING_NAME"
-                                spellCheck={false}
-                                value={config.key}
-                                aria-invalid={Boolean(errors.configs[ci])}
-                                aria-describedby={errors.configs[ci] ? `${field(`setting-${ci}-name`)}-help` : undefined}
-                                onChange={(e) => patchConfig(row.uid, ci, { key: e.target.value })}
-                              />
-                            </Field>
-                            <Field id={field(`setting-${ci}-value`)} label={`Setting ${ci + 1} value`}
-                              className="care-plugin-config-value" hiddenLabel>
-                              <Input
-                                id={field(`setting-${ci}-value`)}
-                                className="h-9 rounded-[8px] px-[11px] text-[13px]"
-                                placeholder="value"
-                                spellCheck={false}
-                                autoComplete="off"
-                                value={config.value}
-                                onChange={(e) => patchConfig(row.uid, ci, { value: e.target.value })}
-                              />
-                            </Field>
-                            <Button
-                              type="button"
-                              size="icon"
-                              aria-label={`Remove setting ${ci + 1} from ${name}`}
-                              className="border-danger-line text-danger-ink hover:border-danger-line hover:bg-danger-bg hover:text-danger-ink"
-                              onClick={() =>
-                                patchBackend(row.uid, {
-                                  configs: row.backend!.configs.filter((_, i2) => i2 !== ci),
-                                })
-                              }
-                            >
-                              <span aria-hidden="true">×</span>
-                            </Button>
-                          </div>
-                        ))}
+                        {row.backend.configs.map((config, ci) => {
+                          const required = requiredConfig(row, catalog, ci);
+                          return (
+                            <div key={ci} className="care-plugin-config-row">
+                              <Field id={field(`setting-${ci}-name`)} label={`Setting ${ci + 1} name`}
+                                className="care-plugin-config-name" hiddenLabel error={errors.configs[ci]}>
+                                <Input
+                                  id={field(`setting-${ci}-name`)}
+                                  className="h-9 rounded-[8px] px-[11px] font-mono text-[13px]"
+                                  placeholder="SETTING_NAME"
+                                  spellCheck={false}
+                                  readOnly={required}
+                                  value={config.key}
+                                  aria-invalid={Boolean(errors.configs[ci])}
+                                  aria-describedby={errors.configs[ci] ? `${field(`setting-${ci}-name`)}-help` : undefined}
+                                  onChange={(e) => patchConfig(row.uid, ci, { key: e.target.value })}
+                                />
+                              </Field>
+                              <Field id={field(`setting-${ci}-value`)} label={`Setting ${ci + 1} value`}
+                                className="care-plugin-config-value" hiddenLabel error={errors.configValues[ci]}>
+                                <Input
+                                  id={field(`setting-${ci}-value`)}
+                                  type={required && secretConfig(config.key) ? "password" : undefined}
+                                  className="h-9 rounded-[8px] px-[11px] text-[13px]"
+                                  placeholder={required ? "required" : "value"}
+                                  spellCheck={false}
+                                  autoComplete="off"
+                                  value={config.value}
+                                  aria-required={required || undefined}
+                                  aria-invalid={Boolean(errors.configValues[ci])}
+                                  aria-describedby={errors.configValues[ci] ? `${field(`setting-${ci}-value`)}-help` : undefined}
+                                  onChange={(e) => patchConfig(row.uid, ci, { value: e.target.value })}
+                                />
+                              </Field>
+                              {required ? <span aria-hidden="true" className="care-plugin-config-spacer" /> : <Button
+                                type="button"
+                                size="icon"
+                                aria-label={`Remove setting ${ci + 1} from ${name}`}
+                                className="border-danger-line text-danger-ink hover:border-danger-line hover:bg-danger-bg hover:text-danger-ink"
+                                onClick={() =>
+                                  patchBackend(row.uid, {
+                                    configs: row.backend!.configs.filter((_, i2) => i2 !== ci),
+                                  })
+                                }
+                              >
+                                <span aria-hidden="true">×</span>
+                              </Button>}
+                            </div>
+                          );
+                        })}
                         <Button
                           type="button"
                           className="self-start"
