@@ -49,6 +49,9 @@ func (a *App) CheckCareUpdate() (err error) {
 	if err := a.requireSetup(); err != nil {
 		return err
 	}
+	if !a.careUpdateChecksOn() {
+		return errCareUpdateChecksOff
+	}
 	if !checking.CompareAndSwap(false, true) {
 		return nil
 	}
@@ -70,7 +73,7 @@ func (a *App) DismissCareUpdate() (err error) {
 }
 
 func (a *App) checkCareUpdate() {
-	if !a.updatesAllowed() {
+	if !a.careUpdateChecksOn() || !a.updatesAllowed() {
 		return
 	}
 	a.emit("care-check", CareCheck{Running: true})
@@ -81,7 +84,7 @@ func (a *App) checkCareUpdate() {
 		return
 	}
 	a.emit("care-check", CareCheck{Found: update.Any()})
-	if !update.Any() || !a.updatesAllowed() {
+	if !update.Any() || !a.updatesAllowed() || !a.careUpdateChecksOn() {
 		return
 	}
 	a.emit("care-update", CareUpdate{Backend: update.Backend, Frontend: update.Frontend})
@@ -112,13 +115,17 @@ const (
 	updateWarmup   = 30 * time.Second
 )
 
+func (a *App) careCheckDue() bool {
+	return a.careUpdateChecksOn() && a.updatesAllowed() && health.Ping().Active
+}
+
 func (a *App) watchForCareUpdates() {
 	for {
 		if a.updatesAbandoned() {
 			return
 		}
 		wait := updateWarmup
-		if a.updatesAllowed() && health.Ping().Active {
+		if a.careCheckDue() {
 			if checking.CompareAndSwap(false, true) {
 				a.checkCareUpdate()
 				checking.Store(false)
@@ -184,6 +191,9 @@ type ghRelease struct {
 func (a *App) CheckAppUpdate() (update AppUpdate, err error) {
 	defer a.logError(&err)
 	out := AppUpdate{Current: a.pins.AppVersion}
+	if !a.appUpdateChecksOn() {
+		return out, errAppUpdateChecksOff
+	}
 	rel, err := latestRelease()
 	if err != nil {
 		return out, err
@@ -200,6 +210,9 @@ func (a *App) CheckAppUpdate() (update AppUpdate, err error) {
 }
 
 func (a *App) InstallAppUpdate() error {
+	if !a.appUpdateChecksOn() {
+		return a.logged(errAppUpdateChecksOff)
+	}
 	return a.runJob(func() error {
 		rel, err := latestRelease()
 		if err != nil {

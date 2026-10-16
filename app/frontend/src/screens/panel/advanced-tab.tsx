@@ -18,6 +18,7 @@ import {
 } from "./advanced-ui";
 import { EnvEditor } from "./env-editor";
 import { PanelPageHeader } from "./panel-ui";
+import { UpdateCheckSettings } from "./update-checks";
 
 const UNLOCK_MS = 15 * 60 * 1000;
 
@@ -91,6 +92,7 @@ function AdvancedContent() {
       <AdminGate onUnlock={unlock} />
     </> : <>
       <AdminRecoverySettings adminPassword={adminPassword} onPasswordChanged={unlock} />
+      <UpdateCheckSettings adminPassword={adminPassword} />
       <EnvEditor adminPassword={adminPassword} groupId={groupId} onGroupChange={setGroupId} onWorkingChange={setWorking}
         pendingFiles={pendingSettings} onPendingFilesChange={setPendingSettings} onApplicationAccepted={() => setApplyingSettings(true)} />
       <>

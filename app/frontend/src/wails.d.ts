@@ -29,6 +29,7 @@ import type {
   SetupRecoveryStatus,
   StorageReport,
   ToolPlan,
+  UpdateChecks,
   WSLStatus,
 } from "./types";
 
@@ -129,6 +130,8 @@ declare global {
           DismissCareUpdate(): Promise<void>;
           CheckAppUpdate(): Promise<AppUpdate>;
           InstallAppUpdate(): Promise<void>;
+          GetUpdateChecks(): Promise<UpdateChecks>;
+          SetUpdateChecks(app: boolean, care: boolean, adminPassword: string): Promise<void>;
           SetQuitDialogReady(ready: boolean): Promise<QuitRequest | null>;
           RespondToQuit(id: number, quit: boolean): Promise<void>;
           SetConfirmationDialogReady(ready: boolean): Promise<ConfirmationRequest | null>;

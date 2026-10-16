@@ -27,6 +27,8 @@ type Clinic struct {
 	Confirm func(title, message string) bool
 	Abandon func() bool
 
+	HoldUpdates bool
+
 	localSetupOffered bool
 	ctx               context.Context
 	pluginBaseline    []pluginContainer
