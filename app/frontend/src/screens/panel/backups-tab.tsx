@@ -1,4 +1,4 @@
-import { Archive, Check, Clock3, Database, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
+import { Archive, Check, Clock3, Database, FileKey, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import { PanelPageHeader } from "./panel-ui";
 import { backupFailureDetail } from "./panel-status";
 import { usePanelUpdateLock } from "./panel-update-lock";
 import { RestoreBackupFile } from "./restore-backup-dialog";
-import { ExportBackupRecovery } from "./export-backup-recovery";
 import "./backups.css";
 
 export function BackupsTab() {
@@ -350,7 +349,14 @@ export function BackupsTab() {
         </section>
       )}
 
-      <ExportBackupRecovery disabled={disabled} />
+      <section className="care-backups-card care-backups-card-row" aria-label="Backup recovery key">
+        <span className="care-backups-icon"><FileKey aria-hidden="true" /></span>
+        <div className="care-backups-grow">
+          <h2>Backup recovery key</h2>
+          <p>Download the backup recovery key again from the Advanced tab, after entering the CARE Clinic admin password.</p>
+        </div>
+        <Button onClick={() => setTab("advanced")}>Open Advanced</Button>
+      </section>
       <RestoreBackupFile disabled={!!working || automaticRunning || folderLoading} />
     </div>
     </>

@@ -2,6 +2,7 @@ import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
   ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
   CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
+  UpdateChecks,
 } from "../../src/types";
 
 type Host = Window["go"]["main"]["App"];
@@ -48,6 +49,7 @@ type Fixtures = {
   rancherInstalled: boolean;
   appRemoved: boolean;
   setupStarted: boolean;
+  updateChecks: UpdateChecks;
 };
 
 declare global {
@@ -170,6 +172,10 @@ export function installTestHost() {
     rancherInstalled: true,
     appRemoved: false,
     setupStarted: false,
+    updateChecks: {
+      app: !(new URLSearchParams(location.search).get("checksOff") ?? "").split(",").includes("app"),
+      care: !(new URLSearchParams(location.search).get("checksOff") ?? "").split(",").includes("care"),
+    },
   };
   const recoveryCodeCount = new URLSearchParams(location.search).get("recoveryCodes");
   if (recoveryCodeCount !== null) {
@@ -445,7 +451,14 @@ export function installTestHost() {
     SetAutostart: async (value: boolean) => { fixtures.autostart = value; },
     WasAutostartLaunched: async () => false,
     CareUpdateStatus: async () => ({ ...fixtures.channel }),
+    GetUpdateChecks: async () => ({ ...fixtures.updateChecks }),
+    SetUpdateChecks: async (app: boolean, care: boolean, password: string) => {
+      requireServer();
+      if (!state.setup_done || password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
+      fixtures.updateChecks = { app, care };
+    },
     CheckCareUpdate: async () => {
+      if (!fixtures.updateChecks.care) throw new Error("CARE software update checks are turned off; an administrator can turn them back on in Advanced");
       emit("care-check", { running: true, found: false });
       window.setTimeout(() => {
         const update = { backend: fixtures.channel.pending_backend, frontend: fixtures.channel.pending_frontend };
@@ -630,12 +643,14 @@ export function installTestHost() {
       })();
     },
     CheckAppUpdate: async () => {
+      if (!fixtures.updateChecks.app) throw new Error("CARE Clinic app update checks are turned off; an administrator can turn them back on in Advanced");
       if (scenario === "offline") throw new Error("couldn't reach GitHub to check for updates: network is unreachable");
       if (scenario === "check-error") throw new Error("GitHub answered HTTP 403 for https://api.github.com");
       if (scenario === "unavailable") throw new Error("release 0.1.6 has no installer for this computer");
       return { ...update };
     },
     InstallAppUpdate: async () => {
+      if (!fixtures.updateChecks.app) throw new Error("CARE Clinic app update checks are turned off; an administrator can turn them back on in Advanced");
       if (updateRunning) throw new Error("something else is still running - wait for it to finish");
       updateRunning = true;
       // Fixture events only. No native updater, filesystem, or network is used.

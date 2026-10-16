@@ -98,7 +98,7 @@ export function AdminPasswordForm({
       Your CARE web login and backup recovery file won't change.</p>
     {recovering ? <AdvancedNotice title="Keep your off-device backup recovery PEM" tone="neutral">
       A code-based reset cannot unlock the local backup key encrypted with your forgotten password.
-      Password-only backup key downloads will require re-enrollment from a surviving PEM in Backups.
+      Password-only backup key downloads will require re-enrollment from a surviving PEM under Backup recovery key in Advanced.
       If every PEM is lost, do not reset until you have tried recovering your old password.
     </AdvancedNotice> : null}
     <fieldset disabled={locked}>

@@ -133,8 +133,12 @@ replaces the setup key and clears verification: select the new PEM before
 continuing. Cancellation or a failed save leaves the previous key active.
 Replacement is locked once installation starts.
 
-For an installed clinic, **Backups > Re-download backup key** requires the
-current CARE Clinic admin password. Once enrolled, it decrypts the encrypted local
+For an installed clinic, **Advanced > Backup recovery key > Re-download backup
+key** is available only after Advanced is unlocked with the current CARE Clinic
+admin password, and it uses that unlocked password without asking again. The
+Backups tab shows only a pointer card with **Open Advanced**; it cannot export
+the key. The native export still verifies the admin password itself, so a
+password changed elsewhere since unlocking is rejected. Once enrolled, it decrypts the encrypted local
 copy even if the original PEM has been deleted or disconnected. Existing
 installations without this copy need one successful export from their original
 saved PEM, or **Select another saved copy**. The dialog explains that this
@@ -270,7 +274,7 @@ the old password and envelope unchanged.
 **Forgot CARE Clinic password?**, using a recovery code, cannot decrypt the
 old-password envelope. The UI warns before resetting; reset preserves that
 ciphertext but marks password-only export as needing re-enrollment from a
-surviving PEM. The code consumption, password hash and enrollment flag are
+surviving PEM under **Advanced > Backup recovery key**. The code consumption, password hash and enrollment flag are
 saved together. Re-enrollment does not rotate the backup key. If every PEM is
 lost, try recovering the old password before resetting. Recovery codes do not
 decrypt or rewrap the local key.

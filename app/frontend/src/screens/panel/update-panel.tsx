@@ -17,19 +17,40 @@ function checkedTime(timestamp: number) {
 }
 
 export function UpdatePanel({ appUpdate }: { appUpdate: AppUpdateController }) {
+  const { tab, reloadUpdateChecks } = useCare();
+  useEffect(() => { if (tab === "updates") void reloadUpdateChecks(); }, [tab, reloadUpdateChecks]);
   return <div className="panel-page" aria-label="Updates">
     <PanelPageHeader title="Updates" subtitle="Keep CARE and CARE Clinic up to date." />
+    <UpdateChecksNotice />
     <CareSoftwareCard />
     <ClinicApplicationCard controller={appUpdate} />
     <div className="panel-update-foot">
-      <p className="panel-small panel-grow">Updates need internet. Your clinic records are kept.</p>
+      <p className="panel-small panel-grow">Updates need internet. Your clinic records are kept.
+        An administrator can turn update checks on or off in Advanced.</p>
       <PanelLogButton />
     </div>
   </div>;
 }
 
+function UpdateChecksNotice() {
+  const { updateChecks, setTab } = useCare();
+  const appOff = updateChecks?.app === false;
+  const careOff = updateChecks?.care === false;
+  if (!appOff && !careOff) return null;
+  const title = appOff && careOff ? "Update checks are turned off"
+    : appOff ? "CARE Clinic app update checks are turned off" : "CARE software update checks are turned off";
+  const detail = appOff && careOff ? "CARE Clinic won't look for new versions of CARE or of this app."
+    : appOff ? "CARE Clinic won't look for new versions of this app. CARE software updates still work."
+      : "CARE Clinic won't look for or install CARE software updates. CARE Clinic app updates still work.";
+  return <PanelNotice tone="warning" title={title}
+    actions={<Button onClick={() => setTab("advanced")}>Open Advanced</Button>}>
+    {detail} An administrator can turn them back on in Advanced.
+  </PanelNotice>;
+}
+
 function CareSoftwareCard() {
-  const { log, busy, busyLabel, restorePending, careUpdate, applyCareUpdate, dismissCareUpdate } = useCare();
+  const { log, busy, busyLabel, restorePending, careUpdate, applyCareUpdate, dismissCareUpdate, updateChecks, reloadUpdateChecks } = useCare();
+  const off = updateChecks?.care === false;
   const requirements = usePanelRequirements();
   const updateLock = usePanelUpdateLock();
   const [status, setStatus] = useState<ChannelStatus | null>(null);
@@ -86,7 +107,7 @@ function CareSoftwareCard() {
   }), [reload, log]);
 
   const check = async () => {
-    if (checkPending.current || busy || updateLock.isActive() || requirements.working || restorePending) return;
+    if (off || checkPending.current || busy || updateLock.isActive() || requirements.working || restorePending) return;
     checkPending.current = true;
     setChecking(true);
     setUpToDate(false);
@@ -98,7 +119,8 @@ function CareSoftwareCard() {
       log(`CARE update check: ${errorText(cause)}`);
       checkPending.current = false;
       setChecking(false);
-      setError("Couldn't start the update check. Try again, or open the log file for support.");
+      if (/update checks are turned off/i.test(errorText(cause))) void reloadUpdateChecks();
+      else setError("Couldn't start the update check. Try again, or open the log file for support.");
     }
   };
   const later = async () => {
@@ -109,25 +131,28 @@ function CareSoftwareCard() {
     if (locked || updateLock.isActive()) return;
     void action.run(applyCareUpdate, "Couldn't start the CARE update. Try again, or open the log file for support.");
   };
-  const pending = !!(careUpdate?.backend || careUpdate?.frontend || status?.pending_backend || status?.pending_frontend);
+  const pending = !off && !!(careUpdate?.backend || careUpdate?.frontend || status?.pending_backend || status?.pending_frontend);
   const backendUpdate = !!(careUpdate?.backend || status?.pending_backend);
   const applying = busy && busyLabel === "Updating CARE";
   const locked = busy || updateLock.active || requirements.working || restorePending || action.working;
+  const failed = !off && !!error;
 
   return <section className="panel-card panel-card-pad panel-update-card" aria-label="CARE software">
     <div className="panel-update-head">
       <span className="panel-tile"><Stethoscope aria-hidden="true" /></span>
       <div className="panel-grow">
         <h2 className="panel-title">CARE software</h2>
-        <p className="panel-card-sub">{checking ? "Checking for updates…"
-          : checkedAt ? `Checked at ${checkedTime(checkedAt)} · Updates are prepared in the background.`
-            : "Updates are prepared in the background."}</p>
+        <p className="panel-card-sub">{off ? "Update checks are turned off in Advanced."
+          : checking ? "Checking for updates…"
+            : checkedAt ? `Checked at ${checkedTime(checkedAt)} · Updates are prepared in the background.`
+              : "Updates are prepared in the background."}</p>
       </div>
-      <PanelBadge tone={error ? "warning" : pending || upToDate ? "ok" : "neutral"} working={checking || applying || loading}>
-        {applying ? "Installing" : checking ? "Checking…" : error ? "Couldn't check"
-          : pending ? "Ready to install" : upToDate ? "Up to date" : loading ? "Checking status…" : "Not checked yet"}
-      </PanelBadge>
-      <Button aria-label="Check CARE software updates" disabled={checking || locked} onClick={() => void check()}>Check now</Button>
+      {off && !applying ? <PanelBadge>Checks off</PanelBadge>
+        : <PanelBadge tone={error ? "warning" : pending || upToDate ? "ok" : "neutral"} working={checking || applying || loading}>
+          {applying ? "Installing" : checking ? "Checking…" : error ? "Couldn't check"
+            : pending ? "Ready to install" : upToDate ? "Up to date" : loading ? "Checking status…" : "Not checked yet"}
+        </PanelBadge>}
+      {!off ? <Button aria-label="Check CARE software updates" disabled={checking || locked} onClick={() => void check()}>Check now</Button> : null}
     </div>
     {applying ? <div className="panel-update-progress" role="status">
       <h3>Installing the CARE software update…</h3>
@@ -142,19 +167,19 @@ function CareSoftwareCard() {
           <Download aria-hidden="true" />Install now
         </Button>
       </div>
-    </PanelNotice> : checking ? <p className="panel-small" role="status">
+    </PanelNotice> : checking && !off ? <p className="panel-small" role="status">
       Anything found is prepared in the background. You can keep using the clinic while this runs.
     </p> : null}
-    {error || action.error ? <PanelNotice title={error ? "Couldn't check for updates" : "Couldn't finish that"} tone="warning"
-      actions={<><Button disabled={checking || locked} onClick={() => void check()}><RefreshCw aria-hidden="true" />Try again</Button><PanelLogButton /></>}>
-      {error || action.error}
+    {failed || action.error ? <PanelNotice title={failed ? "Couldn't check for updates" : "Couldn't finish that"} tone="warning"
+      actions={<>{!off ? <Button disabled={checking || locked} onClick={() => void check()}><RefreshCw aria-hidden="true" />Try again</Button> : null}<PanelLogButton /></>}>
+      {failed ? error : action.error}
     </PanelNotice> : null}
   </section>;
 }
 
 function ClinicApplicationCard({ controller }: { controller: AppUpdateController }) {
   const { system } = useCare();
-  const { update, version, checking, problem, progress, active, disabled, check, install } = controller;
+  const { update, version, checking, problem, progress, active, disabled, check, install, off } = controller;
   const action = usePanelTask();
   const [checkedAt, setCheckedAt] = useState(0);
   useEffect(() => { if (update) setCheckedAt(Date.now()); }, [update]);
@@ -185,13 +210,14 @@ function ClinicApplicationCard({ controller }: { controller: AppUpdateController
       <div className="panel-grow">
         <h2 className="panel-title">CARE Clinic application</h2>
         <p className="panel-card-sub">{version ? `Version ${version}` : "Checking the application version…"}
-          {checkedAt ? ` · Checked at ${checkedTime(checkedAt)}` : ""}</p>
+          {off ? " · Update checks are turned off in Advanced." : checkedAt ? ` · Checked at ${checkedTime(checkedAt)}` : ""}</p>
       </div>
-      <PanelBadge tone={problem ? "warning" : update ? "ok" : "neutral"} working={checking || active}>
-        {active ? "Updating" : checking ? "Checking…" : problem ? "Needs attention"
-          : update?.available ? `${update.version} available` : update ? "Up to date" : "Not checked yet"}
-      </PanelBadge>
-      {!active ? <Button aria-label="Check CARE Clinic updates" disabled={checking || disabled} onClick={() => void check()}>Check now</Button> : null}
+      {off && !active ? <PanelBadge>Checks off</PanelBadge>
+        : <PanelBadge tone={problem ? "warning" : update ? "ok" : "neutral"} working={checking || active}>
+          {active ? "Updating" : checking ? "Checking…" : problem ? "Needs attention"
+            : update?.available ? `${update.version} available` : update ? "Up to date" : "Not checked yet"}
+        </PanelBadge>}
+      {!active && !off ? <Button aria-label="Check CARE Clinic updates" disabled={checking || disabled} onClick={() => void check()}>Check now</Button> : null}
     </div>
     {active ? <div className="panel-update-progress" role="status" aria-live="polite">
       <h3>{phaseTitle}</h3>
@@ -206,7 +232,7 @@ function ClinicApplicationCard({ controller }: { controller: AppUpdateController
           : "Keep CARE Clinic open. Your computer may ask for permission to replace the app."}</p>
       {system === "running" ? <p className="panel-small">The clinic keeps running while CARE Clinic updates.</p> : null}
       {phase === "installer" ? <Button disabled={controller.updating} onClick={controller.dismiss}>Done</Button> : null}
-    </div> : problem ? <PanelNotice title={problemTitle} tone={problem.kind === "download" || problem.kind === "install" ? "danger" : "warning"}
+    </div> : off ? null : problem ? <PanelNotice title={problemTitle} tone={problem.kind === "download" || problem.kind === "install" ? "danger" : "warning"}
       actions={<>
         {problem.kind !== "unavailable" ? <Button disabled={disabled || checking}
           onClick={() => void (problem.kind === "download" || problem.kind === "install" ? install() : check())}>Try again</Button> : null}

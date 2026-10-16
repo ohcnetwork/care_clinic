@@ -244,7 +244,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     await screenshot(page, `advanced-overview-${size.width}x${size.height}`);
     for (const entry of GROUPS) {
       await group(page, entry.title);
-      await expect(root(page).locator(".advanced-setting")).toHaveCount(entry.settings.length);
+      await expect(root(page).locator(".advanced-settings-card .advanced-setting")).toHaveCount(entry.settings.length);
       await fits(page);
       await root(page).locator(`[data-advanced-group="${entry.id}"]`).click();
     }
@@ -611,12 +611,12 @@ test("changing the CARE Clinic password doesn't reset the web login or replace r
     window.careTest.fixtures.recoveryFile = "";
     window.careTest.fixtures.recovery.backup_path = "";
   });
-  await page.getByRole("button", { name: "Backups", exact: true }).click();
-  await page.getByRole("button", { name: "Re-download backup key", exact: true }).click();
-  await dialog(page).getByLabel("CARE Clinic admin password", { exact: true }).fill(nextPassword);
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await expect(dialog(page).getByLabel("CARE Clinic admin password", { exact: true })).toHaveCount(0);
   await dialog(page).getByRole("button", { name: "Choose where to save", exact: true }).click();
   await expect(dialog(page)).toBeHidden();
-  expect(await count(page, "ExportBackupRecovery")).toBe(1);
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ExportBackupRecovery").map((call) => call.args)))
+    .toEqual([[nextPassword, ""]]);
 });
 
 test("replacement-code cancellation keeps the previous codes valid", async ({ page }) => {
@@ -831,8 +831,23 @@ test("Advanced unlock expires and removes sensitive drafts without starting an o
   await expect(root(page)).toContainText("Advanced has locked");
   await expect(root(page).getByLabel("CARE Clinic admin password", { exact: true })).toHaveValue("");
   await expect(page.getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Re-download backup key", exact: true })).toHaveCount(0);
   expect(await count(page, "WriteEnv")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
+});
+
+test("the backup recovery key card is only available after unlocking Advanced", async ({ page }) => {
+  await openAdvanced(page);
+  await expect(page.getByRole("button", { name: "Re-download backup key", exact: true })).toHaveCount(0);
+  await unlock(page);
+  const card = root(page).getByRole("region", { name: "Backup recovery key" });
+  await expect(card.getByRole("button", { name: "Re-download backup key", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await expect(dialog(page)).toContainText("the original PEM is not needed");
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await root(page).getByRole("button", { name: "Lock Advanced settings" }).click();
+  await expect(page.getByRole("button", { name: "Re-download backup key", exact: true })).toHaveCount(0);
+  expect(await count(page, "ExportBackupRecovery")).toBe(0);
 });
 
 test("Windows installed-clinic removal requires Desktop authentication and a separate confirmation", async ({ page }) => {

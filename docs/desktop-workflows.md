@@ -200,9 +200,10 @@ and [earlier-installation recovery](client-recovery.md).
 
 | Tab | What to use it for |
 | --- | --- |
-| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary, home access and actionable problems. |
+| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary and actionable problems. |
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
+| Home access | Tailscale setup, turning home access on or off and doctor sharing. |
 | Updates | Separate CARE backend/frontend updates and CARE Clinic application updates. |
 | Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No CARE Clinic password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
 | Advanced | Ten everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
@@ -212,7 +213,7 @@ and [earlier-installation recovery](client-recovery.md).
 platform's certificate instructions; displaying or scanning the code is not
 proof that trust was installed.
 
-The **Home access** card lets doctors open CARE from home through Tailscale. It
+The **Home access** tab lets doctors open CARE from home through Tailscale. It
 leads the manager through installing Tailscale, signing in and turning on HTTPS
 certificates, then offers **Turn on home access**, a **Doctor instructions**
 QR code for the `ts.net` address, **Share with a doctor** and **Turn off**. See
@@ -243,8 +244,13 @@ at a fixed nightly clock time. The displayed retention comes from the installed
 settings; zero means keep backups indefinitely. Start CARE before taking a
 manual backup.
 
-**Re-download backup key** asks for the current CARE Clinic admin password and saves
-another copy of the original recovery file. After installation or explicit
+The backup recovery key is re-downloaded from the Advanced tab, not Backups.
+Backups shows a **Backup recovery key** card whose **Open Advanced** button
+switches tabs; it cannot export anything. After Advanced is unlocked,
+**Re-download backup key** uses the unlocked CARE Clinic admin password, without
+a second prompt, and saves another copy of the original recovery file. If the
+password was changed since unlocking, the export is rejected and Advanced asks
+you to lock and unlock again. After installation or explicit
 enrollment, CARE can unlock its encrypted local copy without asking you to find
 the original file. For an older installation without a usable encrypted copy,
 use the tracked recovery file or **Select another saved copy** to enroll a
@@ -289,7 +295,8 @@ its values override the defaults. Email, SMS and MFA settings remain excluded.
 
 Click a category to expand its settings inline; click it again to collapse it,
 or choose another category to switch. The Advanced header, other categories,
-password/recovery tools, log and removal controls stay on the same page.
+password/recovery tools, backup recovery key, log and removal controls stay on
+the same page.
 Collapsing or switching with unsaved edits asks whether to keep editing or
 discard them; navigation never saves settings. Each expanded category contains
 its own save/discard controls and apply status.

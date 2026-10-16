@@ -82,6 +82,11 @@ func (e *Clinic) applyStagedUpdate() error {
 	if !waiting.Any() {
 		return nil
 	}
+	if e.HoldUpdates {
+		e.logln("A CARE update is ready, but CARE software update checks are turned off, so it was not applied. " +
+			"Turn them back on in Advanced to install it.")
+		return nil
+	}
 	if !e.Backups().BackupEncryptionOn() {
 		e.logln("A CARE update is ready, but this install cannot write encrypted backups, " +
 			"so it was not applied. Recover the backup encryption certificate before applying updates.")

@@ -88,11 +88,15 @@ export function reconcileCatalog(row: PluginRow, catalog: PluginCatalogEntry[]):
   const entry = catalog.find((entry) => entry.plugin.id === row.id.trim());
   if (!entry) return { ...row, catalog: false };
   const current = toPluginRow(entry.plugin, row.uid);
+  const configs = row.backend?.configs ?? current.backend?.configs ?? [];
+  const missing = (entry.required_configs ?? [])
+    .filter((key) => !configs.some((config) => config.key.trim() === key))
+    .map((key) => ({ key, value: "" }));
   return {
     ...current,
     catalog: true,
     backend: current.backend ? {
-      ...current.backend, configs: row.backend?.configs ?? current.backend.configs,
+      ...current.backend, configs: missing.length ? [...configs, ...missing] : configs,
     } : null,
     frontend: current.frontend ? {
       ...current.frontend, metaText: row.frontend?.metaText ?? current.frontend.metaText,
@@ -166,7 +170,18 @@ function metaProblem(text: string): string | undefined {
     ? "Set the frontend URL in its own field, not in these settings." : undefined;
 }
 
-export function pluginProblems(row: PluginRow, rows: PluginRow[]) {
+export function requiredConfig(row: PluginRow, catalog: PluginCatalogEntry[], index: number): boolean {
+  if (!row.catalog || !row.backend) return false;
+  const required = catalog.find((entry) => entry.plugin.id === row.id.trim())?.required_configs ?? [];
+  const key = row.backend.configs[index]?.key.trim() ?? "";
+  return required.includes(key) && row.backend.configs.findIndex((config) => config.key.trim() === key) === index;
+}
+
+export function secretConfig(key: string): boolean {
+  return /(_API_KEY|_SECRET|_TOKEN)$/.test(key.trim());
+}
+
+export function pluginProblems(row: PluginRow, rows: PluginRow[], catalog: PluginCatalogEntry[] = []) {
   const id = row.id.trim();
   const module = row.backend?.name.trim() ?? "";
   const slug = row.frontend?.slug.trim() ?? "";
@@ -179,6 +194,10 @@ export function pluginProblems(row: PluginRow, rows: PluginRow[]) {
     }
     return undefined;
   }) ?? [];
+  const name = row.label.trim() || id;
+  const configValues = row.backend?.configs.map((config, index) =>
+    requiredConfig(row, catalog, index) && !config.value.trim()
+      ? `Enter a value; ${name} needs this setting.` : undefined) ?? [];
 
   return {
     id: !id ? "Enter a plugin ID."
@@ -201,6 +220,7 @@ export function pluginProblems(row: PluginRow, rows: PluginRow[]) {
       ? "Enter a full http:// or https:// URL with a host." : undefined,
     meta: row.frontend ? metaProblem(row.frontend.metaText) : undefined,
     configs,
+    configValues,
   };
 }
 
