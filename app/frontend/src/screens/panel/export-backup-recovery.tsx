@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { bridge, onCareEvent } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
-import { AdvancedSecretInput } from "./advanced-ui";
+import { AdvancedNotice, useAdvancedLock } from "./advanced-ui";
 import { BackupNotice } from "./backup-ui";
 import { usePanelUpdateLock } from "./panel-update-lock";
 
 function exportProblem(cause: unknown): string {
   const detail = errorText(cause);
-  if (/admin password does not match/i.test(detail)) return "The CARE Clinic admin password didn't match. Enter it again; your CARE web password may be different.";
+  if (/admin password does not match/i.test(detail)) return "The CARE Clinic admin password didn't match. Lock Advanced and enter this installation's CARE Clinic admin password again. Your CARE web password may be different.";
   if (/existing backup recovery file is unavailable/i.test(detail)) return "No usable local key is enrolled, and the original PEM is missing or unreadable. Connect its drive or select another saved copy. CARE cannot reconstruct a key lost before enrollment.";
   if (/encrypted backup key could not be unlocked/i.test(detail)) return "The encrypted local key couldn't be unlocked or verified. Select a surviving recovery PEM to re-enroll it. Your backup key has not changed.";
   if (/PEM was exported, but its encrypted local copy/i.test(detail)) return "The PEM was exported, but its encrypted local copy could not be saved. Keep that exported file safe and retry enrollment; password-only downloads are not yet confirmed.";
@@ -26,11 +26,12 @@ function exportProblem(cause: unknown): string {
   return "The recovery file couldn't be saved or checked. Check the file and drive permissions, then try again. Your backup key has not changed.";
 }
 
-export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
-  const { log } = useCare();
+export function ExportBackupRecovery({ adminPassword }: { adminPassword: string }) {
+  const { log, busy, restorePending } = useCare();
+  const lock = useAdvancedLock();
+  const disabled = busy || restorePending || lock.disabled;
   const updateLock = usePanelUpdateLock();
   const [open, setOpen] = useState(false);
-  const [password, setPassword] = useState("");
   const [source, setSource] = useState("");
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState("");
@@ -40,18 +41,17 @@ export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
   const pending = useRef(false);
   const mounted = useRef(true);
   const blocked = useRef(disabled);
-  blocked.current = disabled || updateLock.active;
+  blocked.current = disabled || updateLock.active || lock.isLocked();
 
   useEffect(() => {
     mounted.current = true;
-    const off = onCareEvent("app-update-progress", () => { setPassword(""); setSource(""); });
+    const off = onCareEvent("app-update-progress", () => setSource(""));
     return () => { mounted.current = false; off(); };
   }, []);
 
   const close = () => {
     if (pending.current) return;
     setOpen(false);
-    setPassword("");
     setSource("");
     setProblem("");
     setNotice("");
@@ -61,7 +61,7 @@ export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
     const revision = updateLock.revision();
     pending.current = true;
     setWorking(true);
-    setPassword(""); setSource(""); setProblem(""); setNotice(""); setStored(null);
+    setSource(""); setProblem(""); setNotice(""); setStored(null);
     try {
       const status = await bridge.GetSetupRecoveryStatus();
       if (!mounted.current || blocked.current || revision !== updateLock.revision() || updateLock.isActive()) return;
@@ -99,15 +99,13 @@ export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
     }
   };
   const save = async () => {
-    if (!password || stored === null || pending.current || blocked.current || updateLock.isActive()) return;
+    if (!adminPassword || stored === null || pending.current || blocked.current || updateLock.isActive()) return;
     pending.current = true;
     setWorking(true);
     setProblem("");
     setNotice("");
-    const submittedPassword = password;
-    setPassword("");
     try {
-      const saved = await bridge.ExportBackupRecovery(submittedPassword, source);
+      const saved = await bridge.ExportBackupRecovery(adminPassword, source);
       if (!mounted.current) return;
       if (saved) {
         setOpen(false);
@@ -128,15 +126,17 @@ export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
   };
 
   return <>
-    <section className="care-backups-card care-backups-card-row" aria-label="Backup recovery key">
-      <span className="care-backups-icon"><FileKey aria-hidden="true" /></span>
-      <div className="care-backups-grow">
-        <h2>Backup recovery key</h2>
-        <p>Re-download your key with your CARE Clinic admin password. Older installations need a surviving PEM for one-time encrypted enrollment.</p>
+    <section className="advanced-card advanced-card-pad" aria-labelledby="advanced-backup-key-title">
+      <div className="advanced-card-row">
+        <span className="advanced-icon"><FileKey aria-hidden="true" /></span>
+        <div className="advanced-grow">
+          <h2 className="advanced-card-title" id="advanced-backup-key-title">Backup recovery key</h2>
+          <p className="advanced-card-description">Re-download your key using the unlocked admin password. Older installations need a surviving PEM for one-time encrypted enrollment.</p>
+        </div>
+        <Button type="button" disabled={disabled || working || updateLock.active} onClick={() => void show()}>Re-download backup key</Button>
       </div>
-      <Button disabled={disabled || working || updateLock.active} onClick={() => void show()}>Re-download backup key</Button>
     </section>
-    {notice && !open ? <BackupNotice title={notice} tone="success" log={false} /> : null}
+    {notice && !open ? <AdvancedNotice title={notice} tone="success" /> : null}
     <AlertDialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
       <AlertDialogContent className="advanced-dialog advanced-dialog-narrow"
         onEscapeKeyDown={(event) => { if (pending.current) event.preventDefault(); }}>
@@ -146,21 +146,19 @@ export function ExportBackupRecovery({ disabled }: { disabled: boolean }) {
           Keep an off-device PEM: a lost computer or forgotten-password reset can make the local copy unusable.
         </AlertDialogDescription>
         <form className="advanced-dialog-body" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-          <AdvancedSecretInput label="CARE Clinic admin password" value={password} onChange={setPassword}
-            disabled={disabled || working || updateLock.active} autoComplete="current-password" autoFocus />
           <div className="advanced-field">
             <Button type="button" disabled={disabled || working || updateLock.active} onClick={() => void chooseSource()}>Select another saved copy</Button>
             <p className="advanced-path">{source || (stored ? "Using the password-encrypted local key; the original PEM is not needed." : "Using the original saved recovery file location for enrollment.")}</p>
           </div>
           {stored !== null && (!stored || source) ? <BackupNotice title={needsEnrollment ? "Re-enroll after your password reset" : "Enable password-only downloads"} tone="info" log={false}>
-            When you save, CARE will retain a local copy encrypted with this password.
+            When you save, CARE will retain a local copy encrypted with the CARE Clinic admin password.
             Select a surviving matching PEM if the original is unavailable. Keys lost before enrollment cannot be reconstructed.
           </BackupNotice> : null}
           {problem ? <BackupNotice title="The backup key couldn't be exported">{problem}</BackupNotice> : null}
           {notice ? <BackupNotice title={notice} tone="info" log={false} /> : null}
           <div className="advanced-dialog-foot">
             <Button type="button" disabled={working} onClick={close}>Cancel</Button>
-            <Button type="submit" variant="primary" disabled={!password || stored === null || disabled || working || updateLock.active}>
+            <Button type="submit" variant="primary" disabled={!adminPassword || stored === null || disabled || working || updateLock.active}>
               {working ? "Working…" : "Choose where to save"}
             </Button>
           </div>
