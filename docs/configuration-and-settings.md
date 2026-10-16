@@ -428,7 +428,7 @@ clinic can continue working without updating.
 - **CARE checks off:** no automatic, hourly or manual CARE check runs, so nothing reaches the CARE repositories and nothing new is built. A build that was already staged is held: it is not offered, not installed by Install now, and not applied at the next start. It returns when checks are turned back on.
 - **Not stopped:** an update that was already downloading, building or installing finishes. Rebuild, plugin apply and setup still fetch the configured CARE branches.
 
-When either is off, the Updates tab says which one and offers **Open Advanced**. The [binding reference](wails-application.md#turning-update-checks-off) lists every place a check is refused.
+The Updates tab always shows a card with the current state and an **Open Advanced** button: "Automatic update checks are on" while both are on, or which one is off. The [binding reference](wails-application.md#turning-update-checks-off) lists every place a check is refused.
 
 ## Plugins
 

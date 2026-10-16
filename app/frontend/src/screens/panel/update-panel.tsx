@@ -25,8 +25,7 @@ export function UpdatePanel({ appUpdate }: { appUpdate: AppUpdateController }) {
     <CareSoftwareCard />
     <ClinicApplicationCard controller={appUpdate} />
     <div className="panel-update-foot">
-      <p className="panel-small panel-grow">Updates need internet. Your clinic records are kept.
-        An administrator can turn update checks on or off in Advanced.</p>
+      <p className="panel-small panel-grow">Updates need internet. Your clinic records are kept.</p>
       <PanelLogButton />
     </div>
   </div>;
@@ -36,14 +35,17 @@ function UpdateChecksNotice() {
   const { updateChecks, setTab } = useCare();
   const appOff = updateChecks?.app === false;
   const careOff = updateChecks?.care === false;
-  if (!appOff && !careOff) return null;
+  if (!updateChecks) return null;
+  const open = <Button onClick={() => setTab("advanced")}>Open Advanced</Button>;
+  if (!appOff && !careOff) return <PanelNotice tone="ok" title="Automatic update checks are on" actions={open}>
+    CARE Clinic looks for new versions of CARE and of this app. An administrator can turn either check off in Advanced.
+  </PanelNotice>;
   const title = appOff && careOff ? "Update checks are turned off"
     : appOff ? "CARE Clinic app update checks are turned off" : "CARE software update checks are turned off";
   const detail = appOff && careOff ? "CARE Clinic won't look for new versions of CARE or of this app."
     : appOff ? "CARE Clinic won't look for new versions of this app. CARE software updates still work."
       : "CARE Clinic won't look for or install CARE software updates. CARE Clinic app updates still work.";
-  return <PanelNotice tone="warning" title={title}
-    actions={<Button onClick={() => setTab("advanced")}>Open Advanced</Button>}>
+  return <PanelNotice tone="warning" title={title} actions={open}>
     {detail} An administrator can turn them back on in Advanced.
   </PanelNotice>;
 }

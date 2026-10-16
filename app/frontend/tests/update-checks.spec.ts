@@ -69,10 +69,13 @@ test("a rejected password leaves update checks unchanged", async ({ page }) => {
 test("Updates says checks can be turned off in Advanced while both are on", async ({ page }) => {
   await openPanel(page, "scenario=panel-current");
   await section(page, "Updates").click();
-  await expect(updates(page)).toContainText("An administrator can turn update checks on or off in Advanced.");
+  const notice = updates(page).getByRole("status").filter({ hasText: "Automatic update checks are on" });
+  await expect(notice).toContainText("An administrator can turn either check off in Advanced.");
   await expect(updates(page)).not.toContainText("checks are turned off");
   await expect(software(page).getByRole("button", { name: "Check CARE software updates" })).toBeVisible();
   await expect(desktop(page).getByRole("button", { name: "Check CARE Clinic updates" })).toBeVisible();
+  await notice.getByRole("button", { name: "Open Advanced", exact: true }).click();
+  await expect(advanced(page).getByLabel("CARE Clinic admin password", { exact: true })).toBeVisible();
 });
 
 test("app update checks off: no GitHub check, no controls, and a way back to Advanced", async ({ page }) => {
