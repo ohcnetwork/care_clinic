@@ -147,7 +147,7 @@ npm run test:ui -- tests/backups.spec.ts -g 'handoff|restore'
 | `onboarding.spec.ts` | Client discovery/connection, setup prerequisites, recovery exports, Review and native acceptance gates. |
 | `install.spec.ts` | Actual log milestones, indeterminate progress, no-log warning and failure/retry behavior. |
 | `lifecycle.spec.ts` | Permission/quit requests, stale IDs, single-flight answers, paired setup/uninstall completion and global update guards. |
-| `panel.spec.ts` | Overview, Storage, requirements, mobile QR and truthful status/error handling. |
+| `panel.spec.ts` | Overview, Storage, Home access, requirements, mobile QR and truthful status/error handling. |
 | `backups.spec.ts` | Policy/destination, restore consent, cancellation and stale selections across updates. |
 | `advanced.spec.ts` | Fixed 15-minute unlock, tab-leave clearing, passwords/recovery and safe environment editing. |
 | `plugins.spec.ts` | Catalog/custom validation, typed settings, save/apply outcomes, failed-batch tab discard, successful-list retention, recovery controls, and update/job exclusion. |

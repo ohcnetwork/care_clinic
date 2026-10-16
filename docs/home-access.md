@@ -41,7 +41,11 @@ freshness check rebuild the frontend image.
 
 ## Desktop panel
 
-The **Home access** card on Overview reads `HomeAccessStatus` and leads the
+The **Home access** tab in the control panel rail, between Storage and Plugins,
+holds the home access card. The card reads `HomeAccessStatus` when the panel
+opens, when the clinic's state changes and on **Check again**; it does not poll,
+and visiting the tab does not trigger a check by itself. Its actions are locked
+while another panel operation or an app update is running. It leads the
 manager through, in order: install Tailscale, sign in, turn on HTTPS
 certificates in the Tailscale admin console, then **Turn on home access**. Once
 it is on, the card shows the address, a **Doctor instructions** dialog with a

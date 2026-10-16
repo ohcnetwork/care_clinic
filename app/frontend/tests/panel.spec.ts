@@ -6,6 +6,7 @@ import type {} from "./fixtures/host";
 const calls = (page: Page, method: Parameters<Window["careTest"]["failNext"]>[0]) => page.evaluate((name) =>
   window.careTest.calls.filter((call) => call.method === name).length, method);
 const overview = (page: Page) => page.locator('.panel-page[aria-label="Overview"]');
+const homeAccess = (page: Page) => page.locator('.panel-page[aria-label="Home access"]');
 const clinic = (page: Page) => overview(page).getByRole("region", { name: "Clinic status", exact: true });
 const section = (page: Page, name: string) => page.getByRole("navigation", { name: "Clinic sections" })
   .getByRole("button", { name: new RegExp(`^${name}`) });
@@ -658,9 +659,26 @@ test("a failed storage read does not present old backup health or location as cu
   await expect(page.locator(".panel-banner")).toContainText("from the last successful check");
 });
 
+test("home access has its own tab and is not on Overview", async ({ page }) => {
+  await openPanel(page);
+  await expect(overview(page).getByRole("region", { name: "Home access", exact: true })).toHaveCount(0);
+  const tabs = page.getByRole("navigation", { name: "Clinic sections" }).getByRole("button");
+  await expect(tabs).toHaveText(["Overview", "Backups", "Storage", "Home access", "Plugins", "Updates", "Advanced"]);
+  await expect(homeAccess(page)).toBeHidden();
+  await section(page, "Home access").click();
+  await expect(section(page, "Home access")).toHaveAttribute("aria-current", "page");
+  await expect(homeAccess(page).getByRole("heading", { name: "Home access", exact: true, level: 1 })).toBeVisible();
+  await expect(homeAccess(page).getByText("Let doctors reach CARE from home with Tailscale.", { exact: true })).toBeVisible();
+  const card = homeAccess(page).getByRole("region", { name: "Home access", exact: true });
+  await expect(card.getByRole("heading", { name: "Let doctors use CARE from home", exact: true })).toBeVisible();
+  await expect(overview(page)).toBeHidden();
+  await fits(page);
+});
+
 test("home access guides Tailscale setup, turns on, shows doctor instructions and turns off", async ({ page }) => {
   await openPanel(page);
-  const card = overview(page).getByRole("region", { name: "Home access", exact: true });
+  await section(page, "Home access").click();
+  const card = homeAccess(page).getByRole("region", { name: "Home access", exact: true });
   await expect(card.getByRole("heading", { name: "Let doctors use CARE from home", exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Get Tailscale", exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Turn on home access", exact: true })).toHaveCount(0);
@@ -697,7 +715,8 @@ test("home access failure is readable and leaves the card usable", async ({ page
   await page.evaluate(() => Object.assign(window.careTest.fixtures.homeAccess, {
     installed: true, running: true, https: true, host: "care.tail1234.ts.net", url: "https://care.tail1234.ts.net:8443/", detail: "",
   }));
-  const card = overview(page).getByRole("region", { name: "Home access", exact: true });
+  await section(page, "Home access").click();
+  const card = homeAccess(page).getByRole("region", { name: "Home access", exact: true });
   await card.getByRole("button", { name: "Check again", exact: true }).click();
   await page.evaluate(() => window.careTest.failNext("EnableHomeAccess", "tailscale serve: permission denied"));
   await card.getByRole("button", { name: "Turn on home access", exact: true }).click();
@@ -711,7 +730,8 @@ test("home access says so when Tailscale's sharing settings can't be read", asyn
     installed: true, running: true, https: true, host: "care.tail1234.ts.net", url: "https://care.tail1234.ts.net:8443/",
     unknown: true, detail: "Couldn't read Tailscale's sharing settings. Open Tailscale and check that it is running.",
   }));
-  const card = overview(page).getByRole("region", { name: "Home access", exact: true });
+  await section(page, "Home access").click();
+  const card = homeAccess(page).getByRole("region", { name: "Home access", exact: true });
   await card.getByRole("button", { name: "Check again", exact: true }).click();
   await expect(card.getByRole("heading", { name: "Couldn't check home access", exact: true })).toBeVisible();
   await expect(card.getByText("Couldn't read Tailscale's sharing settings.", { exact: false })).toBeVisible();
