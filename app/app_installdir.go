@@ -70,12 +70,13 @@ const backupStateDir = "backup-state"
 func (a *App) engine() *clinic.Clinic {
 	cfg := a.loadConfig()
 	return &clinic.Clinic{
-		InstallDir: a.installDir(),
-		MDNSName:   strings.TrimSuffix(strings.TrimSpace(cfg.MDNSName), ".local"),
-		BackupDir:  cfg.BackupDir,
-		Pins:       a.pins,
-		Log:        a.logln,
-		Confirm:    a.confirmDialog,
+		InstallDir:  a.installDir(),
+		MDNSName:    strings.TrimSuffix(strings.TrimSpace(cfg.MDNSName), ".local"),
+		BackupDir:   cfg.BackupDir,
+		Pins:        a.pins,
+		Log:         a.logln,
+		Confirm:     a.confirmDialog,
+		HoldUpdates: cfg.CareUpdateChecksOff,
 	}
 }
 

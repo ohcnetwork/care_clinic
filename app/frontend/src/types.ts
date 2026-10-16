@@ -180,6 +180,8 @@ export type CareUpdate = { backend: string; frontend: string };
 
 export type CareCheck = { running: boolean; found: boolean; error?: string };
 
+export type UpdateChecks = { app: boolean; care: boolean };
+
 export type BackupPolicy = { interval_seconds: number; retention_days: number };
 export type QuitRequest = { id: number; title: string; message: string };
 export type ConfirmationRequest = { id: number; title: string; message: string };

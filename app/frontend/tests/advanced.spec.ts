@@ -244,7 +244,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     await screenshot(page, `advanced-overview-${size.width}x${size.height}`);
     for (const entry of GROUPS) {
       await group(page, entry.title);
-      await expect(root(page).locator(".advanced-setting")).toHaveCount(entry.settings.length);
+      await expect(root(page).locator(".advanced-settings-card .advanced-setting")).toHaveCount(entry.settings.length);
       await fits(page);
       await root(page).locator(`[data-advanced-group="${entry.id}"]`).click();
     }

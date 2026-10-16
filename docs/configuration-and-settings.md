@@ -117,6 +117,7 @@ See [client removal](native-integrations.md#removing-client-access).
 | `recovery_failures` / `recovery_retry_after` | `RecoveryFailures` / `RecoveryRetryAfter` | Persisted failed-attempt count and Unix timestamp for offline recovery throttling. |
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
+| `app_update_checks_off` / `care_update_checks_off` | `AppUpdateChecksOff` / `CareUpdateChecksOff` | Set from Advanced with the admin password to stop CARE Clinic app or CARE software update checks. Omitted when false; missing means checks are on. See [Turning update checks off](#turning-update-checks-off). |
 
 The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login.
 
@@ -418,6 +419,16 @@ skipped without a working network, during setup/removal, and while another job
 holds the clinic. Reported failures carry `care-check.error` and appear with a
 friendly retry action; they never become a false "Up to date" result. An offline
 clinic can continue working without updating.
+
+### Turning update checks off
+
+**Advanced → Update checks** has two switches, **Check for CARE Clinic app updates** and **Check for CARE software updates**. Advanced must be unlocked first. Each switch change sends that admin password to `SetUpdateChecks`, which checks it again and saves `app_update_checks_off` / `care_update_checks_off` in `config.json`. Both default to on, including for installs saved before these settings existed.
+
+- **App checks off:** CARE Clinic never contacts GitHub for a release check or an install. The card shows "Checks off" without Check now or Update buttons, and no "available" banner is raised.
+- **CARE checks off:** no automatic, hourly or manual CARE check runs, so nothing reaches the CARE repositories and nothing new is built. A build that was already staged is held: it is not offered, not installed by Install now, and not applied at the next start. It returns when checks are turned back on.
+- **Not stopped:** an update that was already downloading, building or installing finishes. Rebuild, plugin apply and setup still fetch the configured CARE branches.
+
+When either is off, the Updates tab says which one and offers **Open Advanced**. The [binding reference](wails-application.md#turning-update-checks-off) lists every place a check is refused.
 
 ## Plugins
 

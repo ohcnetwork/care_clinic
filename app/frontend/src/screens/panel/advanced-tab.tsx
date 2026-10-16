@@ -19,6 +19,7 @@ import {
 import { EnvEditor } from "./env-editor";
 import { ExportBackupRecovery } from "./export-backup-recovery";
 import { PanelPageHeader } from "./panel-ui";
+import { UpdateCheckSettings } from "./update-checks";
 
 const UNLOCK_MS = 15 * 60 * 1000;
 
@@ -93,6 +94,7 @@ function AdvancedContent() {
     </> : <>
       <AdminRecoverySettings adminPassword={adminPassword} onPasswordChanged={unlock} />
       <ExportBackupRecovery adminPassword={adminPassword} />
+      <UpdateCheckSettings adminPassword={adminPassword} />
       <EnvEditor adminPassword={adminPassword} groupId={groupId} onGroupChange={setGroupId} onWorkingChange={setWorking}
         pendingFiles={pendingSettings} onPendingFilesChange={setPendingSettings} onApplicationAccepted={() => setApplyingSettings(true)} />
       <>

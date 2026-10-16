@@ -25,7 +25,11 @@ function updateProblem(error: unknown, checking: boolean): UpdateProblem {
 }
 
 export function useAppUpdate(disabled = false, enabled = true, isBlocked?: () => boolean) {
-  const { busy, busyLabel, version, installAppUpdate, acknowledgeAppUpdate, log } = useCare();
+  const { busy, busyLabel, version, installAppUpdate, acknowledgeAppUpdate, log, updateChecks, reloadUpdateChecks } = useCare();
+  const checksLoaded = updateChecks !== null;
+  const off = updateChecks?.app === false;
+  const offRef = useRef(off);
+  offRef.current = off;
   const [update, setUpdate] = useState<AppUpdate | null>(null);
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<UpdateProblem | null>(null);
@@ -41,22 +45,23 @@ export function useAppUpdate(disabled = false, enabled = true, isBlocked?: () =>
   const isActive = () => installPending.current || progressRef.current !== null || updating;
 
   const check = useCallback(async () => {
-    if (checkPending.current || installPending.current || progressRef.current) return;
+    if (offRef.current || checkPending.current || installPending.current || progressRef.current) return;
     checkPending.current = true;
     setChecking(true);
     setProblem(null);
     setUpdate(null);
     try {
       const result = await bridge.CheckAppUpdate();
-      if (mounted.current) setUpdate(result);
+      if (mounted.current && !offRef.current) setUpdate(result);
     } catch (error) {
       log(`check CARE Clinic update: ${errorText(error)}`);
-      if (mounted.current) setProblem(updateProblem(error, true));
+      if (/update checks are turned off/i.test(errorText(error))) void reloadUpdateChecks();
+      else if (mounted.current) setProblem(updateProblem(error, true));
     } finally {
       checkPending.current = false;
       if (mounted.current) setChecking(false);
     }
-  }, [log]);
+  }, [log, reloadUpdateChecks]);
 
   useEffect(() => {
     mounted.current = true;
@@ -92,13 +97,19 @@ export function useAppUpdate(disabled = false, enabled = true, isBlocked?: () =>
   }, []);
 
   useEffect(() => {
-    if (enabled) void check();
+    if (enabled && checksLoaded && !off) void check();
     // Check once on entry, not after every update/busy transition.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, check]);
+  }, [enabled, checksLoaded, off, check]);
+
+  useEffect(() => {
+    if (!off || installPending.current || progressRef.current) return;
+    setUpdate(null);
+    setProblem(null);
+  }, [off]);
 
   const install = async () => {
-    if (disabled || busy || isBlocked?.() || checkPending.current || installPending.current || progressRef.current) return;
+    if (off || disabled || busy || isBlocked?.() || checkPending.current || installPending.current || progressRef.current) return;
     installPending.current = true;
     failure.current = null;
     setProblem(null);
@@ -134,6 +145,7 @@ export function useAppUpdate(disabled = false, enabled = true, isBlocked?: () =>
     active,
     isActive,
     updating,
+    off,
     disabled: disabled || busy,
     check,
     install,

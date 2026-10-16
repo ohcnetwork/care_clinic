@@ -17,7 +17,7 @@ import { bridge, logToHost, onCareEvent } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { operationError as describeOperationError, type OperationError } from "@/lib/operation-errors";
 import { RUN_STEPS, type RunStep } from "@/lib/run-steps";
-import type { AppUpdateProgress, Backup, CareUpdate, SetupFailure, SetupPage, StorageReport } from "@/types";
+import type { AppUpdateProgress, Backup, CareUpdate, SetupFailure, SetupPage, StorageReport, UpdateChecks } from "@/types";
 
 export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
@@ -115,6 +115,9 @@ type CareStore = {
   careUpdate: CareUpdate | null;
   applyCareUpdate: () => Promise<void>;
   dismissCareUpdate: () => Promise<void>;
+  updateChecks: UpdateChecks | null;
+  reloadUpdateChecks: () => Promise<void>;
+  saveUpdateChecks: (next: UpdateChecks, adminPassword: string) => Promise<void>;
   installAppUpdate: () => Promise<void>;
   acknowledgeAppUpdate: () => boolean;
   restorePending: boolean;
@@ -183,6 +186,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const [autostartError, setAutostartError] = useState("");
   const [trouble, setTrouble] = useState(false);
   const [careUpdate, setCareUpdate] = useState<CareUpdate | null>(null);
+  const [updateChecks, setUpdateChecks] = useState<UpdateChecks | null>(null);
   const [storage, setStorage] = useState<StorageReport | null>(null);
   const [storageError, setStorageError] = useState("");
   const [bootError, setBootError] = useState<Error | null>(null);
@@ -193,6 +197,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const runRef = useRef<RunState>(IDLE_RUN);
   const busyRef = useRef(false);
   const restorePendingRef = useRef(false);
+  const careChecksRef = useRef(true);
   const pluginRecoveryPendingRef = useRef(false);
   // Buffered so the fail screen can show the real build error rather than just
   // "exit status 1". Kept out of React state: the install emits thousands of
@@ -468,6 +473,28 @@ export function CareProvider({ children }: { children: ReactNode }) {
       setOperationError(describeOperationError("dismiss-update", e));
     }
   }, [log]);
+
+  const applyUpdateChecks = useCallback((next: UpdateChecks) => {
+    careChecksRef.current = next.care;
+    setUpdateChecks(next);
+    if (!next.care) setCareUpdate(null);
+  }, []);
+
+  const reloadUpdateChecks = useCallback(async () => {
+    try {
+      applyUpdateChecks(await bridge.GetUpdateChecks());
+    } catch (e) {
+      log(`read update checks: ${errorText(e)}`);
+      setUpdateChecks((current) => current ?? { app: true, care: true });
+    }
+  }, [applyUpdateChecks, log]);
+
+  const saveUpdateChecks = useCallback(async (next: UpdateChecks, adminPassword: string) => {
+    await bridge.SetUpdateChecks(next.app, next.care, adminPassword);
+    applyUpdateChecks(next);
+  }, [applyUpdateChecks]);
+
+  useEffect(() => { void reloadUpdateChecks(); }, [reloadUpdateChecks]);
 
   const syncAutostart = useCallback(async () => {
     try {
@@ -932,7 +959,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
         }
       }),
       onCareEvent("care-update", (update: CareUpdate) => {
-        setCareUpdate(update);
+        if (careChecksRef.current) setCareUpdate(update);
       }),
       onCareEvent("care-storage", (report: StorageReport) => {
         setStorage(report);
@@ -1028,6 +1055,9 @@ export function CareProvider({ children }: { children: ReactNode }) {
       careUpdate,
       applyCareUpdate,
       dismissCareUpdate,
+      updateChecks,
+      reloadUpdateChecks,
+      saveUpdateChecks,
       installAppUpdate,
       acknowledgeAppUpdate,
       restorePending,
@@ -1057,7 +1087,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
       run, setupReset, startInstall, resumeInstall, retryInstall, restartSetup, openPanel,
       tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
-      installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
+      updateChecks, reloadUpdateChecks, saveUpdateChecks, installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
       refresh, reloadBackups, syncAutostart,
       runAction, setAutostart, restore, restoreFile, uninstall, log,
     ],
