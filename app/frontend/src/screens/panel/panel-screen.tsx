@@ -9,6 +9,7 @@ import { bridge } from "@/lib/bridge";
 import { useCare } from "@/state/care-store";
 import { AdvancedTab } from "./advanced-tab";
 import { BackupsTab } from "./backups-tab";
+import { HomeAccessTab } from "./home-access";
 import { OverviewTab } from "./overview-tab";
 import { RecoveryCodesBanner } from "./recovery-codes-banner";
 import { PanelRequirementsProvider, usePanelRequirements } from "./panel-requirements";
@@ -111,6 +112,7 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
         <div hidden={care.tab !== "overview"}><OverviewTab onDiagnose={() => setDiagnosing(true)} /></div>
         <div hidden={care.tab !== "backups"}><BackupsTab /></div>
         <div hidden={care.tab !== "storage"}><StorageTab /></div>
+        <div hidden={care.tab !== "home-access"}><HomeAccessTab locked={locked} /></div>
         <div data-panel-tab="plugins" hidden={care.tab !== "plugins"}><PluginTable disabled={locked} /></div>
         <div hidden={care.tab !== "updates"}><UpdatePanel appUpdate={appUpdate} /></div>
         <div data-panel-tab="advanced" hidden={care.tab !== "advanced"}><AdvancedTab disabled={locked} /></div>

@@ -200,9 +200,10 @@ and [earlier-installation recovery](client-recovery.md).
 
 | Tab | What to use it for |
 | --- | --- |
-| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary, home access and actionable problems. |
+| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary and actionable problems. |
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
+| Home access | Tailscale setup, turning home access on or off and doctor sharing. |
 | Updates | Separate CARE backend/frontend updates and CARE Clinic application updates. |
 | Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No CARE Clinic password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
 | Advanced | Ten everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
@@ -212,7 +213,7 @@ and [earlier-installation recovery](client-recovery.md).
 platform's certificate instructions; displaying or scanning the code is not
 proof that trust was installed.
 
-The **Home access** card lets doctors open CARE from home through Tailscale. It
+The **Home access** tab lets doctors open CARE from home through Tailscale. It
 leads the manager through installing Tailscale, signing in and turning on HTTPS
 certificates, then offers **Turn on home access**, a **Doctor instructions**
 QR code for the `ts.net` address, **Share with a doctor** and **Turn off**. See
