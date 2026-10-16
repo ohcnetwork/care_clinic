@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
 import type { CarePlugin, PluginCatalogEntry } from "../src/types";
 import {
-  hasPluginProblems, pluginProblems, reconcileCatalog, serializePlugins, toPluginRow,
+  hasPluginProblems, pluginProblems, reconcileCatalog, requiredConfig, serializePlugins, toPluginRow,
 } from "../src/screens/panel/plugin-model";
 
 const catalog: PluginCatalogEntry[] = [
@@ -21,6 +21,20 @@ const catalog: PluginCatalogEntry[] = [
     default: true,
   },
 ];
+const filly: PluginCatalogEntry = {
+  plugin: {
+    id: "care_filly", label: "Filly", catalog: true,
+    backend: {
+      name: "care_filly",
+      package_name: "git+https://github.com/ohcnetwork/care_filly.git",
+      version: "@develop",
+      configs: { MEDISPEAK_API_KEY: "", MEDISPEAK_BASE_URL: "" },
+    },
+  },
+  description: "AI scribe: Medispeak dictation that fills CARE forms.",
+  default: false,
+  required_configs: ["MEDISPEAK_API_KEY", "MEDISPEAK_BASE_URL"],
+};
 const custom: CarePlugin = {
   id: "custom_example", label: "Custom example",
   backend: { name: "care_example.apps", package_name: "care-example", version: "==1.2" },
@@ -661,4 +675,71 @@ test("native-compatible combinations allow either part, optional versions, and l
     const draft = toPluginRow(plugin, 0);
     expect(hasPluginProblems(pluginProblems(draft, [draft]))).toBe(false);
   }
+});
+
+test("Filly cannot be saved until its required settings are entered", async ({ page }) => {
+  await openPlugins(page, { saved: [], catalog: [...catalog, filly] });
+  await addButton(page).click();
+  await page.getByRole("option", { name: "Filly", exact: true }).click();
+  const editor = row(page, "Filly");
+  const keyName = editor.getByLabel("Setting 1 name", { exact: true });
+  const key = editor.getByLabel("Setting 1 value", { exact: true });
+  const base = editor.getByLabel("Setting 2 value", { exact: true });
+  await expect(keyName).toHaveValue("MEDISPEAK_API_KEY");
+  await expect(keyName).toHaveAttribute("readonly", "");
+  await expect(editor.getByLabel("Setting 2 name", { exact: true })).toHaveAttribute("readonly", "");
+  await expect(editor.getByRole("button", { name: /^Remove setting/ })).toHaveCount(0);
+  await expect(key).toHaveAttribute("type", "password");
+  await expect(base).not.toHaveAttribute("type", "password");
+  await expect(key).toHaveAttribute("aria-invalid", "true");
+  await expect(editor.getByText("Enter a value; Filly needs this setting.")).toHaveCount(2);
+  await expect(editor.getByText("Check fields", { exact: true })).toBeVisible();
+  await expect(saveButton(page)).toBeDisabled();
+  await saveButton(page).evaluate((button: HTMLButtonElement) => button.click());
+  expect(await countCalls(page, "SavePlugins")).toBe(0);
+
+  await key.fill("msk_live_example");
+  await expect(saveButton(page)).toBeDisabled();
+  await base.fill("   ");
+  await expect(saveButton(page)).toBeDisabled();
+  await base.fill("https://medispeak.example/api/v2");
+  await expect(editor.getByText("Enter a value; Filly needs this setting.")).toHaveCount(0);
+  await editor.getByRole("button", { name: "Add setting", exact: true }).click();
+  await editor.getByLabel("Setting 3 name", { exact: true }).fill("EXTRA");
+  await editor.getByLabel("Setting 3 value", { exact: true }).fill("kept");
+  await expect(editor.getByRole("button", { name: "Remove setting 3 from Filly", exact: true })).toBeVisible();
+  await expect(saveButton(page)).toBeEnabled();
+  await saveButton(page).click();
+  await expect(root(page)).toContainText("Plugin task finished.");
+  expect(await page.evaluate(() => window.careTest.calls.find((call) => call.method === "SavePlugins")?.args[0])).toEqual([{
+    ...filly.plugin,
+    backend: {
+      ...filly.plugin.backend!,
+      configs: { MEDISPEAK_API_KEY: "msk_live_example", MEDISPEAK_BASE_URL: "https://medispeak.example/api/v2", EXTRA: "kept" },
+    },
+  }]);
+});
+
+test("required catalog settings survive catalog refresh and come back if missing", () => {
+  const saved: CarePlugin = {
+    ...filly.plugin, label: "Old name",
+    backend: { ...filly.plugin.backend!, version: "@main", configs: { MEDISPEAK_API_KEY: "msk_live_kept", OTHER: 1 } },
+  };
+  const refreshed = reconcileCatalog(toPluginRow(saved, 1), [filly]);
+  expect(refreshed.backend!.version).toBe("@develop");
+  expect(refreshed.backend!.configs.map(({ key, value }) => [key, value])).toEqual([
+    ["MEDISPEAK_API_KEY", "msk_live_kept"], ["OTHER", "1"], ["MEDISPEAK_BASE_URL", ""],
+  ]);
+  const problems = pluginProblems(refreshed, [refreshed], [filly]);
+  expect(problems.configValues).toEqual([undefined, undefined, "Enter a value; Filly needs this setting."]);
+  expect(hasPluginProblems(problems)).toBe(true);
+  expect(hasPluginProblems(pluginProblems(refreshed, [refreshed]))).toBe(false);
+  expect(serializePlugins([refreshed])[0].backend!.configs).toEqual({ MEDISPEAK_API_KEY: "msk_live_kept", OTHER: 1, MEDISPEAK_BASE_URL: "" });
+
+  const duplicate = { ...refreshed, backend: { ...refreshed.backend!, configs: [
+    ...refreshed.backend!.configs, { key: "MEDISPEAK_API_KEY", value: "" },
+  ] } };
+  expect([0, 1, 2, 3].map((index) => requiredConfig(duplicate, [filly], index))).toEqual([true, false, true, false]);
+  const asCustom = { ...refreshed, catalog: false };
+  expect(requiredConfig(asCustom, [filly], 0)).toBe(false);
 });

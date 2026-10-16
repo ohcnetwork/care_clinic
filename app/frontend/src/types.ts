@@ -161,6 +161,7 @@ export type PluginCatalogEntry = {
   plugin: CarePlugin;
   description?: string;
   default?: boolean;
+  required_configs?: string[];
 };
 
 /** Which of the two .env files an editor is pointed at. */
