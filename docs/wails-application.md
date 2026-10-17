@@ -71,7 +71,7 @@ The backend starts name advertising, but the desktop state store makes the norma
 
 ### Advertiser lifetime
 
-`App` owns the mDNS advertiser. Its watcher wakes every 30 seconds, restarts advertising when LAN interfaces/addresses change or enumeration fails, and retries after two consecutive direct-hostname probe failures. Live foreign-name checks run before advertising and on watcher ticks. A conflict withdraws advertising and shows an administrator warning; retries cannot advertise while the conflict is detected. Probe and network errors are logged. It can also recreate an absent advertiser. No name is advertised merely by choosing it in the setup wizard, when the name is empty, during removal, or after application shutdown has begun.
+`App` owns the mDNS advertiser. Its watcher wakes every 30 seconds, restarts advertising when LAN interfaces/addresses change or enumeration fails, and retries after two consecutive direct-hostname probe failures. Live foreign-name checks run before advertising and on watcher ticks. On watcher ticks a conflict counts only when two consecutive checks see it with no LAN change in between (the second runs 5 seconds after the first), and no check runs in the 12 seconds after the advertiser starts; see [Confirming a conflict while advertising](native-integrations.md#confirming-a-conflict-while-advertising). A confirmed conflict withdraws advertising and shows an administrator warning; retries cannot advertise while the conflict is detected. Probe and network errors are logged. It can also recreate an absent advertiser. No name is advertised merely by choosing it in the setup wizard, when the name is empty, during removal, or after application shutdown has begun.
 
 `shutdown()` cancels pending permission confirmations, closes the watcher's stop
 channel and stops the advertiser. Stopping the desktop's advertisement is
@@ -253,7 +253,7 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `GetState()` | `AppState` | Query. Returns embedded version, role and client URL. Only servers inspect Docker/recovery state and expose server setup/name/status. Restore-journal errors propagate; plugin-journal errors are logged and keep `plugin_recovery_pending=true` so recovery controls remain available. Never exposes the pinned PEM or certificate ownership flag. |
 | `DockerStatus()` | `DockerStatus` | Query. Checks actual Docker/Compose usability. |
 | `GitStatus()` | `DockerStatus` | Query. Uses the same `{ok, message}` shape for Git. |
-| `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. Offline/isolated peers cannot be ruled out. |
+| `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. While this computer advertises the requested name, the foreign-claim probe is left to the watcher, which confirms conflicts before withdrawing the name. Offline/isolated peers cannot be ruled out. |
 | `NetworkStatus()` | `NetworkStatus` | Query. Platform-specific networking inspection. |
 | `FixNetwork()` | `void` | Sync. Runs the native networking repair. |
 | `HomeAccessStatus()` | `HomeAccess` | Query. Installed server required. Reads Tailscale's status and serve configuration, and whether the clinic's loopback port answers. Takes no job lock. |

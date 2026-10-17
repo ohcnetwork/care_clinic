@@ -1098,6 +1098,56 @@ runtime watcher checks for later conflicts, withdraws the local advertisement,
 and shows an error asking the administrator to resolve the duplicate names.
 It does not rename installed clinics, alter certificates, or stop containers.
 
+Setup, the setup preflight in `RunSetup`, and the check inside `Advertise` stay
+strict: one probe that hears a foreign answer is a conflict. Those checks run
+while this computer is not answering for the name. Once a clinic is
+advertising, `MDNSStatus` for the advertised name no longer probes for itself.
+It leaves conflict detection to the watcher (below) and reports only whether
+the advertiser still answers. A single probe while the network is switching
+could otherwise show "already in use" for this computer's own answer. When the
+watcher confirms a conflict it withdraws the advertiser, and the next
+`MDNSStatus` call finds no advertiser, probes strictly, and shows the conflict.
+Names this computer is not advertising, and every check before setup, still
+use the strict probe.
+
+### Confirming a conflict while advertising
+
+A laptop that keeps moving between networks (for example office Wi-Fi and a
+phone hotspot, or `en0` and `en7` on macOS) changes its addresses while a
+probe is in flight. The probe takes this computer's own addresses from
+`lanInterfaces` at the moment it runs. An answer from this computer's
+responder with an address from just before or just after the switch can then
+look foreign. Logs from such a laptop show the false warnings next to
+`sendmsg: can't assign requested address` and `bind: can't assign requested
+address` errors. The watcher therefore treats a conflict as confirmed only
+when it is stable:
+
+- `Advertiser.CheckAvailable` also counts every IPv4 address the responders are
+  currently publishing as this computer's own, even after `lanInterfaces` stops
+  listing it. A different device would have to hold one of those exact
+  addresses to be ignored, and the watcher has just confirmed they are still
+  current, so real duplicates are still detected.
+- When one interface's probe finds a conflict, the others are cancelled. If any
+  of them failed with a socket error (a non-timeout `*net.OpError` other than a
+  closed socket, such as "can't assign requested address"), the
+  `ConflictError` carries it as `Unsettled`. `mdns.Unsettled` reports that, or
+  a bare socket error, as a sign that the network is still changing.
+- **Settle period:** for **12 seconds** after an advertiser starts (at launch,
+  after a network change, or after any restart) the watcher does not run the
+  conflict check. The own-response probe still runs.
+- **Two sightings:** the first conflict is only logged ("Checking again before
+  reporting it"), and the watcher rechecks after **5 seconds** instead of
+  waiting 30. Only a second consecutive conflict withdraws the advertisement and
+  notifies the administrator. A clean or failed check in between resets the
+  count.
+- **Network change resets:** if `IPsChanged` reports a change before the check,
+  or again right after a check that found a conflict, or the check was
+  `Unsettled`, the count is reset and the advertiser is restarted. Restarting
+  also starts a new settle period.
+
+A real duplicate answering consistently is reported about 5 seconds after the
+first tick that sees it, or one tick later if the network changed in between.
+
 ### A genuine response probe
 
 `Resolves` sends a direct hostname A query on every selected IPv4 interface,
@@ -1131,7 +1181,10 @@ The application watches every **30 seconds**. It attempts to start a missing
 advertiser, restarts when the topology comparison reports a change or error,
 and restarts after **two consecutive failed response probes**. It also checks
 for foreign claims before the own-response probe, withdrawing advertising and
-reporting a conflict if one appears (for example when a sleeping server wakes).
+reporting a conflict once it is confirmed (for example when a sleeping server
+wakes). See [Confirming a conflict while
+advertising](#confirming-a-conflict-while-advertising) for the settle period and
+recheck.
 Retries must pass the availability check before advertising again. A successful
 response probe clears the miss count. Shutdown prevents the watcher from reopening a
 responder. The watcher and advertiser must be stopped with
@@ -1144,8 +1197,12 @@ flowchart TD
     Have -- No --> Start["Try Advertise with current usable IPv4 addresses"]
     Have -- Yes --> Changed{"IPsChanged reports a change?"}
     Changed -- Yes --> Renew["Stop old responder and start a new one"]
-    Changed -- No --> Conflict{"Another device claims this name?"}
-    Conflict -- Yes --> Pause["Withdraw advertisement and warn administrator"]
+    Changed -- No --> Settling{"Advertiser started under 12 seconds ago?"}
+    Settling -- Yes --> Probe
+    Settling -- No --> Conflict{"Another device claims this name?"}
+    Conflict -- "Yes, network changing" --> Renew
+    Conflict -- "Yes, first sighting" --> Recheck["Check again in 5 seconds"]
+    Conflict -- "Yes, second in a row" --> Pause["Withdraw advertisement and warn administrator"]
     Pause --> Later
     Conflict -- No --> Probe["Query hostname A records on every selected IPv4 interface"]
     Probe --> Match{"Matching response, no query error, still running?"}

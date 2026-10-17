@@ -13,8 +13,9 @@ import (
 )
 
 type ConflictError struct {
-	Host    string
-	Address net.IP
+	Host      string
+	Address   net.IP
+	Unsettled error
 }
 
 func (e *ConflictError) Error() string {
@@ -31,7 +32,32 @@ func CheckAvailable(name string) error {
 	if err != nil {
 		return fmt.Errorf("could not check the clinic address: %w", err)
 	}
-	return checkAvailable(Label(name)+".local.", links, probeConflict)
+	return checkAvailable(Label(name)+".local.", links, nil, probeConflict)
+}
+
+func (a *Advertiser) CheckAvailable() error {
+	links, err := lanInterfaces()
+	if err != nil {
+		return fmt.Errorf("could not check the clinic address: %w", err)
+	}
+	var advertised []net.IP
+	for _, link := range a.links {
+		advertised = append(advertised, link.ips...)
+	}
+	return checkAvailable(a.name+".local.", links, advertised, probeConflict)
+}
+
+func Unsettled(err error) bool {
+	var conflict *ConflictError
+	if errors.As(err, &conflict) {
+		return conflict.Unsettled != nil
+	}
+	return linkFailure(err)
+}
+
+func linkFailure(err error) bool {
+	var op *net.OpError
+	return errors.As(err, &op) && !op.Timeout() && !errors.Is(err, net.ErrClosed)
 }
 
 // Resolve returns the LAN address of another device answering for name. It uses
@@ -50,13 +76,13 @@ func Resolve(name string) (net.IP, error) {
 	return nil, fmt.Errorf("no device on this network answered for %s.local", Label(name))
 }
 
-func checkAvailable(host string, links []lanInterface, probe func(context.Context, string, lanInterface, []net.IP) error) error {
+func checkAvailable(host string, links []lanInterface, advertised []net.IP, probe func(context.Context, string, lanInterface, []net.IP) error) error {
 	if len(links) == 0 {
 		return fmt.Errorf("could not check the clinic address: no LAN interface available")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	var ownIPs []net.IP
+	ownIPs := append([]net.IP(nil), advertised...)
 	for _, link := range links {
 		ownIPs = append(ownIPs, link.ips...)
 		ownIPs = append(ownIPs, link.ips6...)
@@ -71,16 +97,32 @@ func checkAvailable(host string, links []lanInterface, probe func(context.Contex
 			results <- err
 		}()
 	}
-	var firstErr error
+	var conflict *ConflictError
+	var firstErr, unsettled error
 	for range links {
 		err := <-results
-		var conflict *ConflictError
-		if errors.As(err, &conflict) {
-			return conflict
+		var found *ConflictError
+		if errors.As(err, &found) {
+			if conflict == nil {
+				conflict = found
+				cancel()
+			}
+			continue
+		}
+		if unsettled == nil && linkFailure(err) {
+			unsettled = err
 		}
 		if firstErr == nil {
 			firstErr = err
 		}
+	}
+	if conflict != nil {
+		if unsettled != nil {
+			copied := *conflict
+			copied.Unsettled = unsettled
+			return &copied
+		}
+		return conflict
 	}
 	if firstErr != nil {
 		return fmt.Errorf("could not check the clinic address: %w", firstErr)

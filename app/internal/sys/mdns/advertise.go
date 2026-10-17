@@ -27,7 +27,7 @@ func Advertise(name string, logf func(string)) (*Advertiser, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := checkAvailable(name+".local.", links, probeConflict); err != nil {
+	if err := checkAvailable(name+".local.", links, nil, probeConflict); err != nil {
 		return nil, err
 	}
 	a := &Advertiser{name: name, links: links}
