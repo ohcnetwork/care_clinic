@@ -323,8 +323,14 @@ Less-used local options, such as logos, country defaults, enabled visit types,
 form preferences and queue refresh timing, are not part of these groups. They
 keep their existing values or CARE's defaults and can be overridden in
 **Extra settings (for support)**. Saving an everyday choice does not reset or
-insert those options. The usual visit selector still checks the clinic's saved
-enabled visit types before accepting a new choice.
+insert those options. When `REACT_ALLOWED_ENCOUNTER_CLASSES` is saved, the usual
+visit selector lists only those visit types; a saved choice that is no longer
+enabled shows as "Current value isn't listed" and cannot be saved again.
+
+The visit type and payment method choices use the same names and order as CARE
+(`ENCOUNTER_CLASS` with the `encounter_class__*` labels, and
+`PAYMENT_RECONCILIATION_METHOD_MAP`, in care_fe), so staff see one word for each
+in both places. Keep them in step when CARE adds or renames one.
 
 Email and patient sign-in/SMS controls are not offered. Their environment keys,
 along with SMTP, OTP, MFA/TOTP and reCAPTCHA configuration, are hidden from
@@ -367,7 +373,7 @@ The new-install frontend template includes these visit/address settings:
 
 | Key | Shipped value | Meaning |
 | --- | --- | --- |
-| `REACT_DEFAULT_ENCOUNTER_TYPE` | Empty | No explicit preset. A single enabled visit type is selected automatically; otherwise staff choose. Set `hh` for Home health. |
+| `REACT_DEFAULT_ENCOUNTER_TYPE` | Empty | No explicit preset. A single enabled visit type is selected automatically; otherwise staff choose. Set `hh` for Home Health. |
 | `REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED` | `0` | The currently configured CARE frontend clamps this to **1 required address level**, not an optional address. |
 | `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled area. A support override must use the UUID of an existing CARE geographic organization, not its name. |
 

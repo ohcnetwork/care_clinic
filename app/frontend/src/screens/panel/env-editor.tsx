@@ -29,6 +29,14 @@ const ICONS = [Palette, UserPlus, Receipt, Archive, LockKeyhole];
 type Files = Record<Section, { text: string; lines: EnvLine[] }>;
 type CustomRow = { uid: number; key: string; value: string; file: Section; isNew: boolean };
 
+function visibleOptions(setting: Setting, files: Files | null): Setting {
+  if (setting.key !== "REACT_DEFAULT_ENCOUNTER_TYPE" || setting.kind !== "select" || !files) return setting;
+  const configured = getValue(files.frontend.lines, "REACT_ALLOWED_ENCOUNTER_CLASSES");
+  if (configured === undefined) return setting;
+  const allowed = splitList(configured);
+  return { ...setting, options: setting.options.filter((option) => allowed.includes(option.value)) };
+}
+
 function initialDraft(files: Files): EnvDraft {
   return Object.fromEntries(SETTINGS.map((setting) =>
     [setting.key, getValue(files[setting.file].lines, setting.key)]));
@@ -308,7 +316,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
     <h3 className="advanced-expanded-title">{group?.title ?? "Extra settings (for support)"}</h3>
     {group ? <div className="advanced-settings-card">
       {group.settings.map((setting) => <SettingRow key={setting.key} setting={setting} changed={dirtyKeys.includes(setting.key)} error={errors[setting.key]}>
-        <SettingControl setting={setting} value={draft[setting.key]} disabled={disabled} invalid={!!errors[setting.key]}
+        <SettingControl setting={visibleOptions(setting, files)} value={draft[setting.key]} disabled={disabled} invalid={!!errors[setting.key]}
           onChange={(value) => {
             if (disabled || lock.isLocked()) return;
             setNotice(""); setDraft((current) => ({ ...current, [setting.key]: value }));

@@ -434,7 +434,7 @@ test("the usual visit has no preset until an admin chooses one, then applies wit
   const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
   await expect(visit).toHaveText("No preference");
   await visit.click();
-  await page.getByRole("option", { name: "Home visit", exact: true }).click();
+  await page.getByRole("option", { name: "Home Health", exact: true }).click();
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
   expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({
@@ -452,12 +452,10 @@ test("usual visit choices respect the enabled visit types set by support", async
   await group(page, "Patients and visits");
   const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
   await visit.click();
-  await page.getByRole("option", { name: "Home visit", exact: true }).click();
-  await expect(root(page)).toContainText("This visit type is not enabled for your clinic.");
-  await expect(root(page).getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
+  await expect(page.getByRole("option", { name: "Home Health", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option")).toHaveText(["No preference", "Ambulatory"]);
   expect(await count(page, "WriteEnv")).toBe(0);
-  await visit.click();
-  await page.getByRole("option", { name: "Outpatient visit", exact: true }).click();
+  await page.getByRole("option", { name: "Ambulatory", exact: true }).click();
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
   const contents = await page.evaluate(() => window.careTest.fixtures.env.frontend);
@@ -1053,4 +1051,32 @@ test("an external panel blocker arriving during fresh reads prevents subsequent 
   await expect(root(page)).toContainText("Settings applied.");
   expect(await count(page, "WriteEnv")).toBe(1);
   expect(await count(page, "ClinicAction")).toBe(1);
+});
+
+test("visit and payment choices use CARE's own names", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await group(page, "Patients and visits");
+  await root(page).getByRole("combobox", { name: "Usual visit type", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveText(["No preference", "Inpatient", "Ambulatory", "Observation", "Emergency", "Virtual", "Home Health"]);
+  await page.keyboard.press("Escape");
+  await group(page, "Billing");
+  await root(page).getByRole("combobox", { name: "Usual payment method", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveText(["No preference", "Cash", "Credit Card", "Credit Check", "Credit Account", "Check", "Direct Deposit", "Debit Card"]);
+});
+
+test("a saved visit type that support has since disabled is flagged, not hidden", async ({ page }) => {
+  await openAdvanced(page);
+  await page.evaluate(() => {
+    const env = window.careTest.fixtures.env;
+    env.frontend = env.frontend.replace("REACT_DEFAULT_ENCOUNTER_TYPE=", "REACT_DEFAULT_ENCOUNTER_TYPE=hh") + "REACT_ALLOWED_ENCOUNTER_CLASSES=amb\r\n";
+  });
+  await unlock(page);
+  await group(page, "Patients and visits");
+  const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
+  await expect(visit).toHaveText("Current value isn't listed");
+  await visit.click();
+  await page.getByRole("option", { name: "Ambulatory", exact: true }).click();
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(root(page)).toContainText("Settings applied.");
 });
