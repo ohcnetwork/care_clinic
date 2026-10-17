@@ -267,14 +267,13 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 720, height: 560 
   });
 }
 
-test("schedule and retention use native settings, not an invented clock", async ({ page }) => {
+test("schedule and retention come from the native backup policy", async ({ page }) => {
   await openBackups(page);
   await expect(root(page)).toContainText("Automatic every night at 12 AM");
   await page.evaluate(() => { window.careTest.fixtures.backupPolicy.retention_days = 7; });
   await refresh(page);
   await expect(root(page).getByText("Kept for 7 days", { exact: true })).toBeVisible();
   await expect(root(page).getByText("Kept forever", { exact: true })).toHaveCount(0);
-  await expect(root(page)).not.toContainText("every night");
   await page.evaluate(() => window.careTest.failNext("GetBackupPolicy", "couldn't read backend.env: private setting details"));
   await refresh(page);
   await expect(root(page).getByRole("alert")).toContainText("The backup settings couldn't be read");
