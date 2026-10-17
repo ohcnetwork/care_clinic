@@ -55,14 +55,15 @@ export function DismissButton({ onClick, label = "Dismiss" }: { onClick: () => v
   </Button>;
 }
 
-export function PanelNotice({ title, children, tone = "danger", actions }: {
+export function PanelNotice({ title, children, tone = "danger", actions, dismissKey }: {
   title: string;
   children?: ReactNode;
   tone?: PanelTone;
   actions?: ReactNode;
+  dismissKey?: string;
 }) {
-  const [dismissed, dismiss] = useDismissed(title);
-  if (dismissed) return null;
+  const [dismissed, dismiss] = useDismissed(dismissKey ?? "");
+  if (dismissKey !== undefined && dismissed) return null;
   return <div className={`panel-notice panel-tone-${tone}`} role={tone === "danger" ? "alert" : "status"}>
     {tone === "ok" ? <Check aria-hidden="true" /> : <TriangleAlert aria-hidden="true" />}
     <div className="panel-grow">
@@ -70,7 +71,7 @@ export function PanelNotice({ title, children, tone = "danger", actions }: {
       {children ? <div>{children}</div> : null}
       {actions ? <div className="panel-actions">{actions}</div> : null}
     </div>
-    <DismissButton onClick={dismiss} label={`Dismiss: ${title}`} />
+    {dismissKey !== undefined ? <DismissButton onClick={dismiss} label={`Dismiss: ${title}`} /> : null}
   </div>;
 }
 

@@ -276,17 +276,18 @@ export function BackupsTab() {
 
       {localActionProblem ? <BackupNotice title={localActionProblem.title}>{localActionProblem.detail}</BackupNotice>
         : backingUp || automaticRunning ? (
-          <BackupNotice title="A backup is running" tone="info" log={false}>
+          <BackupNotice title="A backup is running" tone="info" log={false} dismissKey="running">
             Keep CARE Clinic open. The new copy will appear after the backup finishes.
           </BackupNotice>
         ) : backupComplete && run?.state === "ok" && !storage?.stale ? (
-          <BackupNotice title="The backup finished" tone="success" log={false}>
+          <BackupNotice title="The backup finished" tone="success" log={false} dismissKey={`finished|${run?.at ?? ""}`}>
             Refresh the list if the new copy hasn't appeared yet.
           </BackupNotice>
         ) : null}
 
       {run?.state === "failed" && !backingUp && !automaticRunning ? (
         <BackupNotice title={run.reason === "disk_full" ? "The last backup didn't finish — there wasn't enough space" : "The last backup didn't finish"}
+          dismissKey={`failed|${run.reason}|${run.at}`}
           actions={<>
             {run.reason !== "database_unavailable" ? <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button> : null}
             <Button disabled={disabled} onClick={() => void backUpNow()}>Try again now</Button>
@@ -298,6 +299,7 @@ export function BackupsTab() {
         </BackupNotice>
       ) : storage?.stale && !backingUp && !automaticRunning ? (
         <BackupNotice title={lastBackup ? `No backup since ${lastBackup}` : "No recent backup"} tone="warning"
+          dismissKey={`stale|${storage?.newest_backup_at ?? ""}`}
           actions={<>
             <Button variant="primary" disabled={disabled} onClick={() => void backUpNow()}><Archive aria-hidden="true" />Back up now</Button>
             <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button>
@@ -311,7 +313,7 @@ export function BackupsTab() {
       ) : null}
 
       {backupsError ? (
-        <BackupNotice title="The backup list couldn't be read">
+        <BackupNotice title="The backup list couldn't be read" dismissKey="list-error">
           Check that the backup folder is available, then try Refresh. Your existing backups have not been changed.
         </BackupNotice>
       ) : backups.length === 0 ? (

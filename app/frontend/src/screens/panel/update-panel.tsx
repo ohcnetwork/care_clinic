@@ -37,7 +37,7 @@ function UpdateChecksNotice() {
   const careOff = updateChecks?.care === false;
   if (!updateChecks) return null;
   const open = <Button onClick={() => setTab("advanced")}>Open Advanced</Button>;
-  if (!appOff && !careOff) return <PanelNotice tone="ok" title="Automatic update checks are on" actions={open}>
+  if (!appOff && !careOff) return <PanelNotice tone="ok" title="Automatic update checks are on" actions={open} dismissKey="checks-on">
     CARE Clinic looks for new versions of CARE and of this app. An administrator can turn either check off in Advanced.
   </PanelNotice>;
   const title = appOff && careOff ? "Update checks are turned off"
@@ -45,7 +45,7 @@ function UpdateChecksNotice() {
   const detail = appOff && careOff ? "CARE Clinic won't look for new versions of CARE or of this app."
     : appOff ? "CARE Clinic won't look for new versions of this app. CARE software updates still work."
       : "CARE Clinic won't look for or install CARE software updates. CARE Clinic app updates still work.";
-  return <PanelNotice tone="warning" title={title} actions={open}>
+  return <PanelNotice tone="warning" title={title} actions={open} dismissKey={`checks-off|${appOff}|${careOff}`}>
     {detail} An administrator can turn them back on in Advanced.
   </PanelNotice>;
 }

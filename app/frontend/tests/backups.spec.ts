@@ -888,3 +888,21 @@ test("backup warnings can be closed and come back when the problem changes", asy
   await refresh(page);
   await expect(root(page).getByRole("status").filter({ hasText: "No backup since" })).toBeVisible();
 });
+
+test("a closed backup failure comes back when a newer attempt fails", async ({ page }) => {
+  await openBackups(page);
+  await page.evaluate(() => {
+    const report = window.careTest.fixtures.storage;
+    report.last_run = { ...report.last_run, state: "failed", reason: "error", at: Math.floor(Date.now() / 1000) - 7200 };
+  });
+  await refresh(page);
+  const failure = () => root(page).getByRole("alert").filter({ hasText: "The last backup didn't finish" });
+  await expect(failure()).toBeVisible();
+  await failure().getByRole("button", { name: /^Dismiss: The last backup didn't finish/ }).click();
+  await expect(failure()).toHaveCount(0);
+  await refresh(page);
+  await expect(failure()).toHaveCount(0);
+  await page.evaluate(() => { window.careTest.fixtures.storage.last_run.at = Math.floor(Date.now() / 1000) - 60; });
+  await refresh(page);
+  await expect(failure()).toBeVisible();
+});

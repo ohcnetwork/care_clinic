@@ -799,6 +799,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
     setStorage(null);
     setStorageError("");
     setCareUpdate(null);
+    applyUpdateChecks({ app: true, care: true });
+    void reloadUpdateChecks();
     setOperationError(null);
     restorePendingRef.current = false;
     pluginRecoveryPendingRef.current = false;
@@ -819,7 +821,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
     } else {
       toast("The clinic was removed. Backups you chose to keep are still in their folder.");
     }
-  }, [log, setBusy, setFlow, setRun]);
+  }, [applyUpdateChecks, log, reloadUpdateChecks, setBusy, setFlow, setRun]);
 
   // --- host events ------------------------------------------------------
   useEffect(() => {

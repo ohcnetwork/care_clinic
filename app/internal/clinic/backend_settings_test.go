@@ -36,6 +36,10 @@ func TestAddMissingBackendSettings(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.before), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
 			added, err := (&Clinic{InstallDir: dir}).AddMissingBackendSettings()
 			if err != nil {
 				t.Fatal(err)
@@ -47,8 +51,8 @@ func TestAddMissingBackendSettings(t *testing.T) {
 			if string(got) != tc.after {
 				t.Fatalf("backend.env = %q, want %q", got, tc.after)
 			}
-			if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
-				t.Fatalf("permissions changed to %v", info.Mode().Perm())
+			if info, _ := os.Stat(path); info.Mode() != before.Mode() || !os.SameFile(info, before) {
+				t.Fatalf("backend.env was replaced or its mode changed: %v -> %v", before.Mode(), info.Mode())
 			}
 		})
 	}

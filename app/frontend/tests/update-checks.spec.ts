@@ -142,3 +142,35 @@ test("turning CARE checks off clears a banner that was already showing", async (
   await expect(overview(page).getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
   await expect(careBanner(page)).toHaveCount(0);
 });
+
+test("after the clinic is removed, update checks are read again and resume", async ({ page }) => {
+  await openPanel(page, "scenario=available&screen=panel&checksOff=app,care");
+  await unlockAdvanced(page);
+  await advanced(page).getByRole("button", { name: "Uninstall…", exact: true }).click();
+  const dialog = page.getByRole("alertdialog");
+  await page.evaluate(() => { window.careTest.fixtures.finishJobs = false; });
+  await dialog.getByLabel("Type DELETE to confirm", { exact: true }).fill("DELETE");
+  await dialog.getByRole("button", { name: "Delete everything", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const readsBefore = (await calls(page, "GetUpdateChecks")).length;
+  const checksBefore = (await calls(page, "CheckAppUpdate")).length;
+  await page.evaluate(() => {
+    const preview = window.careTest;
+    preview.state.role = "";
+    preview.state.setup_done = false;
+    preview.fixtures.updateChecks = { app: true, care: true };
+    preview.emit("uninstalled", true);
+    preview.emit("care-done", 0, "uninstall");
+  });
+  await expect.poll(async () => (await calls(page, "GetUpdateChecks")).length).toBeGreaterThan(readsBefore);
+  await expect.poll(async () => (await calls(page, "CheckAppUpdate")).length).toBeGreaterThan(checksBefore);
+});
+
+test("a CARE update that is ready to install cannot be closed away", async ({ page }) => {
+  await openPanel(page, "scenario=panel-update");
+  await page.evaluate(() => window.careTest.emit("care-update", { backend: "preview-backend-next", frontend: "" }));
+  await section(page, "Updates").click();
+  await expect(software(page).getByRole("button", { name: /Install now/ })).toBeVisible();
+  await expect(software(page).getByRole("button", { name: /^Dismiss/ })).toHaveCount(0);
+  await expect(updates(page).getByRole("button", { name: "Dismiss: Automatic update checks are on" })).toBeVisible();
+});

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
-	"github.com/ohcnetwork/care_desktop/app/internal/sys/atomicfile"
 )
 
 var addedBackendSettings = []struct{ Key, Value string }{
@@ -42,16 +41,20 @@ func (e *Clinic) AddMissingBackendSettings() ([]string, error) {
 	if len(added) == 0 {
 		return nil, nil
 	}
-	out := append([]byte{}, b...)
-	if len(out) > 0 && out[len(out)-1] != '\n' {
-		out = append(out, '\n')
+	var tail []byte
+	if len(b) > 0 && b[len(b)-1] != '\n' {
+		tail = append(tail, '\n')
 	}
-	out = append(out, lines.String()...)
-	info, err := os.Stat(path)
+	tail = append(tail, lines.String()...)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		return nil, err
 	}
-	if err := atomicfile.Write(path, out, info.Mode().Perm()); err != nil {
+	if _, err := f.Write(tail); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if err := f.Close(); err != nil {
 		return nil, err
 	}
 	return added, nil

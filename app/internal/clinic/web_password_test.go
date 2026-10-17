@@ -147,6 +147,17 @@ func TestResetWebPasswordReportsOutcomes(t *testing.T) {
 	}
 }
 
+func TestResetWebPasswordReadsOutcomesBeforeRedacting(t *testing.T) {
+	for _, secret := range []string{"care-clinic:password-set", "care-clinic"} {
+		t.Run(secret, func(t *testing.T) {
+			f := newWebPasswordFixture(t)
+			if err := f.clinic.ResetWebPassword("admin", secret); err != nil {
+				t.Fatalf("a successful reset was reported as a failure: %v", err)
+			}
+		})
+	}
+}
+
 func TestResetWebPasswordRefusesWhileCareIsNotRunning(t *testing.T) {
 	for _, state := range []string{"stopped", "unreachable"} {
 		t.Run(state, func(t *testing.T) {

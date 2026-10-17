@@ -237,11 +237,17 @@ The Overview backup summary shows useful status, size and encryption information
 without a `saved to /...` filesystem path. The actual destination remains
 available where it can be managed in Backups.
 
-Warning banners at the top of the panel and the notices inside each tab have a
-close (×) button. Closing one hides that message for the rest of the session;
-it comes back if its wording changes (for example a newer "No backup since"
-date) or after the app restarts. Closing only hides the message: nothing is
-fixed or acknowledged.
+Warning banners at the top of the panel, the backup notices in Backups and the
+update-check notice in Updates have a close (×) button. Closing one hides that
+message for the rest of the session; it comes back when the underlying state
+changes (a newer backup date, a newer failed attempt or a different reason, a
+different update-check setting) or after the app restarts. Closing only hides
+the message: nothing is fixed or acknowledged.
+
+Notices that carry the only way to act on something, such as "An update is
+ready" with **Install now** or an unfinished restore, have no close button.
+`PanelNotice` and `BackupNotice` are closable only when given a `dismissKey`,
+and that key must change whenever the message should be shown again.
 
 ### Backups and restore
 

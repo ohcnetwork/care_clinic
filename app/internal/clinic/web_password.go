@@ -83,10 +83,11 @@ func (e *Clinic) ResetWebPassword(username, password string) error {
 	cmd.Env = append(e.baseEnv(), webPasswordUserEnv+"="+username, webPasswordSecretEnv+"="+password)
 	cmd.Dir = e.workdir()
 	out, runErr := cmd.CombinedOutput()
-	output := strings.ReplaceAll(string(out), password, "[new password]")
+	redact := func(text string) string { return strings.ReplaceAll(text, password, "[new password]") }
+	output := redact(string(out))
 	missing, changed := false, false
 	var problems []string
-	for _, line := range strings.Split(output, "\n") {
+	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case line == webPasswordMissing:
@@ -95,7 +96,7 @@ func (e *Clinic) ResetWebPassword(username, password string) error {
 			changed = true
 		case strings.HasPrefix(line, webPasswordInvalid):
 			if message := strings.TrimSpace(strings.TrimPrefix(line, webPasswordInvalid)); message != "" {
-				problems = append(problems, message)
+				problems = append(problems, redact(message))
 			}
 		}
 	}
