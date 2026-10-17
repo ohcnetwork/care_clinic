@@ -14,6 +14,7 @@ import (
 var addedBackendSettings = []struct{ Key, Value string }{
 	{"MAINTAIN_PATIENT_NAME_IDENTIFIER", "True"},
 	{"MAINTAIN_PATIENT_PHONE_NUMBER_IDENTIFIER", "True"},
+	{"DJANGO_EMAIL_BACKEND", "django.core.mail.backends.dummy.EmailBackend"},
 }
 
 func (e *Clinic) AddMissingBackendSettings() ([]string, error) {

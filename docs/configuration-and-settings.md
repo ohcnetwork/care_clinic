@@ -202,7 +202,7 @@ Facility setup lives in the [CARE Onboarding frontend plugin](onboarding.md); it
 
 Refresh copies the current kit but is not a general recursive deletion or a migration framework for all generated files. Similarly, preserving environments means a new template key is not automatically merged into an existing environment.
 
-The one exception is the short list in `addedBackendSettings` (`internal/clinic/backend_settings.go`). After the kit refresh, `AddMissingBackendSettings` appends each listed key to an existing `backend.env` only if the key is absent, keeping the file's permissions, and the change applies the next time CARE starts. It never changes a value already in the file, so a clinic that wants a setting off writes `KEY=False` rather than deleting the line. The list currently holds `MAINTAIN_PATIENT_NAME_IDENTIFIER=True` and `MAINTAIN_PATIENT_PHONE_NUMBER_IDENTIFIER=True`, which make CARE keep searchable name and phone-number identifiers on every patient; CARE's own default for both is off. The shipped [`backend.env`](../deployments/backend.env) sets both for new clinics, and a test fails if it is missing a listed key.
+The one exception is the short list in `addedBackendSettings` (`internal/clinic/backend_settings.go`). After the kit refresh, `AddMissingBackendSettings` appends each listed key to an existing `backend.env` only if the key is absent, keeping the file's permissions, and the change applies the next time CARE starts. It never changes a value already in the file, so a clinic that wants a setting off writes `KEY=False` rather than deleting the line. The list currently holds `MAINTAIN_PATIENT_NAME_IDENTIFIER=True` and `MAINTAIN_PATIENT_PHONE_NUMBER_IDENTIFIER=True`, which make CARE keep searchable name and phone-number identifiers on every patient (CARE's own default for both is off), and `DJANGO_EMAIL_BACKEND` set to Django's dummy backend. The shipped [`backend.env`](../deployments/backend.env) sets both for new clinics, and a test fails if it is missing a listed key.
 
 The startup refresh is skipped for incomplete setup, incomplete removal, and pending restore. A pending restore must keep the configuration its recovery metadata expects.
 
@@ -334,9 +334,21 @@ in both places. Keep them in step when CARE adds or renames one.
 
 Email and patient sign-in/SMS controls are not offered. Their environment keys,
 along with SMTP, OTP, MFA/TOTP and reCAPTCHA configuration, are hidden from
-"Extra settings (for support)" and cannot be added there. Existing values,
-including backend placeholders needed at startup, remain untouched when other
-settings are saved.
+"Extra settings (for support)" and cannot be added there. Existing values
+remain untouched when other settings are saved.
+
+CARE Clinic sends no email or SMS:
+
+| Channel | Setting | Effect |
+| --- | --- | --- |
+| Email | `DJANGO_EMAIL_BACKEND=django.core.mail.backends.dummy.EmailBackend` | Django's dummy backend discards every message. Password reset by email, new-user "set your password" email and two-factor notices report success instead of failing against a mail server. New clinics get it from the shipped `backend.env`; existing clinics get it added on start when the key is missing (see [Embedded-kit refresh](#embedded-kit-refresh)). |
+| SMS | `USE_SMS=False` | No SMS is sent. Patient sign-in by code is the one CARE flow that fails without SMS, so it stays hidden with `REACT_DISABLE_PATIENT_LOGIN=true`. |
+
+The old `EMAIL_HOST`/`EMAIL_USER`/`EMAIL_PASSWORD` and `SNS_*` placeholders are
+no longer shipped; CARE has defaults for all of them. Existing files that still
+contain them are left alone. The "Forgot password" link on CARE's sign-in page
+cannot be hidden through settings; staff who forget a password are reset from
+Advanced (see [Resetting a CARE web password](backups-and-restore.md#resetting-a-care-web-password)).
 This is an editor restriction, not a change to CARE's authentication or existing
 MFA configuration. Local password rate limiting, idle sign-out, request
 protection and offline CARE Clinic recovery remain available. Branding URLs can

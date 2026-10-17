@@ -109,7 +109,7 @@ func (a *App) refreshInstallDir() {
 			return err
 		}
 		for _, key := range settings {
-			a.logln("Added " + key + "=True to backend.env. It applies the next time CARE starts.")
+			a.logln("Added " + key + " to backend.env. It applies the next time CARE starts.")
 		}
 		updated = updated || len(settings) > 0
 		added, err := plugins.New(a.engine().InstallDir).AddNewDefaults()
