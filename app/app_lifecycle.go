@@ -143,7 +143,9 @@ func (a *App) shutdown(context.Context) {
 		close(a.advStop)
 	}
 	a.advMu.Lock()
-	a.adv.Stop()
+	if a.adv != nil {
+		a.adv.Stop()
+	}
 	a.adv = nil
 	a.advMu.Unlock()
 }

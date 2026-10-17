@@ -130,7 +130,7 @@ The [`App`](../app/app.go) owns:
 | `jobMu`, `closing` | Coordination of conflicting operations and the closing transition. |
 | `confirmationMu`, pending confirmation and readiness | One permission request at a time, explicit answers, and cancellation on frontend loss or shutdown. |
 | Quit request state | ID-scoped running-job close confirmation, independent of the job it is asking about. |
-| `adv`, `advMu`, `advStop` | mDNS advertiser ownership and watcher shutdown. |
+| `adv`, `advMu`, `advSince`, `advStop` | mDNS advertiser ownership, its start time for the watcher's settle period, and watcher shutdown. |
 
 These locks solve different problems. Protecting the `Config` struct does not make a Docker operation safe to overlap with uninstall. Conversely, serializing destructive jobs does not eliminate concurrent status checks or advertiser activity.
 
