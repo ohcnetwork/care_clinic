@@ -502,13 +502,13 @@ flowchart TD
     Mode -- No --> Unlock["Release lock and return"]
     Mode -- Yes --> Prune["Remove abandoned intermediates and apply retention"]
     Prune --> Result["Report success only if all required steps succeeded"]
-    Result --> Sleep["Release lock, then sleep 86400 seconds"]
+    Result --> Sleep["Release lock; next run at the following midnight, or in an hour after a failure"]
 ```
 
 `flock -x` on file descriptor 9 serializes cooperating manual and scheduled
 writers in the same backup folder. A waiting manual backup does not prune an
 active scheduled backup's intermediate files. The scheduled loop releases the
-lock before sleeping. The lock is advisory: unrelated programs that ignore it
+lock before it waits for the next run. The lock is advisory: unrelated programs that ignore it
 can still modify the folder.
 
 Before a scheduled or manual set starts, **both** final output paths must be unused. Existing files, directories, and even
