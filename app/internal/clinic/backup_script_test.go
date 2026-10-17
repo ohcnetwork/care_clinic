@@ -34,7 +34,11 @@ case "$name" in
 		fi
 		;;
 	date)
-		printf '20260102-030405\n'
+		if [ "${1:-}" = +%s ]; then
+			printf '%s\n' "$BACKUP_TEST_NOW"
+		else
+			printf '20260102-030405\n'
+		fi
 		;;
 	pg_isready)
 		printf '%s\n' "$*" > "$BACKUP_TEST_ROOT/readiness-args"
@@ -113,7 +117,7 @@ case "$name" in
 		;;
 	sleep)
 		[ "$1" != 5 ] || exit 0
-		[ "$1" = 86400 ] || exit 97
+		[ "$1" = 300 ] || exit 97
 		: > "$BACKUP_TEST_ROOT/sleeping"
 		if [ "$BACKUP_TEST_HOLD_SLEEP" = 1 ]; then
 			wait_for "$BACKUP_TEST_ROOT/wake"
@@ -218,6 +222,7 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 			"BACKUP_TEST_DB_READY_AFTER=0",
 			"BACKUP_TEST_HOLD=",
 			"BACKUP_TEST_HOLD_SLEEP=0",
+			"BACKUP_TEST_NOW=1767323045",
 		),
 	}
 }
@@ -614,6 +619,9 @@ func TestBackupScriptRejectsExistingBackupPaths(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if err := os.RemoveAll(filepath.Join(f.root, "state", "next-backup")); err != nil {
+				t.Fatal(err)
+			}
 			output := f.start(t, "retry", args).wait(t, retryCode)
 			if !strings.Contains(output, "refusing to overwrite existing backup") || strings.Contains(output, ": SUCCESS") {
 				t.Fatalf("existing backup path was not rejected:\n%s", output)
@@ -782,5 +790,45 @@ func TestBackupScriptManualSuccessClearsFailedStatus(t *testing.T) {
 	f.start(t, "manual", []string{"once", "manual-20260102-030405"}, "BACKUP_TEST_FREE_KB=99999999").wait(t, 0)
 	if status := f.status(t); !strings.Contains(status, "state=ok\n") {
 		t.Fatalf("a successful manual backup left the failed status:\n%s", status)
+	}
+}
+
+func TestBackupScriptSchedulesByWallClock(t *testing.T) {
+	const now = 1767323045
+	for _, tc := range []struct {
+		name, failure, saved string
+		dailySet, backs      bool
+		next                 int
+	}{
+		{"first start backs up and schedules a day later", "", "", false, true, now + 86400},
+		{"a failed attempt retries in an hour", "pg-dump", "", false, true, now + 3600},
+		{"an overdue backup runs at once", "", strconv.Itoa(now - 1), true, true, now + 86400},
+		{"a backup that is not due waits", "", strconv.Itoa(now + 600), true, false, now + 600},
+		{"an empty backup folder backs up at once", "", strconv.Itoa(now + 600), false, true, now + 86400},
+		{"an unreadable schedule backs up at once", "", "soon", true, true, now + 86400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newBackupScriptFixture(t)
+			if tc.dailySet {
+				f.write(t, "backups/care-20260101-030405.dump.enc")
+				f.write(t, "backups/files-20260101-030405.tar.gz.enc")
+			}
+			if tc.saved != "" {
+				if err := os.WriteFile(filepath.Join(f.root, "state", "next-backup"), []byte(tc.saved+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.start(t, "daily", nil, "BACKUP_TEST_FAIL="+tc.failure).wait(t, 99)
+			if strings.Contains(f.trace(t), "daily pg_dump\n") != tc.backs {
+				t.Fatalf("backup attempted = %v, want %v:\n%s", !tc.backs, tc.backs, f.trace(t))
+			}
+			data, err := os.ReadFile(filepath.Join(f.root, "state", "next-backup"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.TrimSpace(string(data)); got != strconv.Itoa(tc.next) {
+				t.Fatalf("next backup = %s, want %d", got, tc.next)
+			}
+		})
 	}
 }

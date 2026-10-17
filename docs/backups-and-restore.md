@@ -416,13 +416,25 @@ second inline dump/encryption implementation in the Wails backend.
 
 ### The schedule lives in the sidecar
 
-In its normal mode, the script attempts a complete set immediately, then sleeps
-for `86400` seconds after the attempt. It repeats while the container runs.
+In its normal mode, the script wakes every 300 seconds and compares the wall
+clock (`date +%s`) with the time the next backup is due. After a successful set
+the next one is due 24 hours later; after a failed attempt it is retried an hour
+later. The due time is saved in `backup-state/next-backup`, so restarting the
+container does not take an extra backup or reset the schedule.
 
-This is not a midnight cron job, a Wails timer, a missed-run catch-up mechanism,
-or a cloud backup service. Cycle duration is additional to the sleep interval.
-After a failed cycle it logs the failure and still sleeps before its next
-attempt.
+The schedule is not a single `sleep 86400`. The sidecar runs inside the Docker
+virtual machine on macOS and Windows, and that machine is paused while the
+computer sleeps; a sleep timer does not count paused time, so a laptop that
+sleeps often would push a "daily" backup back by days. Checking the wall clock
+every few minutes means a backup that fell due while the computer slept runs
+within about five minutes of it waking.
+
+On start, the sidecar backs up at once when the saved due time has passed, is
+missing or unreadable, or when the backup folder has no scheduled set yet (for
+example, right after the folder was changed). Otherwise it waits for the saved
+time.
+
+This is not a midnight cron job, a Wails timer or a cloud backup service.
 
 The script refuses to start without `/keys/backup-cert.pem` or a nonempty
 `POSTGRES_PASSWORD`. It defaults other database connection values to host `db`,

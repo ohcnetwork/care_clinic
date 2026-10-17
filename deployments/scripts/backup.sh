@@ -353,11 +353,36 @@ if [ "${1:-}" = "once" ]; then
 	exit
 fi
 
+DAILY_SECONDS=86400
+RETRY_SECONDS=3600
+WAKE_SECONDS=300
+NEXT_FILE="$STATE_DIR/next-backup"
+
+saved_next() {
+	next=$(cat "$NEXT_FILE" 2>/dev/null || true)
+	case "$next" in ''|*[!0-9]*) echo 0 ;; *) echo "$next" ;; esac
+}
+
+schedule_next() {
+	NEXT=$(( $(date +%s) + $1 ))
+	if [ -d "$STATE_DIR" ]; then
+		printf '%s\n' "$NEXT" > "$NEXT_FILE" 2>/dev/null || true
+	fi
+}
+
 echo "[backup] sidecar started; encrypted backups -> $BACKUP_DIR ($RET_DESC)"
 
+NEXT=$(saved_next)
+[ -n "$(latest_daily_dump)" ] || NEXT=0
+
 while true; do
-	if ! with_backup_lock run_backup; then
-		echo "[backup] backup cycle failed - see errors above"
+	if [ "$(date +%s)" -ge "$NEXT" ]; then
+		if with_backup_lock run_backup; then
+			schedule_next "$DAILY_SECONDS"
+		else
+			echo "[backup] backup cycle failed - see errors above; trying again in an hour"
+			schedule_next "$RETRY_SECONDS"
+		fi
 	fi
-	sleep 86400
+	sleep "$WAKE_SECONDS"
 done
