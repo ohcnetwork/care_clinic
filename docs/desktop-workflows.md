@@ -314,7 +314,8 @@ state; it does not undo already saved settings or cancel an accepted native job.
 
 This is a frontend timer, not a backend session or token. Protected Go methods
 verify the supplied CARE Clinic password for each operation. The CARE Clinic password
-and recovery codes do not change the CARE web login after initial setup.
+and recovery codes do not change the CARE web login after initial setup; use
+**Reset a CARE web password** in Advanced for that.
 
 ### Updates and running work
 

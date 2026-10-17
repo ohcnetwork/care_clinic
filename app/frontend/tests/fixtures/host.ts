@@ -36,6 +36,7 @@ type Fixtures = {
   importedBackup: ImportedBackup;
   recoveryFile: string;
   adminPassword: string;
+  webUsers: Record<string, string>;
   finishJobs: boolean;
   quitAccepted: boolean;
   env: Record<Section, string>;
@@ -156,6 +157,7 @@ export function installTestHost() {
     importedBackup: { path: `${backupDir}/${exampleBackup.db_dump}`, dir: backupDir, db_dump: exampleBackup.db_dump, files_archive: exampleBackup.files_archive, label: exampleBackup.label, encrypted: true },
     recoveryFile: "/test-fixtures/recovery/CARE-backup-recovery.pem",
     adminPassword: "ClinicTest123",
+    webUsers: { admin: "ClinicTest123", nurse: "NurseTest123" },
     finishJobs: true,
     quitAccepted: false,
     env: {
@@ -551,6 +553,18 @@ export function installTestHost() {
       fixtures.recoveryFailures = 0;
       fixtures.recoveryRetryAfter = 0;
       emit("admin-recovery-codes-changed", fixtures.recoveryCodes.filter(Boolean).length);
+    },
+    ResetWebPassword: async (username: string, next: string, password: string) => {
+      requireServer();
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
+      if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
+      if (!Object.prototype.hasOwnProperty.call(fixtures.webUsers, username)) throw new Error(`no CARE user named "${username}"; usernames are case-sensitive`);
+      const problems = [
+        ...(next.length < 8 ? ["This password is too short. It must contain at least 8 characters."] : []),
+        ...(/^\d+$/.test(next) ? ["This password is entirely numeric."] : []),
+      ];
+      if (problems.length) throw new Error(`CARE didn't accept that password: ${problems.join(" ")}`);
+      fixtures.webUsers[username] = next;
     },
     RancherDesktopInstalled: async () => fixtures.rancherInstalled,
     RunUninstall: async (_images: boolean, _backups: boolean, _rancher: boolean, password: string) => {

@@ -75,6 +75,7 @@ For a first reading, follow the table from top to bottom. If you are fixing one 
 | Root CA | The local certificate authority used to establish trust in the clinic's HTTPS certificate. |
 | Backup recovery file | The exported private key required to decrypt encrypted backups. It is not encrypted with the CARE Clinic password; keep it separate from backup data. |
 | CARE Clinic recovery code | A single-use code that resets the local CARE Clinic password, not the CARE web login or backup encryption key. |
+| CARE web password | The password staff type to sign in to CARE in the browser. Separate from the CARE Clinic password after setup; reset it from Advanced with **Reset a CARE web password**. |
 | Restore journal | Durable metadata used to recognize and recover an interrupted staged restore. |
 | Residue | Resources left by an earlier or partially removed CARE Clinic installation. |
 
