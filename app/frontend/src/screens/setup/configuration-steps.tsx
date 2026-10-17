@@ -180,7 +180,7 @@ export function ReviewStep({ steps, form, backupPath, issues, verified, busy, on
   const rows = [
     { id: "space" as const, icon: Cpu, label: "This computer", value: computerIssues.length ? "Needs attention" : `${computerCount} computer checks passed`, detail: verified ? "Checked just now" : "Checking before installation", failures: computerIssues },
     { id: "address" as const, icon: Globe, label: "Clinic address", value: `https://${form.hostInput.trim().toLowerCase()}.local`, detail: "What staff type in their browser", failures: issues.filter((issue) => issue.step === "address") },
-    { id: "backup" as const, icon: Folder, label: "Backups", value: backupPath, detail: "Every 24 hours · recovery file saved and checked", failures: issues.filter((issue) => issue.step === "backup") },
+    { id: "backup" as const, icon: Folder, label: "Backups", value: backupPath, detail: "Every night at 12 AM · recovery file saved and checked", failures: issues.filter((issue) => issue.step === "backup") },
     { id: "admin" as const, icon: KeyRound, label: "Admin login", value: "admin", detail: "Password set · six recovery codes saved", failures: issues.filter((issue) => issue.step === "admin") },
   ];
   return (

@@ -36,6 +36,8 @@ case "$name" in
 	date)
 		if [ "${1:-}" = +%s ]; then
 			printf '%s\n' "$BACKUP_TEST_NOW"
+		elif [ "${1:-}" = '+%s %H %M %S' ]; then
+			printf '%s %s\n' "$BACKUP_TEST_NOW" "$BACKUP_TEST_CLOCK"
 		else
 			printf '20260102-030405\n'
 		fi
@@ -223,6 +225,7 @@ func newBackupScriptFixture(t *testing.T) *backupScriptFixture {
 			"BACKUP_TEST_HOLD=",
 			"BACKUP_TEST_HOLD_SLEEP=0",
 			"BACKUP_TEST_NOW=1767323045",
+			"BACKUP_TEST_CLOCK=03 04 05",
 		),
 	}
 }
@@ -793,19 +796,22 @@ func TestBackupScriptManualSuccessClearsFailedStatus(t *testing.T) {
 	}
 }
 
-func TestBackupScriptSchedulesByWallClock(t *testing.T) {
+func TestBackupScriptSchedulesNightlyByWallClock(t *testing.T) {
 	const now = 1767323045
+	const midnight = now - 3*3600 - 4*60 - 5 + 86400
 	for _, tc := range []struct {
-		name, failure, saved string
-		dailySet, backs      bool
-		next                 int
+		name, failure, saved, clock string
+		dailySet, backs             bool
+		next                        int
 	}{
-		{"first start backs up and schedules a day later", "", "", false, true, now + 86400},
-		{"a failed attempt retries in an hour", "pg-dump", "", false, true, now + 3600},
-		{"an overdue backup runs at once", "", strconv.Itoa(now - 1), true, true, now + 86400},
-		{"a backup that is not due waits", "", strconv.Itoa(now + 600), true, false, now + 600},
-		{"an empty backup folder backs up at once", "", strconv.Itoa(now + 600), false, true, now + 86400},
-		{"an unreadable schedule backs up at once", "", "soon", true, true, now + 86400},
+		{"first start backs up and schedules the next midnight", "", "", "03 04 05", false, true, midnight},
+		{"a failed attempt retries in an hour", "pg-dump", "", "03 04 05", false, true, now + 3600},
+		{"a missed midnight runs at once", "", strconv.Itoa(now - 1), "03 04 05", true, true, midnight},
+		{"a backup that is not due waits", "", strconv.Itoa(now + 600), "03 04 05", true, false, now + 600},
+		{"an empty backup folder backs up at once", "", strconv.Itoa(now + 600), "03 04 05", false, true, midnight},
+		{"an unreadable schedule backs up at once", "", "soon", "03 04 05", true, true, midnight},
+		{"leading zeros are decimal", "", "", "08 09 09", false, true, now - 8*3600 - 9*60 - 9 + 86400},
+		{"a catch-up late at night still waits for midnight", "", "", "23 59 00", false, true, now + 60},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newBackupScriptFixture(t)
@@ -818,7 +824,7 @@ func TestBackupScriptSchedulesByWallClock(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			f.start(t, "daily", nil, "BACKUP_TEST_FAIL="+tc.failure).wait(t, 99)
+			f.start(t, "daily", nil, "BACKUP_TEST_FAIL="+tc.failure, "BACKUP_TEST_CLOCK="+tc.clock).wait(t, 99)
 			if strings.Contains(f.trace(t), "daily pg_dump\n") != tc.backs {
 				t.Fatalf("backup attempted = %v, want %v:\n%s", !tc.backs, tc.backs, f.trace(t))
 			}

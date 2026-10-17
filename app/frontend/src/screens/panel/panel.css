@@ -91,6 +91,9 @@
 .panel-home-share strong { font-weight: 600; color: #33403a; }
 .panel-notice { display: flex; align-items: flex-start; gap: 12px; padding: 15px 16px; border-radius: 12px; border: 1px solid #e2e8e4; background: #f3f6f4; font-size: 13px; line-height: 1.6; }
 .panel-notice > svg { flex: none; width: 18px; height: 18px; margin-top: 2px; }
+.panel-dismiss { flex: none; width: 28px; height: 28px; margin: -4px -6px -4px auto; color: inherit; opacity: 0.7; }
+.panel-dismiss:hover { opacity: 1; }
+.panel-dismiss svg { width: 16px; height: 16px; }
 .panel-notice strong { display: block; margin-bottom: 2px; font-weight: 600; }
 .panel-notice .panel-actions { margin-top: 10px; }
 .panel-notice.panel-tone-danger { border-color: #f6b4b4; background: #fffafa; color: #991b1b; }

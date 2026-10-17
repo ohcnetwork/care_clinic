@@ -3,9 +3,11 @@ package clinic
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/compose-spec/compose-go/v2/dotenv"
 	"github.com/ohcnetwork/care_desktop/app/internal/compose"
@@ -68,7 +70,18 @@ func (e *Clinic) baseEnv() []string {
 	set("FILE_UPLOAD_BUCKET", strings.TrimSpace(benv["FILE_UPLOAD_BUCKET"]))
 	set("FACILITY_S3_BUCKET", strings.TrimSpace(benv["FACILITY_S3_BUCKET"]))
 	set("BACKUP_DIR", e.backupDir())
+	set("BACKUP_TZ", posixTZ(time.Now()))
 	return env
+}
+
+func posixTZ(now time.Time) string {
+	_, offset := now.Zone()
+	name, sign := "+", "-"
+	if offset < 0 {
+		name, sign, offset = "-", "+", -offset
+	}
+	hours, minutes := offset/3600, offset%3600/60
+	return fmt.Sprintf("<%s%02d%02d>%s%02d:%02d", name, hours, minutes, sign, hours, minutes)
 }
 
 func (e *Clinic) minioCreds() (accessKey, secretKey string) {

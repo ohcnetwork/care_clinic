@@ -246,7 +246,7 @@ export function BackupsTab() {
           {backingUp || automaticRunning ? "Backing up…" : "Back up now"}
         </Button>
         <div className="care-backups-schedule">
-          <span>{policy?.interval_seconds === 86400 ? "Automatic every 24 hours"
+          <span>{policy?.interval_seconds === 86400 ? "Automatic every night at 12 AM"
             : policy ? `Automatic every ${policy.interval_seconds / 3600} hours`
               : "Automatic backups"}</span>
           <span className="care-backups-retention">{policy

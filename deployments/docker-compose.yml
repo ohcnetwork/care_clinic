@@ -116,6 +116,8 @@ services:
     image: ${BACKUP_IMAGE:?BACKUP_IMAGE not set - .env is missing from this directory}   # postgres + openssl, built by `care setup`
     restart: unless-stopped
     env_file: ./backend.env
+    environment:
+      TZ: ${BACKUP_TZ:-UTC0}
     volumes:
       - ./scripts/backup.sh:/backup.sh:ro
       - ${BACKUP_DIR:-./db-backups}:/backups

@@ -269,7 +269,7 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 720, height: 560 
 
 test("schedule and retention use native settings, not an invented clock", async ({ page }) => {
   await openBackups(page);
-  await expect(root(page)).toContainText("Automatic every 24 hours");
+  await expect(root(page)).toContainText("Automatic every night at 12 AM");
   await page.evaluate(() => { window.careTest.fixtures.backupPolicy.retention_days = 7; });
   await refresh(page);
   await expect(root(page).getByText("Kept for 7 days", { exact: true })).toBeVisible();
@@ -869,4 +869,23 @@ test("presentation derives capacity only from reported storage fields", () => {
   expect(backupSpaceSummary({ ...space, free: 50 })).toBe("Not enough room for the next backup");
   expect(backupSpaceSummary({ ...space, level: "unknown", total: 0 }))
     .toBe("Free space couldn't be checked");
+});
+
+test("backup warnings can be closed and come back when the problem changes", async ({ page }) => {
+  await openBackups(page);
+  await page.evaluate(() => {
+    const report = window.careTest.fixtures.storage;
+    report.stale = true;
+    report.newest_backup_at = Math.floor(Date.now() / 1000) - 3 * 86400;
+  });
+  await refresh(page);
+  const warning = root(page).getByRole("status").filter({ hasText: "No backup since" });
+  await expect(warning).toBeVisible();
+  await warning.getByRole("button", { name: /^Dismiss: No backup since/ }).click();
+  await expect(root(page)).not.toContainText("No backup since");
+  await page.evaluate(() => {
+    window.careTest.fixtures.storage.newest_backup_at = Math.floor(Date.now() / 1000) - 5 * 86400;
+  });
+  await refresh(page);
+  await expect(root(page).getByRole("status").filter({ hasText: "No backup since" })).toBeVisible();
 });

@@ -471,7 +471,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     cleanup: ["Removing stale files from an earlier setup", "CARE checks for files or settings from an earlier setup before installing a new clinic here."],
     network: ["Setting this network to Private", "The second of the two Windows changes. Staff computers, phones and tablets open CARE from here."],
     address: ["Choosing the clinic address", "Staff type this into their browser to open CARE. Short and easy to say out loud works best."],
-    backup: ["Setting up backups", "CARE makes an encrypted backup automatically, once every 24 hours. Choose where the backups go, then save the file that unlocks them."],
+    backup: ["Setting up backups", "CARE makes an encrypted backup automatically every night at 12 AM, or as soon as this computer is next on if it was off. Choose where the backups go, then save the file that unlocks them."],
     admin: ["Creating the admin password", "This password protects CARE Clinic on this computer and is the first sign-in for CARE itself."],
     review: ["Review before installing", "Here's what CARE will set up."],
     install: ["Installing CARE", ""],
@@ -483,7 +483,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     : problem ? "Check this step again before continuing."
     : editing ? "Choose Continue to return to Review when this step is ready."
     : page === "address" ? addressReady ? "Next: backups." : "Pick an address that is free to continue."
-    : page === "backup" ? backupReady ? "Backups will be made every 24 hours." : "Save and check your recovery file to continue."
+    : page === "backup" ? backupReady ? "Backups will be made every night at 12 AM." : "Save and check your recovery file to continue."
     : page === "admin" ? adminReady ? "Almost done — one last look before installing." : "Choose a password and save your recovery codes to continue."
     : page === "review" ? issues.length ? "Fix the highlighted step; you come back to this screen." : "Nothing has been installed yet."
     : ready ? "Ready to continue." : `Finish ${SETUP_LABELS[page].toLowerCase()} to continue.`;

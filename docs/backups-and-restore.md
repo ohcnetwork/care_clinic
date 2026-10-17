@@ -418,16 +418,22 @@ second inline dump/encryption implementation in the Wails backend.
 
 In its normal mode, the script wakes every 300 seconds and compares the wall
 clock (`date +%s`) with the time the next backup is due. After a successful set
-the next one is due 24 hours later; after a failed attempt it is retried an hour
-later. The due time is saved in `backup-state/next-backup`, so restarting the
+the next one is due at the following local midnight (12 AM); after a failed
+attempt it is retried an hour later. If the computer was off or asleep at
+midnight, the backup runs within about five minutes of CARE next running, and
+the one after that is again due at midnight.
+
+The container clock is UTC, so the app passes the computer's current UTC offset
+as `BACKUP_TZ`, a POSIX `TZ` string such as `<+0530>-05:30`, which Compose sets
+as the sidecar's `TZ`. It is read each time the app starts the clinic, so a
+daylight-saving change is picked up at the next start; until then midnight can
+be an hour off. The due time is saved in `backup-state/next-backup`, so restarting the
 container does not take an extra backup or reset the schedule.
 
 The schedule is not a single `sleep 86400`. The sidecar runs inside the Docker
 virtual machine on macOS and Windows, and that machine is paused while the
 computer sleeps; a sleep timer does not count paused time, so a laptop that
-sleeps often would push a "daily" backup back by days. Checking the wall clock
-every few minutes means a backup that fell due while the computer slept runs
-within about five minutes of it waking.
+sleeps often would push a "daily" backup back by days.
 
 On start, the sidecar backs up at once when the saved due time has passed, is
 missing or unreadable, or when the backup folder has no scheduled set yet (for

@@ -363,8 +363,24 @@ saved_next() {
 	case "$next" in ''|*[!0-9]*) echo 0 ;; *) echo "$next" ;; esac
 }
 
+next_midnight() {
+	set -- $(date '+%s %H %M %S')
+	hour=${2#0}
+	minute=${3#0}
+	second=${4#0}
+	echo $(( $1 - ${hour:-0} * 3600 - ${minute:-0} * 60 - ${second:-0} + DAILY_SECONDS ))
+}
+
+schedule_retry() {
+	save_next $(( $(date +%s) + RETRY_SECONDS ))
+}
+
 schedule_next() {
-	NEXT=$(( $(date +%s) + $1 ))
+	save_next "$(next_midnight)"
+}
+
+save_next() {
+	NEXT=$1
 	if [ -d "$STATE_DIR" ]; then
 		printf '%s\n' "$NEXT" > "$NEXT_FILE" 2>/dev/null || true
 	fi
@@ -378,10 +394,10 @@ NEXT=$(saved_next)
 while true; do
 	if [ "$(date +%s)" -ge "$NEXT" ]; then
 		if with_backup_lock run_backup; then
-			schedule_next "$DAILY_SECONDS"
+			schedule_next
 		else
 			echo "[backup] backup cycle failed - see errors above; trying again in an hour"
-			schedule_next "$RETRY_SECONDS"
+			schedule_retry
 		fi
 	fi
 	sleep "$WAKE_SECONDS"

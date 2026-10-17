@@ -237,6 +237,12 @@ The Overview backup summary shows useful status, size and encryption information
 without a `saved to /...` filesystem path. The actual destination remains
 available where it can be managed in Backups.
 
+Warning banners at the top of the panel and the notices inside each tab have a
+close (×) button. Closing one hides that message for the rest of the session;
+it comes back if its wording changes (for example a newer "No backup since"
+date) or after the app restarts. Closing only hides the message: nothing is
+fixed or acknowledged.
+
 ### Backups and restore
 
 Scheduled backups run at a 24-hour interval while their service is running, not

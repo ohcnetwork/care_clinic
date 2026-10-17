@@ -6,6 +6,7 @@ import { bridge } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
 import type { Backup, BackupSpace } from "@/types";
+import { DismissButton, useDismissed } from "./panel-ui";
 
 export type BackupProblem = { title: string; detail: string };
 
@@ -123,6 +124,8 @@ export function BackupNotice({
   log?: boolean;
 }) {
   const Icon = tone === "success" ? Check : tone === "info" ? Info : AlertCircle;
+  const [dismissed, dismiss] = useDismissed(title);
+  if (dismissed) return null;
   return (
     <div className={`care-backups-notice care-backups-notice--${tone}`} role={tone === "danger" ? "alert" : "status"}>
       <Icon aria-hidden="true" />
@@ -136,6 +139,7 @@ export function BackupNotice({
           </div>
         ) : null}
       </div>
+      <DismissButton onClick={dismiss} label={`Dismiss: ${title}`} />
     </div>
   );
 }
