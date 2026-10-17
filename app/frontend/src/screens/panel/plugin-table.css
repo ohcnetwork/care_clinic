@@ -29,6 +29,7 @@
 .care-plugin-source-field { flex: 2 1 220px; }
 .care-plugin-version-field { flex: 1 1 110px; }
 .care-plugin-config-row { display: grid; grid-template-columns: minmax(130px, 250px) minmax(100px, 1fr) auto; align-items: start; gap: 10px; }
+.care-plugin-config-spacer { width: 26px; }
 .care-plugins-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .care-plugins-footer { justify-content: space-between; }
 .care-plugins-add { min-width: 190px; max-width: 100%; }
@@ -50,5 +51,5 @@
   .care-plugin-config-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
   .care-plugin-config-name { grid-column: 1; }
   .care-plugin-config-value { grid-column: 1; }
-  .care-plugin-config-row > button { grid-column: 2; grid-row: 1 / 3; }
+  .care-plugin-config-row > button, .care-plugin-config-spacer { grid-column: 2; grid-row: 1 / 3; }
 }

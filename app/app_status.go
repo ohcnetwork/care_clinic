@@ -240,18 +240,24 @@ func (a *App) MDNSStatus(name string) mdns.NameStatus {
 	if name == "" {
 		return mdns.NameStatus{OK: false, Message: "No clinic address chosen yet"}
 	}
-	if err := mdns.CheckAvailable(name); err != nil {
+	if err := mdns.ValidateLabel(name); err != nil {
 		return mdns.NameStatus{OK: false, Message: err.Error()}
 	}
 	name = mdns.Label(name) + ".local"
+	a.advMu.Lock()
+	adv := a.adv
+	a.advMu.Unlock()
+	advertising := adv != nil && adv.Name()+".local" == name
+	if !advertising {
+		if err := a.checkName(name); err != nil {
+			return mdns.NameStatus{OK: false, Message: err.Error()}
+		}
+	}
 	cfg := a.loadConfig()
 	if !cfg.SetupDone && cfg.AdminPwHash == "" {
 		return mdns.NameStatus{OK: true, Message: "No other device answered for " + name}
 	}
-	a.advMu.Lock()
-	adv := a.adv
-	a.advMu.Unlock()
-	if adv == nil || adv.Name()+".local" != name {
+	if !advertising {
 		return mdns.NameStatus{OK: false, Message: "Not advertising " + name}
 	}
 	if err := adv.Resolves(); err != nil {

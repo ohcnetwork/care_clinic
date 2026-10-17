@@ -240,22 +240,27 @@ accurate when the team or the app's network behaviour changes.
 | `SIGNPATH_API_TOKEN` | secret | API token of a SignPath user with the Submitter role. |
 | `SIGNPATH_ORGANIZATION_ID` | variable | SignPath organization ID. |
 | `SIGNPATH_PROJECT_SLUG` | variable | SignPath project slug. |
-| `SIGNPATH_SIGNING_POLICY_SLUG` | variable | Slug of the release signing policy. |
+| `SIGNPATH_SIGNING_POLICY_SLUG` | variable | Slug of the signing policy: `test-signing` or `release-signing`. |
 
 Set all four or none. A partial configuration fails the release at validation
 instead of silently producing unsigned installers.
 
 ### SignPath project
 
-- Repository `https://github.com/ohcnetwork/care_desktop`, trusted build system
-  GitHub.
+- Project `care_desktop`, created by SignPath Foundation. Its repository URL
+  must match this repository's current name, `https://github.com/ohcnetwork/care_clinic.git`.
+  Trusted build system GitHub.com.
 - Artifact configuration:
   [`.github/signpath/artifact-configuration.xml`](../.github/signpath/artifact-configuration.xml).
   It signs the PE files inside a GitHub artifact (at most two) and rejects them
   unless product name, company name and product version match `app/wails.json`
   and the release version, which is the same check CI runs. Both requests use it.
-- Release signing policy: origin verification on, allowed branch `main`, manual
-  approval required. The workflow passes `version` as a parameter.
+- `release-signing` policy: the production certificate, origin verification on,
+  allowed branch `main`, manual approval required.
+- `test-signing` policy: SignPath's self-signed test certificate, no approval or
+  origin checks. Used to prove the pipeline before the production certificate is
+  issued.
+- The workflow passes `version` as a parameter to both.
 
 ### During a release
 
@@ -268,6 +273,19 @@ instead of silently producing unsigned installers.
 3. **Sign Windows installer** submits the installer; approve that request too.
 4. Packaging continues with the signed installer, and the manifest records
    `"windows": "signpath-foundation"`.
+
+### Test signing
+
+With `SIGNPATH_SIGNING_POLICY_SLUG=test-signing` the release runs the same jobs,
+with three differences:
+
+- Step 2 also accepts a signature whose root certificate Windows does not trust
+  (`UnknownError` or `NotTrusted`). A missing signature or `HashMismatch` still
+  fails.
+- The manifest records `"windows": "signpath-test"`.
+- The draft notes say it is a test build. Test-signed installers still trigger
+  SmartScreen, so never publish that draft; delete it instead. Its version is
+  used up, so the next release takes the following version.
 
 A rejected or timed-out request fails the release. Fix the cause and rerun the
 same run; SignPath evaluates up to three re-runs of a build. Never submit a file
@@ -291,12 +309,16 @@ branch in step with Wails' `wails.writeUninstaller` macro when upgrading Wails.
 
 ### Before the first signed release
 
-1. Once SignPath approves the project, create the artifact configuration and the
-   signing policy there, then store the four settings above in the repository.
-2. Bump `CARE_CLINIC_VERSION` past the last released version (for example `0.1.1`
-   after the unsigned `0.1.0`); versions are never reused.
-3. Run the release workflow and approve both signing requests.
-4. Check `release-manifest.json`, then publish the draft.
+1. Add the artifact configuration to the SignPath project as its default, then
+   store the four settings above with the policy slug `test-signing`.
+2. Bump `CARE_CLINIC_VERSION` and let the [test-signed release](#test-signing)
+   run. Check that the manifest says `signpath-test`, then delete the draft.
+3. Ask SignPath to review the setup. Once the production certificate is in
+   `release-signing`, change the policy slug variable to `release-signing`.
+4. Bump `CARE_CLINIC_VERSION` again (versions are never reused), run the
+   release, and approve both signing requests.
+5. Check that `release-manifest.json` says `signpath-foundation`, then publish
+   the draft.
 
 ## Existing macOS signing configuration
 

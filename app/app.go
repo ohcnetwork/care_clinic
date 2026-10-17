@@ -55,10 +55,12 @@ type App struct {
 	confirmationSequence uint64
 	confirmation         *pendingConfirmation
 
-	advMu    sync.Mutex
-	adv      *mdns.Advertiser
-	advError error
-	advStop  chan struct{}
+	advMu     sync.Mutex
+	adv       nameAdvertiser
+	advSince  time.Time
+	advError  error
+	advStop   chan struct{}
+	nameCheck func(string) error
 
 	store storageWatch
 
@@ -192,13 +194,16 @@ func (a *App) startAdvertise() error {
 		return err
 	}
 	a.adv = adv
+	a.advSince = time.Now()
 	a.advError = nil
 	return nil
 }
 
 func (a *App) restartAdvertise() error {
 	a.advMu.Lock()
-	a.adv.Stop()
+	if a.adv != nil {
+		a.adv.Stop()
+	}
 	a.adv = nil
 	a.advMu.Unlock()
 	return a.startAdvertise()
@@ -226,60 +231,119 @@ func (a *App) advRunning() bool {
 	return a.adv != nil
 }
 
+const (
+	advertiseInterval = 30 * time.Second
+	advertiseRecheck  = 5 * time.Second
+	advertiseSettle   = 12 * time.Second
+)
+
+type nameAdvertiser interface {
+	Name() string
+	IPsChanged() (bool, error)
+	CheckAvailable() error
+	Resolves() error
+	Stop()
+}
+
+type advertiseWatch struct {
+	sightings int
+	misses    int
+}
+
+func (w *advertiseWatch) reset() {
+	w.sightings, w.misses = 0, 0
+}
+
+func (w *advertiseWatch) sighted() bool {
+	w.sightings++
+	return w.sightings >= 2
+}
+
 func (a *App) watchAdvertise() {
-	t := time.NewTicker(30 * time.Second)
-	defer t.Stop()
-	misses := 0
+	var w advertiseWatch
+	timer := time.NewTimer(advertiseInterval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-a.advStop:
 			return
-		case <-t.C:
-			a.advMu.Lock()
-			adv := a.adv
-			a.advMu.Unlock()
-			if adv == nil {
-				_ = a.startAdvertise()
-				continue
-			}
-			changed, err := adv.IPsChanged()
-			if err != nil {
-				a.logln("mDNS: couldn't inspect the LAN (" + err.Error() + ")")
-			}
-			if changed || err != nil {
-				misses = 0
-				_ = a.restartAdvertise()
-				continue
-			}
-			if err := mdns.CheckAvailable(adv.Name()); err != nil {
-				var conflict *mdns.ConflictError
-				inUse := errors.As(err, &conflict)
-				a.advMu.Lock()
-				if a.adv == adv {
-					if inUse {
-						adv.Stop()
-						a.adv = nil
-					}
-					a.reportAdvertiseError(err)
-				}
-				a.advMu.Unlock()
-				if inUse {
-					misses = 0
-					continue
-				}
-			}
-			if err := adv.Resolves(); err == nil {
-				misses = 0
-				continue
-			} else {
-				a.logln("mDNS: hostname probe failed (" + err.Error() + ")")
-			}
-			misses++
-			if misses >= 2 {
-				misses = 0
-				a.logln("mDNS: " + adv.Name() + ".local stopped resolving - re-advertising.")
-				_ = a.restartAdvertise()
-			}
+		case <-timer.C:
+			timer.Reset(a.checkAdvertise(&w, time.Now()))
 		}
 	}
+}
+
+func (a *App) checkAdvertise(w *advertiseWatch, now time.Time) time.Duration {
+	a.advMu.Lock()
+	adv, since := a.adv, a.advSince
+	a.advMu.Unlock()
+	if adv == nil {
+		w.reset()
+		_ = a.startAdvertise()
+		return advertiseInterval
+	}
+	if a.lanChanged(adv) {
+		w.reset()
+		_ = a.restartAdvertise()
+		return advertiseInterval
+	}
+	if !now.Before(since.Add(advertiseSettle)) {
+		err := adv.CheckAvailable()
+		var conflict *mdns.ConflictError
+		inUse := errors.As(err, &conflict)
+		if mdns.Unsettled(err) || (inUse && a.lanChanged(adv)) {
+			a.logln("mDNS: the network changed during the name check (" + err.Error() + ") - re-advertising.")
+			w.reset()
+			_ = a.restartAdvertise()
+			return advertiseInterval
+		}
+		if inUse && !w.sighted() {
+			a.logln("mDNS: " + err.Error() + " Checking again before reporting it.")
+			return advertiseRecheck
+		}
+		if err != nil {
+			a.advMu.Lock()
+			if a.adv == adv {
+				if inUse {
+					adv.Stop()
+					a.adv = nil
+				}
+				a.reportAdvertiseError(err)
+			}
+			a.advMu.Unlock()
+		}
+		if inUse {
+			w.reset()
+			return advertiseInterval
+		}
+	}
+	w.sightings = 0
+	if err := adv.Resolves(); err == nil {
+		w.misses = 0
+		return advertiseInterval
+	} else {
+		a.logln("mDNS: hostname probe failed (" + err.Error() + ")")
+	}
+	w.misses++
+	if w.misses >= 2 {
+		w.reset()
+		a.logln("mDNS: " + adv.Name() + ".local stopped resolving - re-advertising.")
+		_ = a.restartAdvertise()
+	}
+	return advertiseInterval
+}
+
+func (a *App) lanChanged(adv nameAdvertiser) bool {
+	changed, err := adv.IPsChanged()
+	if err != nil {
+		a.logln("mDNS: couldn't inspect the LAN (" + err.Error() + ")")
+	}
+	return changed || err != nil
+}
+
+func (a *App) checkName(name string) error {
+	if a.nameCheck != nil {
+		return a.nameCheck(name)
+	}
+	return mdns.CheckAvailable(name)
 }

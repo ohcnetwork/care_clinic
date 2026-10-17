@@ -32,12 +32,12 @@ const YES_NO = (yes = "Yes", no = "No"): Option[] => [
 ];
 
 export const VISIT_OPTIONS: Option[] = [
-  { value: "amb", label: "Outpatient visit" },
-  { value: "imp", label: "Inpatient admission" },
-  { value: "emer", label: "Emergency" },
+  { value: "imp", label: "Inpatient" },
+  { value: "amb", label: "Ambulatory" },
   { value: "obsenc", label: "Observation" },
-  { value: "hh", label: "Home visit" },
-  { value: "vr", label: "Remote consultation" },
+  { value: "emer", label: "Emergency" },
+  { value: "vr", label: "Virtual" },
+  { value: "hh", label: "Home Health" },
 ];
 
 export const GROUPS: Group[] = [
@@ -111,12 +111,12 @@ export const GROUPS: Group[] = [
         help: "Fill in this choice for new payments. Staff can change it for each payment.",
         options: [
           { value: "cash", label: "Cash" },
-          { value: "ccca", label: "Credit card" },
-          { value: "debc", label: "Debit card" },
-          { value: "chck", label: "Cheque" },
-          { value: "ddpo", label: "Direct deposit" },
-          { value: "cdac", label: "Credit account" },
-          { value: "cchk", label: "Credit check" },
+          { value: "ccca", label: "Credit Card" },
+          { value: "cchk", label: "Credit Check" },
+          { value: "cdac", label: "Credit Account" },
+          { value: "chck", label: "Check" },
+          { value: "ddpo", label: "Direct Deposit" },
+          { value: "debc", label: "Debit Card" },
         ],
         fallback: "",
         none: "No preference",
@@ -204,6 +204,7 @@ const HIDDEN_KEYS = new Set([
   "REACT_MAX_DATAPOINTS_PER_UPSERT", "REACT_APP_UPDATE_CHECK_INTERVAL",
   "REACT_CUSTOM_REMOTE_I18N_URL", "REACT_ENABLED_APPS", "CARE_CDN_URL",
   "USE_SMS", "ENABLE_OTP_LOGIN", "ENABLE_MFA", "DEFAULT_FROM_EMAIL", "SERVER_EMAIL",
+  "DJANGO_EMAIL_BACKEND", "DJANGO_EMAIL_SUBJECT_PREFIX",
   "REACT_DISABLE_PATIENT_LOGIN", "REACT_APP_RESEND_OTP_TIMEOUT", "REACT_ENABLE_MFA",
 ]);
 const HIDDEN_PREFIXES = [

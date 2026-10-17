@@ -1,4 +1,4 @@
-import { ArrowUpRight, Check, FileText, Globe, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Check, FileText, Globe, TriangleAlert, X } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 import { Spinner } from "@/components/spinner";
@@ -44,12 +44,26 @@ export function PanelBadge({ children, tone = "neutral", working = false }: {
   </span>;
 }
 
-export function PanelNotice({ title, children, tone = "danger", actions }: {
+export function useDismissed(key: string): [boolean, () => void] {
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  return [dismissed === key, () => setDismissed(key)];
+}
+
+export function DismissButton({ onClick, label = "Dismiss" }: { onClick: () => void; label?: string }) {
+  return <Button type="button" variant="ghost" size="icon" className="panel-dismiss" aria-label={label} title={label} onClick={onClick}>
+    <X aria-hidden="true" />
+  </Button>;
+}
+
+export function PanelNotice({ title, children, tone = "danger", actions, dismissKey }: {
   title: string;
   children?: ReactNode;
   tone?: PanelTone;
   actions?: ReactNode;
+  dismissKey?: string;
 }) {
+  const [dismissed, dismiss] = useDismissed(dismissKey ?? "");
+  if (dismissKey !== undefined && dismissed) return null;
   return <div className={`panel-notice panel-tone-${tone}`} role={tone === "danger" ? "alert" : "status"}>
     {tone === "ok" ? <Check aria-hidden="true" /> : <TriangleAlert aria-hidden="true" />}
     <div className="panel-grow">
@@ -57,6 +71,7 @@ export function PanelNotice({ title, children, tone = "danger", actions }: {
       {children ? <div>{children}</div> : null}
       {actions ? <div className="panel-actions">{actions}</div> : null}
     </div>
+    {dismissKey !== undefined ? <DismissButton onClick={dismiss} label={`Dismiss: ${title}`} /> : null}
   </div>;
 }
 

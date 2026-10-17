@@ -21,7 +21,7 @@ Staff browsers download a frontend plugin's bundle straight from its `url`. If t
 
 ## The catalog: `catalog.yml`
 
-[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. The catalog currently contains CARE Onboarding and [Files on every address](https://github.com/ohcnetwork/care_multihost_files_be) (`care_multihost_files_be`, which makes file links follow the address a request came in on; see [Home access](home-access.md)). Both are enabled by default for new clinic installations only. Custom plugins and previously saved plugins remain supported.
+[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. The catalog currently contains CARE Onboarding and [Files on every address](https://github.com/ohcnetwork/care_multihost_files_be) (`care_multihost_files_be`, which makes file links follow the address a request came in on; see [Home access](home-access.md)). Both are enabled by default for new clinic installations only. It also offers [Filly](https://github.com/ohcnetwork/care_filly) (`care_filly`), which is not a default; see [Filly](#filly). Custom plugins and previously saved plugins remain supported.
 
 ### Structure
 
@@ -30,6 +30,8 @@ The file is a YAML list. Each item is one catalog entry:
 ```yaml
 - description: One sentence shown under the plugin's name in the panel.
   default: false                 # opt in during new-clinic setup only
+  required_configs:               # backend settings that must be filled before saving
+    - EXAMPLE_API_KEY
   plugin:
     id: care_example              # required, unique across the catalog
     label: Example                # name shown in the panel
@@ -54,6 +56,7 @@ The file is a YAML list. Each item is one catalog entry:
 | `description` | No | Subtitle in the panel. Not saved with the plugin. | None. |
 | `default` | No | Enable during new-clinic setup. Defaults to `false`; never auto-added on an ordinary read. | Boolean. |
 | `add_to_existing` | No | With `default: true`, also add the plugin once to clinics set up before it joined the catalog, the first time they start this CARE Clinic version. See [Defaults for existing clinics](#defaults-for-existing-clinics). | Boolean. |
+| `required_configs` | No | Names of `backend.configs` settings the operator must fill in before the plugin can be saved. See [Required settings](#required-settings). | Each listed setting must be present and not blank. |
 | `plugin.id` | Yes | Identity of the plugin. Also how a saved plugin is matched back to its catalog entry. | Letters, numbers, `.`, `_`, `-`; unique. |
 | `plugin.label` | No | Display name, such as `CARE Onboarding`. Falls back to `id`. | Spaces allowed; surrounding whitespace trimmed. |
 | `plugin.backend` | One of `backend`/`frontend` | Present when the plugin has a Django part. | |
@@ -78,13 +81,34 @@ As a result:
 - Adding a frontend part to an existing catalog entry turns it on for those clinics at that same save, starting from the catalog's default `meta`.
 - Removing an entry from the catalog does not uninstall it anywhere. The saved plugin becomes a custom plugin with the same sources.
 
+### Required settings
+
+`required_configs` lists backend settings a catalog plugin cannot run without, such as an account key. It lives on the catalog entry, not on `plugin.backend`, so it never reaches `plugins.json` or `ADDITIONAL_PLUGS` (CARE builds a strict dataclass from each backend entry and would crash on an unknown key).
+
+- **On save:** `Prepare` rejects a catalog plugin when a required setting is missing, `null`, or a string that is empty or only whitespace, with an error such as `Filly needs MEDISPEAK_API_KEY before it can be installed`. Any other value (a number, `false`, a list) counts as filled. The rule applies only to plugins saved with `catalog: true` whose ID is still in the catalog; a custom plugin with the same module is not checked.
+- **In the panel:** `pluginProblems` marks an empty required value with "Enter a value; Filly needs this setting.", and Save and apply stays disabled until it is filled. The name of a required setting is read-only and it has no remove button. `reconcileCatalog` re-adds a required setting that is missing from a saved plugin, with an empty value, so the operator can see what to fill in. A required setting whose name ends in `_API_KEY`, `_SECRET` or `_TOKEN` uses a password field. The value is still stored in plain text in `plugins.json` and `backend.env`, both mode `0600`.
+- **Defaults:** a `default: true` entry must ship values for all of its required settings, or new-clinic setup and `AddNewDefaults` would fail to save. `TestEveryCatalogEntryIsValid` checks this.
+- **Adding a requirement to an existing entry** makes every clinic that already has the plugin unable to save plugin changes until the setting is filled in, so ship a default value, or add the requirement only to a new entry.
+
 ### Adding a catalog entry
 
 1. Confirm the backend module name by checking the plugin's `apps.py` (`AppConfig.name`) or its `PLUGIN_NAME`.
 2. Confirm the backend installs with `pip install "<package_name><version>"`.
 3. Confirm `url` returns the plugin's `remoteEntry.js`, not a 404 page.
 4. List the settings the plugin needs under `configs` and `meta`, with empty or default values, so the operator sees what to fill in.
-5. Run `go test ./internal/plugins`. `TestEveryCatalogEntryIsValid` fails if any entry breaks the save rules above.
+5. List the settings that have no usable default and that the plugin cannot run without under `required_configs`.
+6. Run `go test ./internal/plugins`. `TestEveryCatalogEntryIsValid` fails if any entry breaks the save rules above.
+
+### Filly
+
+[Filly](https://github.com/ohcnetwork/care_filly) (`care_filly`, installed from the `develop` branch) is an AI scribe: Medispeak dictation that fills CARE forms. The catalog entry is backend only. It mounts its API at `/api/care_filly/` and needs two settings, both listed in `required_configs`:
+
+| Setting | Meaning |
+| --- | --- |
+| `MEDISPEAK_API_KEY` | The clinic's Medispeak account secret (`msk_live_…`). |
+| `MEDISPEAK_BASE_URL` | The Medispeak v2 API root. |
+
+The CARE server needs internet access to reach Medispeak. Filly's database tables are created by the `manage.py migrate --noinput` that runs after every plugin apply, so no separate `migrate care_filly` step is needed. Its frontend, `care_filly_fe`, is not in this catalog: enable it from CARE's own plugin marketplace after the backend is applied.
 
 ## Desktop components
 

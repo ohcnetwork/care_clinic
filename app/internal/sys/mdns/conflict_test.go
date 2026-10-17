@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func TestAvailabilityChecksEveryInterface(t *testing.T) {
 	for _, outcome := range []string{"available", "conflict", "network error"} {
 		t.Run(outcome, func(t *testing.T) {
 			var calls atomic.Int32
-			err := checkAvailable("care.local.", links, func(ctx context.Context, host string, link lanInterface, own []net.IP) error {
+			err := checkAvailable("care.local.", links, nil, func(ctx context.Context, host string, link lanInterface, own []net.IP) error {
 				calls.Add(1)
 				if _, ok := ctx.Deadline(); !ok || host != "care.local." || len(own) != 2 {
 					t.Error("missing deadline, chosen hostname or local interface addresses")
@@ -91,8 +92,51 @@ func TestAvailabilityChecksEveryInterface(t *testing.T) {
 			}
 		})
 	}
-	if err := checkAvailable("care.local.", nil, nil); err == nil {
+	if err := checkAvailable("care.local.", nil, nil, nil); err == nil {
 		t.Fatal("no interfaces must not mean available")
+	}
+}
+
+func TestAvailabilityTreatsAdvertisedAddressesAsOwn(t *testing.T) {
+	links := []lanInterface{testLink(1, "172.20.10.4/28")}
+	previous := net.ParseIP("192.168.1.48").To4()
+	err := checkAvailable("care.local.", links, []net.IP{previous}, func(ctx context.Context, host string, link lanInterface, own []net.IP) error {
+		if !containsIP(own, previous) || !containsIP(own, link.ips[0]) {
+			t.Errorf("own addresses = %v", own)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConflictDuringLinkFailureIsUnsettled(t *testing.T) {
+	links := []lanInterface{testLink(1, "192.0.2.10/24"), testLink(2, "198.51.100.10/24")}
+	bind := &net.OpError{Op: "listen", Net: "udp4", Err: syscall.EADDRNOTAVAIL}
+	err := checkAvailable("care.local.", links, nil, func(ctx context.Context, host string, link lanInterface, own []net.IP) error {
+		if link.iface.Index == 1 {
+			return bind
+		}
+		return &ConflictError{Host: "care.local", Address: net.ParseIP("198.51.100.20")}
+	})
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) || !errors.Is(conflict.Unsettled, syscall.EADDRNOTAVAIL) || !Unsettled(err) {
+		t.Fatalf("conflict beside a failing link = %v", err)
+	}
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{&ConflictError{Host: "care.local", Address: net.ParseIP("198.51.100.20")}, false},
+		{bind, true},
+		{context.DeadlineExceeded, false},
+		{&net.OpError{Op: "read", Err: net.ErrClosed}, false},
+		{errors.New("invalid hostname response"), false},
+	} {
+		if got := Unsettled(tc.err); got != tc.want {
+			t.Errorf("Unsettled(%v) = %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }
 

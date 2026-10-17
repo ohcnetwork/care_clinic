@@ -232,6 +232,9 @@ func (a *App) ClinicAction(action, adminPassword string) (err error) {
 	default:
 		return errors.New("action not allowed: " + action)
 	}
+	if action == "update" && !a.careUpdateChecksOn() {
+		return errCareUpdateChecksOff
+	}
 	return a.run(func() error {
 		if err := a.requireSetup(); err != nil {
 			return err

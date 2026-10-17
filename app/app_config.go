@@ -32,6 +32,8 @@ type Config struct {
 	BackupRecoveryVerified   bool      `json:"backup_recovery_verified,omitempty"`
 	BackupKeyEncrypted       string    `json:"backup_key_encrypted,omitempty"`
 	BackupKeyNeedsEnrollment bool      `json:"backup_key_needs_enrollment,omitempty"`
+	AppUpdateChecksOff       bool      `json:"app_update_checks_off,omitempty"`
+	CareUpdateChecksOff      bool      `json:"care_update_checks_off,omitempty"`
 }
 
 const (

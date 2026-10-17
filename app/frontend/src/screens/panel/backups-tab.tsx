@@ -1,4 +1,4 @@
-import { Archive, Check, Clock3, Database, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
+import { Archive, Check, Clock3, Database, FileKey, FolderOpen, LoaderCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import { PanelPageHeader } from "./panel-ui";
 import { backupFailureDetail } from "./panel-status";
 import { usePanelUpdateLock } from "./panel-update-lock";
 import { RestoreBackupFile } from "./restore-backup-dialog";
-import { ExportBackupRecovery } from "./export-backup-recovery";
 import "./backups.css";
 
 export function BackupsTab() {
@@ -247,7 +246,7 @@ export function BackupsTab() {
           {backingUp || automaticRunning ? "Backing up…" : "Back up now"}
         </Button>
         <div className="care-backups-schedule">
-          <span>{policy?.interval_seconds === 86400 ? "Automatic every 24 hours"
+          <span>{policy?.interval_seconds === 86400 ? "Automatic every night at 12 AM"
             : policy ? `Automatic every ${policy.interval_seconds / 3600} hours`
               : "Automatic backups"}</span>
           <span className="care-backups-retention">{policy
@@ -277,17 +276,18 @@ export function BackupsTab() {
 
       {localActionProblem ? <BackupNotice title={localActionProblem.title}>{localActionProblem.detail}</BackupNotice>
         : backingUp || automaticRunning ? (
-          <BackupNotice title="A backup is running" tone="info" log={false}>
+          <BackupNotice title="A backup is running" tone="info" log={false} dismissKey="running">
             Keep CARE Clinic open. The new copy will appear after the backup finishes.
           </BackupNotice>
         ) : backupComplete && run?.state === "ok" && !storage?.stale ? (
-          <BackupNotice title="The backup finished" tone="success" log={false}>
+          <BackupNotice title="The backup finished" tone="success" log={false} dismissKey={`finished|${run?.at ?? ""}`}>
             Refresh the list if the new copy hasn't appeared yet.
           </BackupNotice>
         ) : null}
 
       {run?.state === "failed" && !backingUp && !automaticRunning ? (
         <BackupNotice title={run.reason === "disk_full" ? "The last backup didn't finish — there wasn't enough space" : "The last backup didn't finish"}
+          dismissKey={`failed|${run.reason}|${run.at}`}
           actions={<>
             {run.reason !== "database_unavailable" ? <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button> : null}
             <Button disabled={disabled} onClick={() => void backUpNow()}>Try again now</Button>
@@ -299,6 +299,7 @@ export function BackupsTab() {
         </BackupNotice>
       ) : storage?.stale && !backingUp && !automaticRunning ? (
         <BackupNotice title={lastBackup ? `No backup since ${lastBackup}` : "No recent backup"} tone="warning"
+          dismissKey={`stale|${storage?.newest_backup_at ?? ""}`}
           actions={<>
             <Button variant="primary" disabled={disabled} onClick={() => void backUpNow()}><Archive aria-hidden="true" />Back up now</Button>
             <Button disabled={disabled} onClick={() => void changeFolder()}>Choose another folder</Button>
@@ -312,7 +313,7 @@ export function BackupsTab() {
       ) : null}
 
       {backupsError ? (
-        <BackupNotice title="The backup list couldn't be read">
+        <BackupNotice title="The backup list couldn't be read" dismissKey="list-error">
           Check that the backup folder is available, then try Refresh. Your existing backups have not been changed.
         </BackupNotice>
       ) : backups.length === 0 ? (
@@ -350,7 +351,14 @@ export function BackupsTab() {
         </section>
       )}
 
-      <ExportBackupRecovery disabled={disabled} />
+      <section className="care-backups-card care-backups-card-row" aria-label="Backup recovery key">
+        <span className="care-backups-icon"><FileKey aria-hidden="true" /></span>
+        <div className="care-backups-grow">
+          <h2>Backup recovery key</h2>
+          <p>Download the backup recovery key again from the Advanced tab, after entering the CARE Clinic admin password.</p>
+        </div>
+        <Button onClick={() => setTab("advanced")}>Open Advanced</Button>
+      </section>
       <RestoreBackupFile disabled={!!working || automaticRunning || folderLoading} />
     </div>
     </>

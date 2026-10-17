@@ -9,11 +9,12 @@ import { bridge } from "@/lib/bridge";
 import { useCare } from "@/state/care-store";
 import { AdvancedTab } from "./advanced-tab";
 import { BackupsTab } from "./backups-tab";
+import { HomeAccessTab } from "./home-access";
 import { OverviewTab } from "./overview-tab";
 import { RecoveryCodesBanner } from "./recovery-codes-banner";
 import { PanelRequirementsProvider, usePanelRequirements } from "./panel-requirements";
 import { storageProblem } from "./panel-status";
-import { PanelLogButton, usePanelTask } from "./panel-ui";
+import { DismissButton, PanelLogButton, useDismissed, usePanelTask } from "./panel-ui";
 import { PanelUpdateLockProvider } from "./panel-update-lock";
 import { PluginTable } from "./plugin-table";
 import { StorageTab } from "./storage-tab";
@@ -47,6 +48,9 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
     if (locked || appUpdate.isActive()) return;
     void task.run(run, message);
   };
+  const [troubleHidden, hideTrouble] = useDismissed(trouble ? "trouble" : "");
+  const [problemHidden, hideProblem] = useDismissed(problem ? `${problem.title}|${problem.detail}` : "");
+  const [taskErrorHidden, hideTaskError] = useDismissed(task.error ?? "");
   const updateCount = (care.careUpdate ? 1 : 0) + (appUpdate.update?.available && !appUpdate.active ? 1 : 0);
 
   useEffect(() => {
@@ -70,16 +74,18 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
           {appUpdate.progress?.phase === "installer" ? "Finish the installer, then acknowledge it in Updates."
             : "Wait until it finishes before making other changes."}</div>
         <Button size="sm" onClick={() => care.setTab("updates")}>View update</Button>
-      </div> : trouble ? <div className="panel-banner panel-tone-danger" role="alert">
+      </div> : trouble && !troubleHidden ? <div className="panel-banner panel-tone-danger" role="alert">
         <TriangleAlert aria-hidden="true" />
         <div className="panel-grow"><strong>Staff can&apos;t reach the clinic right now.</strong> Check what the clinic needs on this computer.</div>
         <Button variant="primary" size="sm" onClick={() => setDiagnosing(true)}>See what&apos;s wrong</Button>
-      </div> : problem ? <div className={`panel-banner panel-tone-${problem.tone}`} role="status">
+        <DismissButton onClick={hideTrouble} />
+      </div> : problem && !problemHidden ? <div className={`panel-banner panel-tone-${problem.tone}`} role="status">
         <HardDrive aria-hidden="true" />
         <div className="panel-grow"><strong>{problem.title} </strong>{care.storageError
           ? "This is from the last successful check. Check Storage again for current information."
           : problem.detail}</div>
         {care.tab !== problem.tab ? <Button size="sm" onClick={() => care.setTab(problem.tab)}>See details</Button> : null}
+        <DismissButton onClick={hideProblem} />
       </div> : care.careUpdate && care.tab !== "updates" ? <div className="panel-banner" role="status">
         <ArrowDownToLine aria-hidden="true" />
         <div className="panel-grow"><strong>A CARE software update is ready to install. </strong>
@@ -91,8 +97,9 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
             "Couldn't start the CARE update. Try again, or open the log file for support.")}>Install now</Button>
         </div>
       </div> : null}
-      {task.error && !care.operationError ? <div className="panel-banner panel-tone-danger" role="alert">
+      {task.error && !care.operationError && !taskErrorHidden ? <div className="panel-banner panel-tone-danger" role="alert">
         <span className="panel-grow">{task.error}</span><PanelLogButton />
+        <DismissButton onClick={hideTaskError} />
       </div> : null}
       <RecoveryCodesBanner disabled={locked || care.restorePending} />
       {pluginLayout ? <div className="flex items-center gap-4 px-[34px] pt-[26px] pb-[18px]">
@@ -111,6 +118,7 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
         <div hidden={care.tab !== "overview"}><OverviewTab onDiagnose={() => setDiagnosing(true)} /></div>
         <div hidden={care.tab !== "backups"}><BackupsTab /></div>
         <div hidden={care.tab !== "storage"}><StorageTab /></div>
+        <div hidden={care.tab !== "home-access"}><HomeAccessTab locked={locked} /></div>
         <div data-panel-tab="plugins" hidden={care.tab !== "plugins"}><PluginTable disabled={locked} /></div>
         <div hidden={care.tab !== "updates"}><UpdatePanel appUpdate={appUpdate} /></div>
         <div data-panel-tab="advanced" hidden={care.tab !== "advanced"}><AdvancedTab disabled={locked} /></div>

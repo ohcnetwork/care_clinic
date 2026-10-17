@@ -29,6 +29,7 @@ import type {
   SetupRecoveryStatus,
   StorageReport,
   ToolPlan,
+  UpdateChecks,
   WSLStatus,
 } from "./types";
 
@@ -88,6 +89,7 @@ declare global {
           ValidateSetup(name: string, password: string, backupDir: string): Promise<SetupIssue[]>;
           ChangeAdminPassword(currentPassword: string, newPassword: string): Promise<void>;
           ResetAdminPassword(code: string, newPassword: string): Promise<void>;
+          ResetWebPassword(username: string, newPassword: string, adminPassword: string): Promise<void>;
           ClinicAction(action: string, adminPassword: string): Promise<void>;
           ClinicStatus(): Promise<string>;
           RunSetup(
@@ -129,6 +131,8 @@ declare global {
           DismissCareUpdate(): Promise<void>;
           CheckAppUpdate(): Promise<AppUpdate>;
           InstallAppUpdate(): Promise<void>;
+          GetUpdateChecks(): Promise<UpdateChecks>;
+          SetUpdateChecks(app: boolean, care: boolean, adminPassword: string): Promise<void>;
           SetQuitDialogReady(ready: boolean): Promise<QuitRequest | null>;
           RespondToQuit(id: number, quit: boolean): Promise<void>;
           SetConfirmationDialogReady(ready: boolean): Promise<ConfirmationRequest | null>;

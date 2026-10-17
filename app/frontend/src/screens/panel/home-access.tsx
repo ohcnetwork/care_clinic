@@ -11,7 +11,7 @@ import { toast } from "@/components/ui/sonner";
 import { bridge } from "@/lib/bridge";
 import { useCare } from "@/state/care-store";
 import type { HomeAccess } from "@/types";
-import { PanelBadge, usePanelTask } from "./panel-ui";
+import { PanelBadge, PanelPageHeader, usePanelTask } from "./panel-ui";
 import { usePanelUpdateLock } from "./panel-update-lock";
 
 const DOWNLOAD_URL = "https://tailscale.com/download";
@@ -53,7 +53,14 @@ function view(status: HomeAccess | null, error: string): View {
   };
 }
 
-export function HomeAccessCard({ locked }: { locked: boolean }) {
+export function HomeAccessTab({ locked }: { locked: boolean }) {
+  return <div className="panel-page" aria-label="Home access">
+    <PanelPageHeader title="Home access" subtitle="Let doctors reach CARE from home with Tailscale." />
+    <HomeAccessCard locked={locked} />
+  </div>;
+}
+
+function HomeAccessCard({ locked }: { locked: boolean }) {
   const care = useCare();
   const updateLock = usePanelUpdateLock();
   const check = usePanelTask();

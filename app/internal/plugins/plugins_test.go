@@ -280,14 +280,15 @@ func TestCatalogPluginsTakeSourcesFromTheCatalogAndKeepSettings(t *testing.T) {
 	}
 }
 
-func TestCatalogOffersOnboardingAndMultihostFiles(t *testing.T) {
+func TestCatalogOffersOnboardingMultihostFilesAndFilly(t *testing.T) {
 	catalog, err := Catalog()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 2 || catalog[0].Plugin.ID != "care_onboarding_fe" || !catalog[0].Default ||
-		catalog[1].Plugin.ID != "care_multihost_files_be" || !catalog[1].Default {
-		t.Fatalf("expected onboarding and multihost files, both enabled by default: %#v", catalog)
+	if len(catalog) != 3 || catalog[0].Plugin.ID != "care_onboarding_fe" || !catalog[0].Default ||
+		catalog[1].Plugin.ID != "care_multihost_files_be" || !catalog[1].Default ||
+		catalog[2].Plugin.ID != "care_filly" || catalog[2].Default || catalog[2].AddToExisting {
+		t.Fatalf("expected onboarding and multihost files by default, and Filly on request: %#v", catalog)
 	}
 }
 
@@ -298,7 +299,19 @@ func TestEveryCatalogEntryIsValid(t *testing.T) {
 	}
 	list := make([]Plugin, 0, len(catalog))
 	for _, e := range catalog {
-		list = append(list, e.Plugin)
+		p := e.Plugin
+		for _, key := range e.RequiredConfigs {
+			if p.Backend == nil {
+				t.Fatalf("%s requires %s but has no backend", p.ID, key)
+			}
+			if _, ok := p.Backend.Configs[key]; !ok {
+				t.Fatalf("%s requires %s but does not list it in its configs", p.ID, key)
+			}
+			if e.Default && checkRequired(p, e.RequiredConfigs) != nil {
+				t.Fatalf("default plugin %s ships without its required %s", p.ID, key)
+			}
+		}
+		list = append(list, withRequired(e))
 	}
 	if _, err := Prepare(list); err != nil {
 		t.Fatal(err)

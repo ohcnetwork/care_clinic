@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Archive, ArrowDownToLine, ArrowUpRight, HardDrive, LayoutDashboard, Puzzle, ScrollText, Settings } from "lucide-react";
+import { Archive, ArrowDownToLine, ArrowUpRight, HardDrive, House, LayoutDashboard, Puzzle, ScrollText, Settings } from "lucide-react";
 
 import logoMark from "@/assets/care-logo-mark.svg";
 import { bridge } from "@/lib/bridge";
@@ -126,6 +126,7 @@ const CLINIC_TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "backups", label: "Backups", icon: Archive },
   { id: "storage", label: "Storage", icon: HardDrive },
+  { id: "home-access", label: "Home access", icon: House },
   { id: "plugins", label: "Plugins", icon: Puzzle },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
   { id: "advanced", label: "Advanced", icon: Settings },

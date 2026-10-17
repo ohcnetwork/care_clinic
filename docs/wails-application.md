@@ -71,7 +71,7 @@ The backend starts name advertising, but the desktop state store makes the norma
 
 ### Advertiser lifetime
 
-`App` owns the mDNS advertiser. Its watcher wakes every 30 seconds, restarts advertising when LAN interfaces/addresses change or enumeration fails, and retries after two consecutive direct-hostname probe failures. Live foreign-name checks run before advertising and on watcher ticks. A conflict withdraws advertising and shows an administrator warning; retries cannot advertise while the conflict is detected. Probe and network errors are logged. It can also recreate an absent advertiser. No name is advertised merely by choosing it in the setup wizard, when the name is empty, during removal, or after application shutdown has begun.
+`App` owns the mDNS advertiser. Its watcher wakes every 30 seconds, restarts advertising when LAN interfaces/addresses change or enumeration fails, and retries after two consecutive direct-hostname probe failures. Live foreign-name checks run before advertising and on watcher ticks. On watcher ticks a conflict counts only when two consecutive checks see it with no LAN change in between (the second runs 5 seconds after the first), and no check runs in the 12 seconds after the advertiser starts; see [Confirming a conflict while advertising](native-integrations.md#confirming-a-conflict-while-advertising). A confirmed conflict withdraws advertising and shows an administrator warning; retries cannot advertise while the conflict is detected. Probe and network errors are logged. It can also recreate an absent advertiser. No name is advertised merely by choosing it in the setup wizard, when the name is empty, during removal, or after application shutdown has begun.
 
 `shutdown()` cancels pending permission confirmations, closes the watcher's stop
 channel and stops the advertiser. Stopping the desktop's advertisement is
@@ -253,7 +253,7 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `GetState()` | `AppState` | Query. Returns embedded version, role and client URL. Only servers inspect Docker/recovery state and expose server setup/name/status. Restore-journal errors propagate; plugin-journal errors are logged and keep `plugin_recovery_pending=true` so recovery controls remain available. Never exposes the pinned PEM or certificate ownership flag. |
 | `DockerStatus()` | `DockerStatus` | Query. Checks actual Docker/Compose usability. |
 | `GitStatus()` | `DockerStatus` | Query. Uses the same `{ok, message}` shape for Git. |
-| `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. Offline/isolated peers cannot be ruled out. |
+| `MDNSStatus(name)` | `NameStatus` | Query. Checks the requested name for live foreign mDNS claims without using the system resolver. Installed clinics must also have a responding advertiser. While this computer advertises the requested name, the foreign-claim probe is left to the watcher, which confirms conflicts before withdrawing the name. Offline/isolated peers cannot be ruled out. |
 | `NetworkStatus()` | `NetworkStatus` | Query. Platform-specific networking inspection. |
 | `FixNetwork()` | `void` | Sync. Runs the native networking repair. |
 | `HomeAccessStatus()` | `HomeAccess` | Query. Installed server required. Reads Tailscale's status and serve configuration, and whether the clinic's loopback port answers. Takes no job lock. |
@@ -384,14 +384,17 @@ to warn that the computer will ask for permission.
 | `SaveAdminRecoveryCodes(adminPassword, backupDir)` | `boolean` | Sync. Exports six printable single-use codes. Requires authentication once installed; successful replacement invalidates all prior codes. |
 | `ChangeAdminPassword(currentPassword, newPassword)` | `void` | Sync. Authenticated Desktop-only password change. |
 | `ResetAdminPassword(code, newPassword)` | `void` | Sync. Rate-limited offline recovery; atomically consumes one code and changes the CARE Clinic password. No CARE web reset. |
+| `ResetWebPassword(username, newPassword, adminPassword)` | `void` | Sync, under the exclusive job gate. Requires the CARE Clinic admin password, a stable clinic and a running backend. Sets a CARE web user's password through `manage.py shell` with secrets in the environment only. Errors name an unknown user or list CARE's password-validation messages; other failures point to the log. Does not end existing sign-ins or change the CARE Clinic password. |
 | `CleanupFailedInstall()` | `void` | Sync. Only for incomplete setup. Keeps the clinic address and existing backups, but resets backup-folder/password/recovery configuration. The UI clears those choices only after cleanup succeeds. New setup needs fresh recovery material; old backup keys may still be needed for earlier archives. |
 | `ClinicAction(action, adminPassword)` | `void` | Job. Allow-listed action dispatch; details below. |
 | `RunUninstall(removeImages, removeBackups, removeRancher, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. The UI waits for both `uninstalled` and successful `care-done` before returning to Start or requesting desktop-app removal. |
 | `CareUpdateStatus()` | `ChannelStatus` | Query. The tracked branch, running commits, and any staged commit, read from `channel.lock`. |
-| `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves branch heads and builds a newer commit into `-next` images. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. |
-| `DismissCareUpdate()` | `void` | Sync, under the exclusive job gate with a stable-clinic check. Records staged commits as declined so the banner stops. The staged build still applies at the next normal start unless invalidated by changed plugin inputs. |
-| `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. |
-| `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. |
+| `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves branch heads and builds a newer commit into `-next` images. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. Returns the "CARE software update checks are turned off" error, without starting anything, while CARE update checks are off. |
+| `DismissCareUpdate()` | `void` | Sync, under the exclusive job gate with a stable-clinic check. Records staged commits as declined so the banner stops. The staged build still applies at the next normal start unless invalidated by changed plugin inputs, or held because CARE update checks are off. |
+| `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. Returns the "CARE Clinic app update checks are turned off" error, without contacting GitHub, while app update checks are off. |
+| `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. Refused before the job starts while app update checks are off. |
+| `GetUpdateChecks()` | `UpdateChecks` | Query, no password. `{app, care}`: whether CARE Clinic app and CARE software update checks are on. Missing settings read as on. See [update checks](#turning-update-checks-off). |
+| `SetUpdateChecks(app, care, adminPassword)` | `void` | Sync, under the exclusive job gate. Requires the CARE Clinic admin password (`requireAdmin`), saves both flags to `config.json` and logs the new values. |
 | `ScanResidue()` | `ResidueReport` | Query. Role-independent. Inspects owned files, Docker resources, saved-password presence and native traces. No Docker executable means no Docker-side traces; an installed engine that cannot be inspected is an error. |
 | `PurgeResidue(confirmed)` | `ResidueReport` | Sync. Server only. Requires explicit destructive confirmation, refuses a normal installed clinic, preserves backups and returns the post-cleanup report. |
 
@@ -448,7 +451,7 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 | `apply-plugins` | `ApplyPlugins()` | Healthy running clinic required; no CARE Clinic admin password. Applies a staged draft with bounded readiness checks and durable configuration/image rollback on failure. |
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from the separate Storage tab's cleanable drive row. |
-| `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. |
+| `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. Refused synchronously, before a job starts, while CARE update checks are off. |
 
 Every action except `stop` then passes `ensureDockerReady()`. A stopped container
 engine would otherwise surface inside the engine as an unexplained subprocess
@@ -466,6 +469,17 @@ uses rather than assuming one:
 running does not require starting a container engine first.
 
 The API does not require the CARE Clinic admin password for every operational control. In particular, ordinary start/stop/restart, backup-now, and backup-directory changes have their lifecycle checks but not `requireAdmin`.
+
+#### Turning update checks off
+
+An administrator can turn off either kind of update check from **Advanced → Update checks**. The two flags are stored in `config.json` as `app_update_checks_off` and `care_update_checks_off` ([`app_config.go`](../app/app_config.go)). Both are omitted until someone turns a check off, and a missing flag reads as on, so existing installs keep updating without a migration. [`app_update_checks.go`](../app/app_update_checks.go) holds the bindings and the refusal errors.
+
+| Setting off | Stopped | Not stopped |
+| --- | --- | --- |
+| CARE Clinic app updates | `CheckAppUpdate` and `InstallAppUpdate` return an error before any request to GitHub. The shared update controller does not check on entry, hides any "available" result and the panel banner, and Updates hides its Check now and Update controls. | An `app-update` job that was already running finishes; its progress and handoff stay visible. |
+| CARE software updates | The watcher skips the check (`careCheckDue`) and keeps waking every thirty seconds, so after checks are turned back on the next check runs within thirty seconds, or at the end of the hourly wait if a check had just run. `CheckCareUpdate` returns an error. `checkCareUpdate` returns before resolving branch heads, so no `git ls-remote` reaches the CARE repositories, and it does not emit `care-update` if checks were turned off mid-check. `ClinicAction("update")` is refused, and `Start` holds a staged `-next` build instead of applying it (`Clinic.HoldUpdates`) and logs that it did. The store drops `careUpdate` and ignores later `care-update` events, so the banner and the Updates "Ready to install" notice disappear. | A check or build already in progress is not abandoned; it finishes and its result is not announced. A staged build stays in `channel.lock` and appears again once checks are back on. Rebuild, plugin apply and first-time setup still resolve the configured branches, because they are explicit administrator actions, not update checks. |
+
+The Updates tab rereads the flags whenever it is opened, and Advanced writes them through the shared store, so both views agree straight away. Updates always shows a card with the current state and **Open Advanced**: "Automatic update checks are on" while both are on, otherwise which one is off. Uninstall resets `config.json`, and the panel resets its copy of the flags and reads them again when uninstall finishes, so app update checks resume on the Start screen straight away and a later reinstall starts with both checks on. The flags can only be changed on a set-up server, because `requireAdmin` needs the server role and a saved admin password. A client, or a computer that has not been set up, always reads both as on.
 
 ### Environment, plugins, and backups
 

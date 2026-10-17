@@ -117,8 +117,9 @@ See [client removal](native-integrations.md#removing-client-access).
 | `recovery_failures` / `recovery_retry_after` | `RecoveryFailures` / `RecoveryRetryAfter` | Persisted failed-attempt count and Unix timestamp for offline recovery throttling. |
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
+| `app_update_checks_off` / `care_update_checks_off` | `AppUpdateChecksOff` / `CareUpdateChecksOff` | Set from Advanced with the admin password to stop CARE Clinic app or CARE software update checks. Omitted when false; missing means checks are on. See [Turning update checks off](#turning-update-checks-off). |
 
-The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login.
+The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login. To change a CARE web password, use **Reset a CARE web password** in Advanced; see [Resetting a CARE web password](backups-and-restore.md#resetting-a-care-web-password).
 
 ### Load rules
 
@@ -200,6 +201,8 @@ Writes go through a process-wide mutex and a temporary file renamed into place, 
 Facility setup lives in the [CARE Onboarding frontend plugin](onboarding.md); its assets are not bundled into the kit. Existing `plugins.json` choices are preserved. Catalog defaults are initialized during new-clinic setup; only entries marked `add_to_existing` are added to existing clinics, once, on start ([details](plugins.md#defaults-for-existing-clinics)).
 
 Refresh copies the current kit but is not a general recursive deletion or a migration framework for all generated files. Similarly, preserving environments means a new template key is not automatically merged into an existing environment.
+
+The one exception is the short list in `addedBackendSettings` (`internal/clinic/backend_settings.go`). After the kit refresh, `AddMissingBackendSettings` appends each listed key to an existing `backend.env` only if the key is absent, and the change applies the next time CARE starts. It appends to the file in place rather than writing a replacement, so the file keeps its permissions and, on Windows, the owner-only access-control list that plugin rollback sets on it. It never changes a value already in the file, so a clinic that wants a setting off writes `KEY=False` rather than deleting the line. The list currently holds `MAINTAIN_PATIENT_NAME_IDENTIFIER=True` and `MAINTAIN_PATIENT_PHONE_NUMBER_IDENTIFIER=True`, which make CARE keep searchable name and phone-number identifiers on every patient (CARE's own default for both is off), and `DJANGO_EMAIL_BACKEND` set to Django's dummy backend. The shipped [`backend.env`](../deployments/backend.env) sets both for new clinics, and a test fails if it is missing a listed key.
 
 The startup refresh is skipped for incomplete setup, incomplete removal, and pending restore. A pending restore must keep the configuration its recovery metadata expects.
 
@@ -320,14 +323,32 @@ Less-used local options, such as logos, country defaults, enabled visit types,
 form preferences and queue refresh timing, are not part of these groups. They
 keep their existing values or CARE's defaults and can be overridden in
 **Extra settings (for support)**. Saving an everyday choice does not reset or
-insert those options. The usual visit selector still checks the clinic's saved
-enabled visit types before accepting a new choice.
+insert those options. When `REACT_ALLOWED_ENCOUNTER_CLASSES` is saved, the usual
+visit selector lists only those visit types; a saved choice that is no longer
+enabled shows as "Current value isn't listed" and cannot be saved again.
+
+The visit type and payment method choices use the same names and order as CARE
+(`ENCOUNTER_CLASS` with the `encounter_class__*` labels, and
+`PAYMENT_RECONCILIATION_METHOD_MAP`, in care_fe), so staff see one word for each
+in both places. Keep them in step when CARE adds or renames one.
 
 Email and patient sign-in/SMS controls are not offered. Their environment keys,
 along with SMTP, OTP, MFA/TOTP and reCAPTCHA configuration, are hidden from
-"Extra settings (for support)" and cannot be added there. Existing values,
-including backend placeholders needed at startup, remain untouched when other
-settings are saved.
+"Extra settings (for support)" and cannot be added there. Existing values
+remain untouched when other settings are saved.
+
+CARE Clinic sends no email or SMS:
+
+| Channel | Setting | Effect |
+| --- | --- | --- |
+| Email | `DJANGO_EMAIL_BACKEND=django.core.mail.backends.dummy.EmailBackend` | Django's dummy backend discards every message. Password reset by email, new-user "set your password" email and two-factor notices report success instead of failing against a mail server. New clinics get it from the shipped `backend.env`; existing clinics get it added on start when the key is missing (see [Embedded-kit refresh](#embedded-kit-refresh)). |
+| SMS | `USE_SMS=False` | No SMS is sent. Patient sign-in by code is the one CARE flow that fails without SMS, so it stays hidden with `REACT_DISABLE_PATIENT_LOGIN=true`. |
+
+The old `EMAIL_HOST`/`EMAIL_USER`/`EMAIL_PASSWORD` and `SNS_*` placeholders are
+no longer shipped; CARE has defaults for all of them. Existing files that still
+contain them are left alone. The "Forgot password" link on CARE's sign-in page
+cannot be hidden through settings; staff who forget a password are reset from
+Advanced (see [Resetting a CARE web password](backups-and-restore.md#resetting-a-care-web-password)).
 This is an editor restriction, not a change to CARE's authentication or existing
 MFA configuration. Local password rate limiting, idle sign-out, request
 protection and offline CARE Clinic recovery remain available. Branding URLs can
@@ -364,7 +385,7 @@ The new-install frontend template includes these visit/address settings:
 
 | Key | Shipped value | Meaning |
 | --- | --- | --- |
-| `REACT_DEFAULT_ENCOUNTER_TYPE` | Empty | No explicit preset. A single enabled visit type is selected automatically; otherwise staff choose. Set `hh` for Home health. |
+| `REACT_DEFAULT_ENCOUNTER_TYPE` | Empty | No explicit preset. A single enabled visit type is selected automatically; otherwise staff choose. Set `hh` for Home Health. |
 | `REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED` | `0` | The currently configured CARE frontend clamps this to **1 required address level**, not an optional address. |
 | `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled area. A support override must use the UUID of an existing CARE geographic organization, not its name. |
 
@@ -416,6 +437,16 @@ skipped without a working network, during setup/removal, and while another job
 holds the clinic. Reported failures carry `care-check.error` and appear with a
 friendly retry action; they never become a false "Up to date" result. An offline
 clinic can continue working without updating.
+
+### Turning update checks off
+
+**Advanced → Update checks** has two switches, **Check for CARE Clinic app updates** and **Check for CARE software updates**. Advanced must be unlocked first. Each switch change sends that admin password to `SetUpdateChecks`, which checks it again and saves `app_update_checks_off` / `care_update_checks_off` in `config.json`. Both default to on, including for installs saved before these settings existed.
+
+- **App checks off:** CARE Clinic never contacts GitHub for a release check or an install. The card shows "Checks off" without Check now or Update buttons, and no "available" banner is raised.
+- **CARE checks off:** no automatic, hourly or manual CARE check runs, so nothing reaches the CARE repositories and nothing new is built. A build that was already staged is held: it is not offered, not installed by Install now, and not applied at the next start. It returns when checks are turned back on.
+- **Not stopped:** an update that was already downloading, building or installing finishes. Rebuild, plugin apply and setup still fetch the configured CARE branches.
+
+The Updates tab always shows a card with the current state and an **Open Advanced** button: "Automatic update checks are on" while both are on, or which one is off. The [binding reference](wails-application.md#turning-update-checks-off) lists every place a check is refused.
 
 ## Plugins
 

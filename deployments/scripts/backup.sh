@@ -353,11 +353,52 @@ if [ "${1:-}" = "once" ]; then
 	exit
 fi
 
+DAILY_SECONDS=86400
+RETRY_SECONDS=3600
+WAKE_SECONDS=300
+NEXT_FILE="$STATE_DIR/next-backup"
+
+saved_next() {
+	next=$(cat "$NEXT_FILE" 2>/dev/null || true)
+	case "$next" in ''|*[!0-9]*) echo 0 ;; *) echo "$next" ;; esac
+}
+
+next_midnight() {
+	set -- $(date '+%s %H %M %S')
+	hour=${2#0}
+	minute=${3#0}
+	second=${4#0}
+	echo $(( $1 - ${hour:-0} * 3600 - ${minute:-0} * 60 - ${second:-0} + DAILY_SECONDS ))
+}
+
+schedule_retry() {
+	save_next $(( $(date +%s) + RETRY_SECONDS ))
+}
+
+schedule_next() {
+	save_next "$(next_midnight)"
+}
+
+save_next() {
+	NEXT=$1
+	if [ -d "$STATE_DIR" ]; then
+		printf '%s\n' "$NEXT" > "$NEXT_FILE" 2>/dev/null || true
+	fi
+}
+
 echo "[backup] sidecar started; encrypted backups -> $BACKUP_DIR ($RET_DESC)"
 
+NEXT=$(saved_next)
+[ -n "$(latest_daily_dump)" ] || NEXT=0
+
 while true; do
-	if ! with_backup_lock run_backup; then
-		echo "[backup] backup cycle failed - see errors above"
+	if [ "$(date +%s)" -ge "$NEXT" ]; then
+		if with_backup_lock run_backup; then
+			schedule_next
+		else
+			echo "[backup] backup cycle failed - see errors above; trying again in an hour"
+			schedule_retry
+		fi
 	fi
-	sleep 86400
+	sleep "$WAKE_SECONDS"
 done

@@ -104,6 +104,14 @@ func (a *App) refreshInstallDir() {
 		if err := a.syncInstallKit(); err != nil {
 			return err
 		}
+		settings, err := a.engine().AddMissingBackendSettings()
+		if err != nil {
+			return err
+		}
+		for _, key := range settings {
+			a.logln("Added " + key + " to backend.env. It applies the next time CARE starts.")
+		}
+		updated = updated || len(settings) > 0
 		added, err := plugins.New(a.engine().InstallDir).AddNewDefaults()
 		if err != nil {
 			return err
@@ -135,7 +143,9 @@ func (a *App) shutdown(context.Context) {
 		close(a.advStop)
 	}
 	a.advMu.Lock()
-	a.adv.Stop()
+	if a.adv != nil {
+		a.adv.Stop()
+	}
 	a.adv = nil
 	a.advMu.Unlock()
 }

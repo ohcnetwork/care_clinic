@@ -2,6 +2,7 @@ import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
   ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
   CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
+  UpdateChecks,
 } from "../../src/types";
 
 type Host = Window["go"]["main"]["App"];
@@ -35,6 +36,7 @@ type Fixtures = {
   importedBackup: ImportedBackup;
   recoveryFile: string;
   adminPassword: string;
+  webUsers: Record<string, string>;
   finishJobs: boolean;
   quitAccepted: boolean;
   env: Record<Section, string>;
@@ -48,6 +50,7 @@ type Fixtures = {
   rancherInstalled: boolean;
   appRemoved: boolean;
   setupStarted: boolean;
+  updateChecks: UpdateChecks;
 };
 
 declare global {
@@ -154,6 +157,7 @@ export function installTestHost() {
     importedBackup: { path: `${backupDir}/${exampleBackup.db_dump}`, dir: backupDir, db_dump: exampleBackup.db_dump, files_archive: exampleBackup.files_archive, label: exampleBackup.label, encrypted: true },
     recoveryFile: "/test-fixtures/recovery/CARE-backup-recovery.pem",
     adminPassword: "ClinicTest123",
+    webUsers: { admin: "ClinicTest123", nurse: "NurseTest123" },
     finishJobs: true,
     quitAccepted: false,
     env: {
@@ -170,6 +174,10 @@ export function installTestHost() {
     rancherInstalled: true,
     appRemoved: false,
     setupStarted: false,
+    updateChecks: {
+      app: !(new URLSearchParams(location.search).get("checksOff") ?? "").split(",").includes("app"),
+      care: !(new URLSearchParams(location.search).get("checksOff") ?? "").split(",").includes("care"),
+    },
   };
   const recoveryCodeCount = new URLSearchParams(location.search).get("recoveryCodes");
   if (recoveryCodeCount !== null) {
@@ -445,7 +453,14 @@ export function installTestHost() {
     SetAutostart: async (value: boolean) => { fixtures.autostart = value; },
     WasAutostartLaunched: async () => false,
     CareUpdateStatus: async () => ({ ...fixtures.channel }),
+    GetUpdateChecks: async () => ({ ...fixtures.updateChecks }),
+    SetUpdateChecks: async (app: boolean, care: boolean, password: string) => {
+      requireServer();
+      if (!state.setup_done || password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
+      fixtures.updateChecks = { app, care };
+    },
     CheckCareUpdate: async () => {
+      if (!fixtures.updateChecks.care) throw new Error("CARE software update checks are turned off; an administrator can turn them back on in Advanced");
       emit("care-check", { running: true, found: false });
       window.setTimeout(() => {
         const update = { backend: fixtures.channel.pending_backend, frontend: fixtures.channel.pending_frontend };
@@ -539,6 +554,18 @@ export function installTestHost() {
       fixtures.recoveryRetryAfter = 0;
       emit("admin-recovery-codes-changed", fixtures.recoveryCodes.filter(Boolean).length);
     },
+    ResetWebPassword: async (username: string, next: string, password: string) => {
+      requireServer();
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
+      if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
+      if (!Object.prototype.hasOwnProperty.call(fixtures.webUsers, username)) throw new Error(`no CARE user named "${username}"; usernames are case-sensitive`);
+      const problems = [
+        ...(next.length < 8 ? ["This password is too short. It must contain at least 8 characters."] : []),
+        ...(/^\d+$/.test(next) ? ["This password is entirely numeric."] : []),
+      ];
+      if (problems.length) throw new Error(`CARE didn't accept that password: ${problems.join(" ")}`);
+      fixtures.webUsers[username] = next;
+    },
     RancherDesktopInstalled: async () => fixtures.rancherInstalled,
     RunUninstall: async (_images: boolean, _backups: boolean, _rancher: boolean, password: string) => {
       requireServer();
@@ -630,12 +657,14 @@ export function installTestHost() {
       })();
     },
     CheckAppUpdate: async () => {
+      if (!fixtures.updateChecks.app) throw new Error("CARE Clinic app update checks are turned off; an administrator can turn them back on in Advanced");
       if (scenario === "offline") throw new Error("couldn't reach GitHub to check for updates: network is unreachable");
       if (scenario === "check-error") throw new Error("GitHub answered HTTP 403 for https://api.github.com");
       if (scenario === "unavailable") throw new Error("release 0.1.6 has no installer for this computer");
       return { ...update };
     },
     InstallAppUpdate: async () => {
+      if (!fixtures.updateChecks.app) throw new Error("CARE Clinic app update checks are turned off; an administrator can turn them back on in Advanced");
       if (updateRunning) throw new Error("something else is still running - wait for it to finish");
       updateRunning = true;
       // Fixture events only. No native updater, filesystem, or network is used.

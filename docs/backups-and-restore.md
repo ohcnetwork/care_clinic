@@ -133,8 +133,12 @@ replaces the setup key and clears verification: select the new PEM before
 continuing. Cancellation or a failed save leaves the previous key active.
 Replacement is locked once installation starts.
 
-For an installed clinic, **Backups > Re-download backup key** requires the
-current CARE Clinic admin password. Once enrolled, it decrypts the encrypted local
+For an installed clinic, **Advanced > Backup recovery key > Re-download backup
+key** is available only after Advanced is unlocked with the current CARE Clinic
+admin password, and it uses that unlocked password without asking again. The
+Backups tab shows only a pointer card with **Open Advanced**; it cannot export
+the key. The native export still verifies the admin password itself, so a
+password changed elsewhere since unlocking is rejected. Once enrolled, it decrypts the encrypted local
 copy even if the original PEM has been deleted or disconnected. Existing
 installations without this copy need one successful export from their original
 saved PEM, or **Select another saved copy**. The dialog explains that this
@@ -270,7 +274,7 @@ the old password and envelope unchanged.
 **Forgot CARE Clinic password?**, using a recovery code, cannot decrypt the
 old-password envelope. The UI warns before resetting; reset preserves that
 ciphertext but marks password-only export as needing re-enrollment from a
-surviving PEM. The code consumption, password hash and enrollment flag are
+surviving PEM under **Advanced > Backup recovery key**. The code consumption, password hash and enrollment flag are
 saved together. Re-enrollment does not rotate the backup key. If every PEM is
 lost, try recovering the old password before resetting. Recovery codes do not
 decrypt or rewrap the local key.
@@ -323,6 +327,34 @@ These operations do not require Docker or internet access. They do not change
 the CARE web `admin` password, which setup only initialises to the same value.
 Local OS-account access remains a separate security boundary: an OS user who
 can rewrite the application's configuration is not constrained by this gate.
+
+### Resetting a CARE web password
+
+CARE's own "forgot password" flow sends an email or SMS, and both are
+placeholders in this offline setup, so a clinic that forgets a CARE web
+password has no way back in from the browser. Advanced therefore offers
+**Reset a CARE web password**, behind the same admin-password unlock. It sets a
+new password for any CARE web user, defaulting to `admin`. It never touches the
+CARE Clinic admin password, and changing the CARE Clinic password never touches
+a web password: the two are deliberately not synced.
+
+The reset needs CARE running and refuses while a restore or plugin rollback is
+unfinished. It runs `manage.py shell` inside the backend container with the
+username and new password passed only as environment variables
+(`CARE_WEB_USERNAME`, `CARE_WEB_PASSWORD`), never on the command line. The
+script looks the user up by `USERNAME_FIELD` (case-sensitive), runs Django's
+`validate_password` with CARE's configured validators, then calls
+`set_password` and `save()`, the same steps as CARE's own change-password view.
+An unknown user, rejected password or other failure is reported separately; the
+log never contains the password.
+
+Existing sign-ins are not ended. CARE uses simplejwt access and refresh tokens
+without the token-blacklist app, and refresh tokens rotate, so there is no
+server-side list of a user's sessions to revoke. CARE's logout only marks the
+specific tokens it is given as invalid in the cache. A browser already signed
+in as that user stays signed in until it signs out or its refresh token expires
+(`JWT_REFRESH_TOKEN_LIFETIME`, 30 minutes of inactivity by default). The new
+password is required for every new sign-in.
 
 ### Encryption and restore
 
@@ -412,13 +444,31 @@ second inline dump/encryption implementation in the Wails backend.
 
 ### The schedule lives in the sidecar
 
-In its normal mode, the script attempts a complete set immediately, then sleeps
-for `86400` seconds after the attempt. It repeats while the container runs.
+In its normal mode, the script wakes every 300 seconds and compares the wall
+clock (`date +%s`) with the time the next backup is due. After a successful set
+the next one is due at the following local midnight (12 AM); after a failed
+attempt it is retried an hour later. If the computer was off or asleep at
+midnight, the backup runs within about five minutes of CARE next running, and
+the one after that is again due at midnight.
 
-This is not a midnight cron job, a Wails timer, a missed-run catch-up mechanism,
-or a cloud backup service. Cycle duration is additional to the sleep interval.
-After a failed cycle it logs the failure and still sleeps before its next
-attempt.
+The container clock is UTC, so the app passes the computer's current UTC offset
+as `BACKUP_TZ`, a POSIX `TZ` string such as `<+0530>-05:30`, which Compose sets
+as the sidecar's `TZ`. It is read each time the app starts the clinic, so a
+daylight-saving change is picked up at the next start; until then midnight can
+be an hour off. The due time is saved in `backup-state/next-backup`, so restarting the
+container does not take an extra backup or reset the schedule.
+
+The schedule is not a single `sleep 86400`. The sidecar runs inside the Docker
+virtual machine on macOS and Windows, and that machine is paused while the
+computer sleeps; a sleep timer does not count paused time, so a laptop that
+sleeps often would push a "daily" backup back by days.
+
+On start, the sidecar backs up at once when the saved due time has passed, is
+missing or unreadable, or when the backup folder has no scheduled set yet (for
+example, right after the folder was changed). Otherwise it waits for the saved
+time.
+
+This is not a midnight cron job, a Wails timer or a cloud backup service.
 
 The script refuses to start without `/keys/backup-cert.pem` or a nonempty
 `POSTGRES_PASSWORD`. It defaults other database connection values to host `db`,
@@ -452,13 +502,13 @@ flowchart TD
     Mode -- No --> Unlock["Release lock and return"]
     Mode -- Yes --> Prune["Remove abandoned intermediates and apply retention"]
     Prune --> Result["Report success only if all required steps succeeded"]
-    Result --> Sleep["Release lock, then sleep 86400 seconds"]
+    Result --> Sleep["Release lock; next run at the following midnight, or in an hour after a failure"]
 ```
 
 `flock -x` on file descriptor 9 serializes cooperating manual and scheduled
 writers in the same backup folder. A waiting manual backup does not prune an
 active scheduled backup's intermediate files. The scheduled loop releases the
-lock before sleeping. The lock is advisory: unrelated programs that ignore it
+lock before it waits for the next run. The lock is advisory: unrelated programs that ignore it
 can still modify the folder.
 
 Before a scheduled or manual set starts, **both** final output paths must be unused. Existing files, directories, and even

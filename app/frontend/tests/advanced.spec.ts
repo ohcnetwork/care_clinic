@@ -244,7 +244,7 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     await screenshot(page, `advanced-overview-${size.width}x${size.height}`);
     for (const entry of GROUPS) {
       await group(page, entry.title);
-      await expect(root(page).locator(".advanced-setting")).toHaveCount(entry.settings.length);
+      await expect(root(page).locator(".advanced-settings-card .advanced-setting")).toHaveCount(entry.settings.length);
       await fits(page);
       await root(page).locator(`[data-advanced-group="${entry.id}"]`).click();
     }
@@ -273,7 +273,7 @@ test("Advanced navigation never starts writes, rebuilds, recovery resets or remo
   await root(page).locator('[data-advanced-group="signin"]').click();
   await openRemoval(page);
   await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
-  for (const method of ["WriteEnv", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes"]) {
+  for (const method of ["WriteEnv", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes", "ResetWebPassword"]) {
     expect(await count(page, method)).toBe(0);
   }
 });
@@ -434,7 +434,7 @@ test("the usual visit has no preset until an admin chooses one, then applies wit
   const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
   await expect(visit).toHaveText("No preference");
   await visit.click();
-  await page.getByRole("option", { name: "Home visit", exact: true }).click();
+  await page.getByRole("option", { name: "Home Health", exact: true }).click();
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
   expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({
@@ -452,12 +452,10 @@ test("usual visit choices respect the enabled visit types set by support", async
   await group(page, "Patients and visits");
   const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
   await visit.click();
-  await page.getByRole("option", { name: "Home visit", exact: true }).click();
-  await expect(root(page)).toContainText("This visit type is not enabled for your clinic.");
-  await expect(root(page).getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
+  await expect(page.getByRole("option", { name: "Home Health", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("option")).toHaveText(["No preference", "Ambulatory"]);
   expect(await count(page, "WriteEnv")).toBe(0);
-  await visit.click();
-  await page.getByRole("option", { name: "Outpatient visit", exact: true }).click();
+  await page.getByRole("option", { name: "Ambulatory", exact: true }).click();
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
   const contents = await page.evaluate(() => window.careTest.fixtures.env.frontend);
@@ -611,12 +609,12 @@ test("changing the CARE Clinic password doesn't reset the web login or replace r
     window.careTest.fixtures.recoveryFile = "";
     window.careTest.fixtures.recovery.backup_path = "";
   });
-  await page.getByRole("button", { name: "Backups", exact: true }).click();
-  await page.getByRole("button", { name: "Re-download backup key", exact: true }).click();
-  await dialog(page).getByLabel("CARE Clinic admin password", { exact: true }).fill(nextPassword);
+  await root(page).getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await expect(dialog(page).getByLabel("CARE Clinic admin password", { exact: true })).toHaveCount(0);
   await dialog(page).getByRole("button", { name: "Choose where to save", exact: true }).click();
   await expect(dialog(page)).toBeHidden();
-  expect(await count(page, "ExportBackupRecovery")).toBe(1);
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ExportBackupRecovery").map((call) => call.args)))
+    .toEqual([[nextPassword, ""]]);
 });
 
 test("replacement-code cancellation keeps the previous codes valid", async ({ page }) => {
@@ -831,8 +829,23 @@ test("Advanced unlock expires and removes sensitive drafts without starting an o
   await expect(root(page)).toContainText("Advanced has locked");
   await expect(root(page).getByLabel("CARE Clinic admin password", { exact: true })).toHaveValue("");
   await expect(page.getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Re-download backup key", exact: true })).toHaveCount(0);
   expect(await count(page, "WriteEnv")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
+});
+
+test("the backup recovery key card is only available after unlocking Advanced", async ({ page }) => {
+  await openAdvanced(page);
+  await expect(page.getByRole("button", { name: "Re-download backup key", exact: true })).toHaveCount(0);
+  await unlock(page);
+  const card = root(page).getByRole("region", { name: "Backup recovery key" });
+  await expect(card.getByRole("button", { name: "Re-download backup key", exact: true })).toBeEnabled();
+  await card.getByRole("button", { name: "Re-download backup key", exact: true }).click();
+  await expect(dialog(page)).toContainText("the original PEM is not needed");
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await root(page).getByRole("button", { name: "Lock Advanced settings" }).click();
+  await expect(page.getByRole("button", { name: "Re-download backup key", exact: true })).toHaveCount(0);
+  expect(await count(page, "ExportBackupRecovery")).toBe(0);
 });
 
 test("Windows installed-clinic removal requires Desktop authentication and a separate confirmation", async ({ page }) => {
@@ -1038,4 +1051,32 @@ test("an external panel blocker arriving during fresh reads prevents subsequent 
   await expect(root(page)).toContainText("Settings applied.");
   expect(await count(page, "WriteEnv")).toBe(1);
   expect(await count(page, "ClinicAction")).toBe(1);
+});
+
+test("visit and payment choices use CARE's own names", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await group(page, "Patients and visits");
+  await root(page).getByRole("combobox", { name: "Usual visit type", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveText(["No preference", "Inpatient", "Ambulatory", "Observation", "Emergency", "Virtual", "Home Health"]);
+  await page.keyboard.press("Escape");
+  await group(page, "Billing");
+  await root(page).getByRole("combobox", { name: "Usual payment method", exact: true }).click();
+  await expect(page.getByRole("option")).toHaveText(["No preference", "Cash", "Credit Card", "Credit Check", "Credit Account", "Check", "Direct Deposit", "Debit Card"]);
+});
+
+test("a saved visit type that support has since disabled is flagged, not hidden", async ({ page }) => {
+  await openAdvanced(page);
+  await page.evaluate(() => {
+    const env = window.careTest.fixtures.env;
+    env.frontend = env.frontend.replace("REACT_DEFAULT_ENCOUNTER_TYPE=", "REACT_DEFAULT_ENCOUNTER_TYPE=hh") + "REACT_ALLOWED_ENCOUNTER_CLASSES=amb\r\n";
+  });
+  await unlock(page);
+  await group(page, "Patients and visits");
+  const visit = root(page).getByRole("combobox", { name: "Usual visit type", exact: true });
+  await expect(visit).toHaveText("Current value isn't listed");
+  await visit.click();
+  await page.getByRole("option", { name: "Ambulatory", exact: true }).click();
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(root(page)).toContainText("Settings applied.");
 });
