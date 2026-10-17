@@ -328,6 +328,34 @@ the CARE web `admin` password, which setup only initialises to the same value.
 Local OS-account access remains a separate security boundary: an OS user who
 can rewrite the application's configuration is not constrained by this gate.
 
+### Resetting a CARE web password
+
+CARE's own "forgot password" flow sends an email or SMS, and both are
+placeholders in this offline setup, so a clinic that forgets a CARE web
+password has no way back in from the browser. Advanced therefore offers
+**Reset a CARE web password**, behind the same admin-password unlock. It sets a
+new password for any CARE web user, defaulting to `admin`. It never touches the
+CARE Clinic admin password, and changing the CARE Clinic password never touches
+a web password: the two are deliberately not synced.
+
+The reset needs CARE running and refuses while a restore or plugin rollback is
+unfinished. It runs `manage.py shell` inside the backend container with the
+username and new password passed only as environment variables
+(`CARE_WEB_USERNAME`, `CARE_WEB_PASSWORD`), never on the command line. The
+script looks the user up by `USERNAME_FIELD` (case-sensitive), runs Django's
+`validate_password` with CARE's configured validators, then calls
+`set_password` and `save()`, the same steps as CARE's own change-password view.
+An unknown user, rejected password or other failure is reported separately; the
+log never contains the password.
+
+Existing sign-ins are not ended. CARE uses simplejwt access and refresh tokens
+without the token-blacklist app, and refresh tokens rotate, so there is no
+server-side list of a user's sessions to revoke. CARE's logout only marks the
+specific tokens it is given as invalid in the cache. A browser already signed
+in as that user stays signed in until it signs out or its refresh token expires
+(`JWT_REFRESH_TOKEN_LIFETIME`, 30 minutes of inactivity by default). The new
+password is required for every new sign-in.
+
 ### Encryption and restore
 
 OpenSSL CMS still encrypts each backup with AES-256-CBC in a streaming DER

@@ -273,7 +273,7 @@ test("Advanced navigation never starts writes, rebuilds, recovery resets or remo
   await root(page).locator('[data-advanced-group="signin"]').click();
   await openRemoval(page);
   await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
-  for (const method of ["WriteEnv", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes"]) {
+  for (const method of ["WriteEnv", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes", "ResetWebPassword"]) {
     expect(await count(page, method)).toBe(0);
   }
 });

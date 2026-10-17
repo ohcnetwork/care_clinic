@@ -327,7 +327,7 @@ func generateAdminRecoveryCodes(clinic string) ([]byte, [6]string, error) {
 		fmt.Fprintf(&text, "[ ] %s\n", code)
 		hashes[i] = recoveryHash(code)
 	}
-	text.WriteString("\nIn CARE Clinic, open Advanced > Forgot CARE Clinic password?\nEnter one unused code and choose a new CARE Clinic admin password.\nThis does NOT change your CARE web login or unlock backups.\nA replacement set invalidates every code on this sheet.\n")
+	text.WriteString("\nIn CARE Clinic, open Advanced > Forgot CARE Clinic password?\nEnter one unused code and choose a new CARE Clinic admin password.\nThis does NOT change your CARE web login or unlock backups.\nTo reset a CARE web login, unlock Advanced and choose Reset a CARE web password.\nA replacement set invalidates every code on this sheet.\n")
 	return []byte(text.String()), hashes, nil
 }
 
@@ -479,5 +479,17 @@ func (a *App) ResetAdminPassword(code, newPassword string) error {
 		}
 		a.emit("admin-recovery-codes-changed", cfg.adminRecoveryCount())
 		return nil
+	})
+}
+
+func (a *App) ResetWebPassword(username, newPassword, adminPassword string) error {
+	return a.withServerJob(func() error {
+		if err := a.requireAdmin(adminPassword); err != nil {
+			return err
+		}
+		if err := a.requireStableClinic(); err != nil {
+			return err
+		}
+		return a.engine().ResetWebPassword(username, newPassword)
 	})
 }

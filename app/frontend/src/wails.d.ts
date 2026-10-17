@@ -89,6 +89,7 @@ declare global {
           ValidateSetup(name: string, password: string, backupDir: string): Promise<SetupIssue[]>;
           ChangeAdminPassword(currentPassword: string, newPassword: string): Promise<void>;
           ResetAdminPassword(code: string, newPassword: string): Promise<void>;
+          ResetWebPassword(username: string, newPassword: string, adminPassword: string): Promise<void>;
           ClinicAction(action: string, adminPassword: string): Promise<void>;
           ClinicStatus(): Promise<string>;
           RunSetup(

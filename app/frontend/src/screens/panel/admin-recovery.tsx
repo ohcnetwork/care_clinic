@@ -215,7 +215,7 @@ export function AdminRecoverySettings({
         <span className="advanced-icon advanced-icon-brand"><KeyRound aria-hidden="true" /></span>
         <div className="advanced-grow">
           <h2 className="advanced-card-title" id="advanced-recovery-title">Admin password and recovery codes</h2>
-          <p className="advanced-card-description">Manage the CARE Clinic password, or save six new recovery codes. Your CARE web login is separate.</p>
+          <p className="advanced-card-description">Manage the CARE Clinic password, or save six new recovery codes. CARE web passwords are separate; reset them under CARE web sign-in.</p>
         </div>
         <div className="advanced-actions">
           <Button type="button" disabled={blocked || working} onClick={() => open("password")}>Change password</Button>
@@ -236,7 +236,7 @@ export function AdminRecoverySettings({
         onEscapeKeyDown={(event) => { if (working || pending.current) event.preventDefault(); }}>
         <AlertDialogTitle>{dialog === "password" ? "Change the CARE Clinic admin password" : "Save six new recovery codes?"}</AlertDialogTitle>
         <AlertDialogDescription>
-          {dialog === "password" ? "Staff sign-in to the CARE website stays the same."
+          {dialog === "password" ? "Staff sign-in to the CARE website stays the same. To change a CARE web password, use Reset a CARE web password."
             : "A successfully saved replacement set immediately invalidates every previous code, including unused ones."}
         </AlertDialogDescription>
         <div className="advanced-dialog-body">
@@ -246,7 +246,7 @@ export function AdminRecoverySettings({
               setWorking(false);
               onPasswordChanged(password);
               setDialog(null);
-              setNotice("CARE Clinic password changed. Your CARE web login and unused recovery codes are unchanged.");
+              setNotice("CARE Clinic password changed. Your CARE web login and unused recovery codes are unchanged. Use Reset a CARE web password to change a web login.");
             }} /> : <>
             <AdvancedNotice title="Keep the new sheet somewhere secure" tone="neutral">
               Save it outside CARE's folders and the backup folder, preferably away from this computer.
