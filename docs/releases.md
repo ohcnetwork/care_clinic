@@ -255,6 +255,10 @@ instead of silently producing unsigned installers.
   It signs the PE files inside a GitHub artifact (at most two) and rejects them
   unless product name, company name and product version match `app/wails.json`
   and the release version, which is the same check CI runs. Both requests use it.
+- The [SignPath GitHub App](https://github.com/apps/signpath) must be installed
+  on the `ohcnetwork` organization with access to `care_clinic`. SignPath uses it
+  to fetch the build artifacts; without it the first signing step fails with
+  "Failed to retrieve GitHub App token", as the first `0.1.14` attempt did.
 - `release-signing` policy: the production certificate, origin verification on,
   allowed branch `main`, manual approval required.
 - `test-signing` policy: SignPath's self-signed test certificate, no approval or
@@ -309,8 +313,9 @@ branch in step with Wails' `wails.writeUninstaller` macro when upgrading Wails.
 
 ### Before the first signed release
 
-1. Add the artifact configuration to the SignPath project as its default, then
-   store the four settings above with the policy slug `test-signing`.
+1. Install the SignPath GitHub App on `care_clinic`, add the artifact
+   configuration to the SignPath project as its default, then store the four
+   settings above with the policy slug `test-signing`.
 2. Bump `CARE_CLINIC_VERSION` and let the [test-signed release](#test-signing)
    run. Check that the manifest says `signpath-test`, then delete the draft.
 3. Ask SignPath to review the setup. Once the production certificate is in
