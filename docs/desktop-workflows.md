@@ -349,8 +349,10 @@ acknowledgement; repeat the interrupted action explicitly.
 
 Closing during a native job asks whether to quit or **Keep waiting**; it never
 means the job succeeded. Already launched installers and processes are not
-automatically stopped. Closing an idle desktop and stopping the clinic are
-separate choices; macOS can also hide the window without exiting the process.
+automatically stopped. Closing an idle server, by the close button or the quit
+command, asks once: **Keep running in background** (hide on macOS, minimise on
+Windows) or **Stop clinic and quit**, which stops the clinic and Rancher Desktop
+before exiting.
 
 Server removal belongs in Advanced and requires the CARE Clinic password and
 explicit deletion choices. Completion is acknowledged only after both native

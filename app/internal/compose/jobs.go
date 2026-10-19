@@ -30,7 +30,7 @@ type Builds struct {
 	waited sync.Once
 }
 
-func (b *Builder) Parallel(jobs ...Job) error {
+func (b *Builder) Sequence(jobs ...Job) error {
 	return b.Start(jobs...).Wait()
 }
 
@@ -38,20 +38,17 @@ func (b *Builder) Start(jobs ...Job) *Builds {
 	ctx, cancel := context.WithCancel(context.Background())
 	g := &Builds{owner: b, cancel: cancel, done: make(chan struct{})}
 	b.groups.Add(1)
-	var wg sync.WaitGroup
-	for _, job := range jobs {
-		w := b.worker(ctx, job.Label)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := runJob(w, job); err != nil {
-				g.fail(fmt.Errorf("%s image: %w", job.Label, err))
-			}
-		}()
-	}
 	go func() {
-		wg.Wait()
-		close(g.done)
+		defer close(g.done)
+		for _, job := range jobs {
+			if ctx.Err() != nil {
+				return
+			}
+			if err := runJob(b.worker(ctx, job.Label), job); err != nil {
+				g.fail(fmt.Errorf("%s image: %w", job.Label, err))
+				return
+			}
+		}
 	}()
 	return g
 }

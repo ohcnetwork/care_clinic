@@ -83,7 +83,6 @@ func main() {
 		Logger:             appLog,
 		LogLevel:           logger.INFO,
 		LogLevelProduction: logger.INFO,
-		HideWindowOnClose:  runtime.GOOS == "darwin",
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               singleInstanceID,
 			OnSecondInstanceLaunch: app.onSecondInstance,

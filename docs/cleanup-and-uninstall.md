@@ -131,7 +131,7 @@ steps and does not fail the uninstall.
 - **Both platforms:** `rdctl shutdown` and `rdctl factory-reset` clear the VM,
   Rancher's settings and its Docker context.
 - **macOS:** removes the profile written by `profile.go`
-  (`io.rancherdesktop.profile.defaults`), Rancher's Library folders, `~/.rd`, and
+  (`io.rancherdesktop.profile.defaults`), Rancher's Library folders (including the Lima swap `override.yaml`; the swapfile itself lives on the VM disk that `factory-reset` removes), `~/.rd`, and
   the `MANAGED BY RANCHER DESKTOP` blocks in shell rc files. Then one administrator
   prompt removes the app, `/opt/rancher-desktop`, the sudoers files, the
   docker-socket LaunchDaemon, and the `/var/run/docker.sock` link, but only if

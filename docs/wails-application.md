@@ -105,24 +105,23 @@ dialog. Confirming sets `quitConfirmed` and calls `wruntime.Quit`; the second
 the lock. Nothing is cancelled: Docker commands, installers, and elevated
 scripts that already started are not killed and may finish in the background.
 
-Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are ignored. With no work active, `beforeClose` asks about a running clinic.
+Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are ignored.
 
-There are three outcomes but only two buttons, because a platform message box cannot be relied on to offer more: Windows renders a question as a fixed two-button box regardless of what is requested (see [native dialog answers](#native-dialog-answers-are-not-the-button-labels)). `askBeforeQuit` therefore asks up to two plain yes/no questions instead of labelling one dialog with three choices:
+### Closing with no work active
 
-| Answer or condition | `quitChoice` | Result |
+The window's close button and the app quit command (Cmd+Q, the Dock's Quit, Alt+F4) all reach `beforeClose`: `HideWindowOnClose` is off on every platform, so macOS no longer hides the window silently and shows the same prompt as Windows.
+
+With no job running, a server whose setup is done gets one in-window question, a `quit-requested` request with `kind: "close"`. `beforeClose` first brings the window back (unhide and unminimise) so the question is visible even when it was in the background. Clients, unfinished setups, removals and `--uninstall` close without asking.
+
+| Choice | `RespondToClose` | Result |
 | --- | --- | --- |
-| "Quit CARE Clinic?" answered no | `quitStayOpen` | Prevent closing; the desktop remains open. |
-| Quit yes, "Shut the clinic down as well?" yes | `quitStopClinic` | Attempt a bounded Compose stop, then allow closing if it succeeds. |
-| Quit yes, shut down no | `quitLeaveClinicRunning` | Allow closing; containers keep serving. |
-| No clinic detected, dialog error, or prompt timeout | `quitLeaveClinicRunning` | Allow closing without claiming that containers were stopped. |
+| **Keep running in background** (focused default) | `background` | macOS hides the app (the Dock icon brings it back); Windows minimises the window to the taskbar. The clinic and its name advertising keep running. |
+| **Stop clinic and quit** | `quit` | Under the operation lock: `docker compose stop` if the clinic is running (90 s limit), then `rdctl shutdown` to quit Rancher Desktop, then `wruntime.Quit`. If Compose fails to stop, the app stays open and the dialog offers the choices again. A Rancher Desktop shutdown failure is only logged. |
+| **Cancel** or Escape | `cancel` | Nothing happens. |
 
-Both questions default to the safe answer, so a stray Return neither quits a serving clinic nor shuts one down. `quitLeaveClinicRunning` is deliberately the zero value: an answer that never arrives should let the window close, matching the timeout, rather than wedging it open.
+`RespondToClose` accepts only the current close request, and `RespondToQuit` accepts only running-job requests, so neither binding can answer the other's dialog. Until the frontend registers, a native yes/no question stands in: Yes stops and quits, No keeps it running in the background.
 
-The prompt timeout is 30 seconds and covers both questions together; the explicit stop timeout is 90 seconds. The `closing` flag is set under the operation lock before an allowed exit. New protected jobs and reads reject it.
-
-Shutting the clinic down is also available without quitting, from the panel's Stop control. The second question is a convenience on the way out, not the only route.
-
-These semantics are separate from macOS window hiding: hiding a window is not necessarily process shutdown.
+Shutting the clinic down without quitting is available from the panel's Stop control.
 
 ### In-window permission confirmations
 
@@ -608,8 +607,8 @@ The legacy `pct` weights in that file order milestones; they are not percentages
 to display. Visible earlier/now/latest tags are omitted, while accessible
 current/completed stage descriptions remain.
 The amber long-running note is based on fifteen minutes without a new `care-log`
-line. Parallel build milestones use the builder's own phase lines rather than
-per-image output, which could otherwise advance while other builds still run.
+line. Build milestones use the builder's own phase lines rather than
+per-image output, which could otherwise advance while later builds still wait.
 
 Lines such as `$ care start` in the desktop log are action labels written by the state store. They do not imply that this repository ships a separate `care` command-line program.
 

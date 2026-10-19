@@ -1,60 +1,42 @@
 package clinic
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/compose"
 )
 
 func (e *Clinic) RebuildBackend() error {
-	if err := e.Backups().RecoverRestore(); err != nil {
-		return err
-	}
-	if err := e.Builder().BuildBackend(); err != nil {
-		return err
-	}
-	if err := e.stopWorkers(); err != nil {
-		return err
-	}
-	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300", "backend"); err != nil {
-		return fmt.Errorf("backend startup failed; workers and the scheduler remain stopped: %w", err)
-	}
-	if err := e.migrate(); err != nil {
-		return err
-	}
-	e.syncFrontendPluginsOrWarn()
-	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300", "celery-worker", "celery-beat"); err != nil {
-		return err
-	}
-	e.logln("Backend rebuilt and restarted.")
-	return nil
+	return e.rebuild("Rebuilding the CARE backend", "Backend rebuilt and restarted.", compose.BuildBackend)
 }
 
 func (e *Clinic) RebuildFrontend() error {
-	if err := e.Backups().RecoverRestore(); err != nil {
-		return err
-	}
-	if err := e.Builder().BuildFrontend(); err != nil {
-		return err
-	}
-	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300", "frontend"); err != nil {
-		return err
-	}
-	e.logln("Frontend rebuilt and restarted.")
-	return nil
+	return e.rebuild("Rebuilding the CARE frontend", "Frontend rebuilt and restarted.", compose.BuildFrontend)
 }
 
 func (e *Clinic) RebuildAll() error {
+	return e.rebuild("Rebuilding CARE", "Everything rebuilt and restarted.", compose.BuildBackend, compose.BuildFrontend)
+}
+
+func (e *Clinic) rebuild(start, done string, jobs ...compose.Job) error {
 	if err := e.Backups().RecoverRestore(); err != nil {
 		return err
 	}
-	e.logln("Rebuilding CARE and restarting every service (patient data is kept)...")
-	if err := e.Builder().Parallel(compose.BuildBackend, compose.BuildFrontend); err != nil {
+	e.logln(start + " - CARE stops while it builds so the build has the Docker VM's memory (patient data is kept)...")
+	if err := e.dc("down"); err != nil {
 		return err
 	}
-	if err := e.Restart(); err != nil {
+	if err := e.Builder().Sequence(jobs...); err != nil {
+		e.logln("The build failed; starting CARE again on the images it had before...")
+		if upErr := e.dc("up", "-d", "--wait", "--wait-timeout", "300"); upErr != nil {
+			return errors.Join(err, fmt.Errorf("CARE could not be started again on its previous images: %w", upErr))
+		}
 		return err
 	}
-	e.logln("Everything rebuilt and restarted.")
+	if err := e.Start(); err != nil {
+		return err
+	}
+	e.logln(done)
 	return nil
 }

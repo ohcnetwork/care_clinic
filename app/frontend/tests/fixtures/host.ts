@@ -1,7 +1,7 @@
 import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
   ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
-  CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
+  CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, CloseChoice, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
   UpdateChecks,
 } from "../../src/types";
 
@@ -39,6 +39,7 @@ type Fixtures = {
   webUsers: Record<string, string>;
   finishJobs: boolean;
   quitAccepted: boolean;
+  closeChoice: string;
   env: Record<Section, string>;
   plugins: CarePlugin[];
   catalog: PluginCatalogEntry[];
@@ -70,6 +71,7 @@ declare global {
       setUpdate: (value: AppUpdate) => void;
       finishJob: (action: string, error?: string) => void;
       requestQuit: (action: string) => void;
+      requestClose: () => void;
       requestConfirmation: (title: string, message: string) => void;
       cancelConfirmation: () => void;
     };
@@ -160,6 +162,7 @@ export function installTestHost() {
     webUsers: { admin: "ClinicTest123", nurse: "NurseTest123" },
     finishJobs: true,
     quitAccepted: false,
+    closeChoice: "",
     env: {
       backend: "DB_BACKUP_RETENTION_PERIOD=0\nTIME_ZONE=Asia/Kolkata\nCORAZA_MODE=Off\nDEFAULT_FROM_EMAIL=clinic@example.invalid\nENABLE_OTP_LOGIN=False\nALLOW_PUBLIC_READ=False\n",
       frontend: "REACT_CARE_API_URL=https://care.local\nREACT_CARE_ENABLE_DASHBOARD=true\n",
@@ -690,10 +693,15 @@ export function installTestHost() {
       return quitRequest ? { ...quitRequest } : null;
     },
     RespondToQuit: async (id: number, quit: boolean) => {
-      if (!quitRequest || quitRequest.id !== id) throw new Error("this quit request is no longer active");
+      if (!quitRequest || quitRequest.id !== id || quitRequest.kind !== "job") throw new Error("this quit request is no longer active");
       quitRequest = null;
       fixtures.quitAccepted = quit;
       if (quit) logs.push("Test only: CARE Clinic would close after confirmation.");
+    },
+    RespondToClose: async (id: number, choice: CloseChoice) => {
+      if (!quitRequest || quitRequest.id !== id || quitRequest.kind !== "close") throw new Error("this quit request is no longer active");
+      quitRequest = null;
+      fixtures.closeChoice = choice;
     },
     SetConfirmationDialogReady: async (ready: boolean) => {
       if (!ready) confirmation = null;
@@ -750,7 +758,11 @@ export function installTestHost() {
   window.careTest = {
     calls, logs, state, emit, fixtures, finishJob,
     requestQuit: (action) => {
-      quitRequest = { id: ++quitSequence, title: "CARE is still working", message: `CARE is still ${action}. Quitting now stops it before it finishes. Commands that already started may keep running in the background for a few minutes.` };
+      quitRequest = { id: ++quitSequence, kind: "job", title: "CARE is still working", message: `CARE is still ${action}. Quitting now stops it before it finishes. Commands that already started may keep running in the background for a few minutes.` };
+      emit("quit-requested", { ...quitRequest });
+    },
+    requestClose: () => {
+      quitRequest = { id: ++quitSequence, kind: "close", title: "Close CARE Clinic?", message: "Keep it running in the background so other devices on the clinic's WiFi can keep using care.local, or quit to stop the clinic and Rancher Desktop on this computer." };
       emit("quit-requested", { ...quitRequest });
     },
     requestConfirmation: (title, message) => {

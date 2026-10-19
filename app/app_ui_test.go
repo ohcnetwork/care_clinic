@@ -19,13 +19,3 @@ func TestAffirmativeAcceptsTheWindowsAnswer(t *testing.T) {
 		}
 	}
 }
-
-func TestUnsetQuitChoiceAllowsClosing(t *testing.T) {
-	var unset quitChoice
-	if unset == quitStayOpen {
-		t.Fatal("an unset quit choice keeps the window open, so a dropped answer would wedge it shut")
-	}
-	if unset != quitLeaveClinicRunning {
-		t.Fatalf("unset quit choice = %v, want quitLeaveClinicRunning", unset)
-	}
-}

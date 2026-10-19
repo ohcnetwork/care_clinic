@@ -282,7 +282,7 @@ This read-only check is not an end-to-end failing-plugin rollback test. For
 that test, use a disposable or backed-up clinic, stop competing Desktop
 processes, then use **Save and apply** with a known-bad plugin configuration.
 
-`Start` and `RebuildBackend` also sync after migrations. There a failure is only logged as a warning, because a missing plugin screen is less harmful than a clinic that will not start. Syncing on every start also repairs rows after a database restore or a hand edit in CARE's admin.
+`Start`, and so every rebuild, also syncs after migrations. There a failure is only logged as a warning, because a missing plugin screen is less harmful than a clinic that will not start. Syncing on every start also repairs rows after a database restore or a hand edit in CARE's admin.
 
 ## The panel
 

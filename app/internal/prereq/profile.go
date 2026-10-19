@@ -17,6 +17,11 @@ import (
 // one installing it.
 const rancherProfileVersion = 18
 
+const (
+	rancherMemoryGB = 3
+	rancherSwapGB   = 4
+)
+
 const rancherProfilePlist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -33,6 +38,8 @@ const rancherProfilePlist = `<?xml version="1.0" encoding="UTF-8"?>
 	<dict><key>name</key><string>moby</string></dict>
 	<key>kubernetes</key>
 	<dict><key>enabled</key><false/></dict>
+	<key>virtualMachine</key>
+	<dict><key>memoryInGB</key><integer>%d</integer></dict>
 </dict>
 </plist>
 `
@@ -44,6 +51,7 @@ const rancherProfilePlist = `<?xml version="1.0" encoding="UTF-8"?>
 const rancherProfileKey = `HKCU\Software\Rancher Desktop\Profile\Defaults`
 
 func writeRancherProfile() error {
+	var swapErr error
 	switch runtime.GOOS {
 	case "darwin":
 		home, err := os.UserHomeDir()
@@ -54,11 +62,13 @@ func writeRancherProfile() error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		body := fmt.Sprintf(rancherProfilePlist, rancherProfileVersion)
+		body := fmt.Sprintf(rancherProfilePlist, rancherProfileVersion, rancherMemoryGB)
 		path := filepath.Join(dir, "io.rancherdesktop.profile.defaults.plist")
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			return err
 		}
+		override := filepath.Join(home, "Library", "Application Support", "rancher-desktop", "lima", "_config", "override.yaml")
+		swapErr = writeRancherSwapOverride(override)
 	case "windows":
 		if err := writeRancherProfileWindows(); err != nil {
 			return err
@@ -67,7 +77,37 @@ func writeRancherProfile() error {
 		return nil
 	}
 	applyRancherProfileNow()
-	return nil
+	return swapErr
+}
+
+const rancherSwapScript = `#!/bin/sh
+swapfile=/mnt/data/care-clinic.swap
+for _ in $(seq 30); do mountpoint -q /mnt/data && break; sleep 1; done
+mountpoint -q /mnt/data || exit 0
+if [ ! -f "$swapfile" ]; then
+  if ! { fallocate -l %dG "$swapfile" && chmod 600 "$swapfile" && mkswap "$swapfile" >/dev/null; }; then
+    rm -f "$swapfile"
+    exit 0
+  fi
+fi
+grep -q "^$swapfile " /proc/swaps || swapon "$swapfile" || true
+exit 0
+`
+
+func rancherSwapOverride() string {
+	script := fmt.Sprintf(rancherSwapScript, rancherSwapGB)
+	return "provision:\n- mode: system\n  script: |\n    " +
+		strings.ReplaceAll(strings.TrimSuffix(script, "\n"), "\n", "\n    ") + "\n"
+}
+
+func writeRancherSwapOverride(path string) error {
+	if _, err := os.Lstat(path); err == nil || !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(rancherSwapOverride()), 0o644)
 }
 
 func writeRancherProfileWindows() error {

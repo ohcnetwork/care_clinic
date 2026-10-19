@@ -9,7 +9,8 @@ import { toast } from "@/components/ui/sonner";
 import { bridge, onCareEvent } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
-import type { QuitRequest } from "@/types";
+import { Spinner } from "@/components/spinner";
+import type { CloseChoice, QuitRequest } from "@/types";
 
 export function QuitDialog() {
   const { log } = useCare();
@@ -20,6 +21,7 @@ export function QuitDialog() {
   const currentRequest = useRef<QuitRequest | null>(null);
   const revision = useRef(0);
   const keepWaiting = useRef<HTMLButtonElement>(null);
+  const [quitting, setQuitting] = useState(false);
 
   const receive = useCallback((next: QuitRequest | null) => {
     revision.current++;
@@ -49,25 +51,38 @@ export function QuitDialog() {
     };
   }, [log, receive]);
 
-  const answer = async (quit: boolean) => {
+  const respond = async (send: (id: number) => Promise<void>, failure: string) => {
     if (!request || pending.current) return;
     const id = request.id;
     pending.current = true;
     setBusy(true);
     setError("");
     try {
-      await bridge.RespondToQuit(id, quit);
+      await send(id);
       if (currentRequest.current?.id === id) receive(null);
     } catch (e) {
       log(`respond to quit: ${errorText(e)}`);
-      if (currentRequest.current?.id === id) {
-        setError("The close request couldn't be completed. Check it again before closing this window.");
-      }
+      if (currentRequest.current?.id === id) setError(failure);
     } finally {
       pending.current = false;
       setBusy(false);
+      setQuitting(false);
     }
   };
+
+  const answer = (quit: boolean) => respond((id) => bridge.RespondToQuit(id, quit),
+    "The close request couldn't be completed. Check it again before closing this window.");
+
+  const choose = (choice: CloseChoice) => {
+    if (pending.current) return Promise.resolve();
+    setQuitting(choice === "quit");
+    return respond((id) => bridge.RespondToClose(id, choice),
+      choice === "quit"
+        ? "The clinic couldn't be stopped, so CARE Clinic is still open. Try again, or keep it running in the background."
+        : "The close request couldn't be completed. Check it again before closing this window.");
+  };
+
+  const dismiss = () => request?.kind === "close" ? choose("cancel") : answer(false);
 
   const refresh = async () => {
     if (pending.current) return;
@@ -88,19 +103,34 @@ export function QuitDialog() {
     }
   };
 
+  const closing = request?.kind === "close";
+
   return (
-    <AlertDialog open={request !== null} onOpenChange={(open) => { if (!open) void answer(false); }}>
+    <AlertDialog open={request !== null} onOpenChange={(open) => { if (!open) void dismiss(); }}>
       <AlertDialogContent className="onboarding onboarding-dialog max-h-[calc(100vh-40px)] overflow-auto"
         onOpenAutoFocus={(event) => { event.preventDefault(); keepWaiting.current?.focus(); }}>
         <div>
-          <AlertDialogTitle>CARE is still working</AlertDialogTitle>
+          <AlertDialogTitle>{closing ? request?.title : "CARE is still working"}</AlertDialogTitle>
           <AlertDialogDescription className="whitespace-pre-line">{request?.message}</AlertDialogDescription>
         </div>
+        {quitting ? <p role="status" className="text-sm">Stopping the clinic and Rancher Desktop. This can take a minute or two.</p> : null}
         {error ? <div role="alert"><p className="text-sm text-danger-ink">{error}</p><Button disabled={busy} onClick={() => void refresh()}>Check again</Button></div> : null}
-        <AlertDialogFooter>
-          <Button disabled={busy} onClick={() => void answer(true)}>Quit anyway</Button>
-          <Button ref={keepWaiting} variant="primary" disabled={busy} onClick={() => void answer(false)}>Keep waiting</Button>
-        </AlertDialogFooter>
+        {closing ? (
+          <AlertDialogFooter>
+            <Button disabled={busy} onClick={() => void choose("cancel")}>Cancel</Button>
+            <Button disabled={busy} onClick={() => void choose("quit")}>
+              {quitting ? <Spinner /> : null}Stop clinic and quit
+            </Button>
+            <Button ref={keepWaiting} variant="primary" disabled={busy} onClick={() => void choose("background")}>
+              Keep running in background
+            </Button>
+          </AlertDialogFooter>
+        ) : (
+          <AlertDialogFooter>
+            <Button disabled={busy} onClick={() => void answer(true)}>Quit anyway</Button>
+            <Button ref={keepWaiting} variant="primary" disabled={busy} onClick={() => void answer(false)}>Keep waiting</Button>
+          </AlertDialogFooter>
+        )}
       </AlertDialogContent>
     </AlertDialog>
   );

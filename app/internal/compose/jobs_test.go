@@ -31,58 +31,64 @@ func (l *lines) snapshot() []string {
 	return slices.Clone(l.all)
 }
 
-func parallelFixture(t *testing.T) (*Builder, *lines) {
+func jobsFixture(t *testing.T) (*Builder, *lines) {
 	t.Helper()
 	log := &lines{}
 	dir := t.TempDir()
 	return NewBuilder(proc.Runner{Dir: dir, Log: log.add}, dir, &release.Pins{}, log.add), log
 }
 
-func TestParallelRunsJobsAtTheSameTime(t *testing.T) {
-	b, _ := parallelFixture(t)
-	aStarted, bStarted := make(chan struct{}), make(chan struct{})
-	meet := func(mine, theirs chan struct{}) func(*Builder) error {
-		return func(*Builder) error {
-			close(mine)
-			select {
-			case <-theirs:
-				return nil
-			case <-time.After(5 * time.Second):
-				return errors.New("the other job never started")
+func TestSequenceRunsJobsOneAtATime(t *testing.T) {
+	b, _ := jobsFixture(t)
+	var mu sync.Mutex
+	running, order := 0, []string{}
+	job := func(label string) Job {
+		return Job{Label: label, Run: func(*Builder) error {
+			mu.Lock()
+			running++
+			overlap := running > 1
+			order = append(order, label)
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+			mu.Lock()
+			running--
+			mu.Unlock()
+			if overlap {
+				return errors.New(label + " ran alongside another job")
 			}
-		}
+			return nil
+		}}
 	}
-	err := b.Parallel(Job{Label: "a", Run: meet(aStarted, bStarted)}, Job{Label: "b", Run: meet(bStarted, aStarted)})
-	if err != nil {
+	if err := b.Sequence(job("backend"), job("frontend"), job("caddy")); err != nil {
 		t.Fatal(err)
 	}
+	if !slices.Equal(order, []string{"backend", "frontend", "caddy"}) {
+		t.Fatalf("jobs ran out of order: %q", order)
+	}
 }
 
-func TestParallelFailureStopsTheOtherJobs(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("uses sleep")
-	}
-	b, _ := parallelFixture(t)
+func TestSequenceFailureSkipsTheRemainingJobs(t *testing.T) {
+	b, _ := jobsFixture(t)
 	boom := errors.New("boom")
-	started := time.Now()
-	err := b.Parallel(
+	ran := false
+	err := b.Sequence(
 		Job{Label: "fails", Run: func(*Builder) error { return boom }},
-		Job{Label: "slow", Run: func(w *Builder) error { return w.run.Run("sleep", "30") }},
+		Job{Label: "later", Run: func(*Builder) error { ran = true; return nil }},
 	)
 	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "fails image") {
-		t.Fatalf("want the first failure named after its job, got %v", err)
+		t.Fatalf("want the failure named after its job, got %v", err)
 	}
-	if time.Since(started) > 10*time.Second {
-		t.Fatal("the slow job was not stopped after the other one failed")
+	if ran {
+		t.Fatal("a job ran after an earlier one failed")
 	}
 }
 
-func TestParallelPrefixesEachJobsOutput(t *testing.T) {
+func TestSequencePrefixesEachJobsOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses echo")
 	}
-	b, log := parallelFixture(t)
-	err := b.Parallel(Job{Label: "backend", Run: func(w *Builder) error {
+	b, log := jobsFixture(t)
+	err := b.Sequence(Job{Label: "backend", Run: func(w *Builder) error {
 		w.logln("Building the backend image")
 		return w.run.Run("echo", "step 1/9")
 	}})
@@ -97,12 +103,12 @@ func TestParallelPrefixesEachJobsOutput(t *testing.T) {
 	}
 }
 
-func TestParallelPreservesTheFailedWorkersNetworkCause(t *testing.T) {
+func TestSequencePreservesTheFailedWorkersNetworkCause(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a POSIX command fixture")
 	}
-	b, _ := parallelFixture(t)
-	err := b.Parallel(
+	b, _ := jobsFixture(t)
+	err := b.Sequence(
 		Job{Label: "caddy", Run: func(w *Builder) error {
 			return w.run.Run("/bin/sh", "-c", `printf 'Get "https://example.invalid/module": unexpected EOF\n' >&2; exit 1`)
 		}},
@@ -114,14 +120,14 @@ func TestParallelPreservesTheFailedWorkersNetworkCause(t *testing.T) {
 	}
 }
 
-func TestParallelDoesNotUseASuccessfulWorkersNetworkWarning(t *testing.T) {
+func TestSequenceDoesNotUseASuccessfulWorkersNetworkWarning(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a POSIX command fixture")
 	}
-	b, _ := parallelFixture(t)
+	b, _ := jobsFixture(t)
 	warned := make(chan struct{})
 	compile := errors.New("compile failed")
-	err := b.Parallel(
+	err := b.Sequence(
 		Job{Label: "backend", Run: func(w *Builder) error {
 			defer close(warned)
 			return w.run.Run("/bin/sh", "-c", "printf 'connection reset by peer; retry succeeded\\n'")
@@ -134,9 +140,9 @@ func TestParallelDoesNotUseASuccessfulWorkersNetworkWarning(t *testing.T) {
 	}
 }
 
-func TestParallelRecoversAPanickingJob(t *testing.T) {
-	b, _ := parallelFixture(t)
-	err := b.Parallel(Job{Label: "caddy", Run: func(*Builder) error { panic("bad") }})
+func TestSequenceRecoversAPanickingJob(t *testing.T) {
+	b, _ := jobsFixture(t)
+	err := b.Sequence(Job{Label: "caddy", Run: func(*Builder) error { panic("bad") }})
 	if err == nil || !strings.Contains(err.Error(), "internal error: bad") {
 		t.Fatalf("want the panic reported as an error, got %v", err)
 	}
@@ -146,7 +152,7 @@ func TestCancelStopsRunningJobsAndWaitsForThem(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses sleep")
 	}
-	b, _ := parallelFixture(t)
+	b, _ := jobsFixture(t)
 	running := make(chan struct{})
 	finished := false
 	g := b.Start(Job{Label: "slow", Run: func(w *Builder) error {
@@ -167,7 +173,7 @@ func TestCancelStopsRunningJobsAndWaitsForThem(t *testing.T) {
 }
 
 func TestRebuildInsideAGroupDefersCleanupToTheLastGroup(t *testing.T) {
-	b, _ := parallelFixture(t)
+	b, _ := jobsFixture(t)
 	first := b.Start(Job{Label: "a", Run: func(w *Builder) error { w.afterRebuild(); return nil }})
 	second := b.Start(Job{Label: "b", Run: func(*Builder) error { return nil }})
 	if err := first.Wait(); err != nil {

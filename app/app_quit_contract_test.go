@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ohcnetwork/care_desktop/app/internal/release"
 )
 
 func TestQuitDialogRequiresReadinessAndReturnsImmutableSnapshots(t *testing.T) {
@@ -114,7 +118,7 @@ func TestQuitDialogInvalidationAndReplacementKeepRequestIDsMonotonic(t *testing.
 	}
 	a.busyShown.Store(true)
 	for _, stale := range []uint64{first.ID, second.ID} {
-		if err := a.takeQuitRequest(stale); err == nil {
+		if err := a.takeQuitRequest(stale, quitKindJob); err == nil {
 			t.Fatalf("superseded request %d was accepted", stale)
 		}
 		snapshot := a.SetQuitDialogReady(true)
@@ -122,13 +126,13 @@ func TestQuitDialogInvalidationAndReplacementKeepRequestIDsMonotonic(t *testing.
 			t.Fatalf("superseded response changed the active request: %+v", snapshot)
 		}
 	}
-	if err := a.takeQuitRequest(third.ID); err != nil {
+	if err := a.takeQuitRequest(third.ID, quitKindJob); err != nil {
 		t.Fatalf("current request could not be consumed: %v", err)
 	}
 	if a.SetQuitDialogReady(true) != nil || a.busyShown.Load() {
 		t.Fatal("consuming the request retained a pending prompt")
 	}
-	if err := a.takeQuitRequest(third.ID); err == nil {
+	if err := a.takeQuitRequest(third.ID, quitKindJob); err == nil {
 		t.Fatal("consumed request was replayed")
 	}
 }
@@ -158,5 +162,65 @@ func TestQuitDialogConcurrentCancellationConsumesExactlyOnce(t *testing.T) {
 	}
 	if a.SetQuitDialogReady(true) != nil || a.busyShown.Load() || a.closing || a.quitConfirmed.Load() {
 		t.Fatal("concurrent cancellation retained the prompt or initiated closing")
+	}
+}
+
+func TestCloseAsksOnlyForASetUpClinicServer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  Config
+		ask  bool
+	}{
+		{"server", Config{Role: roleServer, SetupDone: true}, true},
+		{"server before setup", Config{Role: roleServer}, false},
+		{"server being removed", Config{Role: roleServer, SetupDone: true, Removing: true}, false},
+		{"client", Config{Role: roleClient, SetupDone: true}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &App{configFile: filepath.Join(t.TempDir(), "config.json"), cfg: tc.cfg, pins: &release.Pins{}}
+			if got := a.beforeClose(context.Background()); got != tc.ask {
+				t.Fatalf("beforeClose prevented = %v, want %v", got, tc.ask)
+			}
+			if a.closing == tc.ask {
+				t.Fatalf("closing = %v after beforeClose", a.closing)
+			}
+		})
+	}
+}
+
+func TestCloseRequestsAreAnsweredOnlyByTheCloseBinding(t *testing.T) {
+	a := &App{configFile: filepath.Join(t.TempDir(), "config.json"), cfg: Config{MDNSName: "care.local"}, pins: &release.Pins{}}
+	a.SetQuitDialogReady(true)
+	request, ready := a.queueCloseDialog()
+	if !ready || request.Kind != quitKindClose || !strings.Contains(request.Message, "care.local") {
+		t.Fatalf("close request not queued with the clinic name: %+v, %v", request, ready)
+	}
+	a.busyShown.Store(true)
+	if err := a.RespondToQuit(request.ID, false); err == nil {
+		t.Fatal("the job binding consumed a close request")
+	}
+	if err := a.RespondToClose(request.ID, "later"); err == nil || !strings.Contains(err.Error(), "unknown close choice") {
+		t.Fatalf("an unknown choice was accepted: %v", err)
+	}
+	for _, choice := range []string{closeBackground, closeQuit} {
+		if err := a.RespondToClose(request.ID, choice); err == nil {
+			t.Fatalf("%s was accepted without the desktop runtime", choice)
+		}
+	}
+	if snapshot := a.SetQuitDialogReady(true); snapshot == nil || *snapshot != request || !a.busyShown.Load() {
+		t.Fatalf("a rejected answer consumed the close request: %+v", snapshot)
+	}
+	if err := a.RespondToClose(request.ID, closeCancel); err != nil {
+		t.Fatalf("cancel was rejected: %v", err)
+	}
+	if a.SetQuitDialogReady(true) != nil || a.busyShown.Load() || a.quitConfirmed.Load() {
+		t.Fatal("cancel did not clear the close request")
+	}
+	if err := a.RespondToClose(request.ID, closeCancel); err == nil {
+		t.Fatal("a replayed cancel was accepted")
+	}
+	job, _ := a.queueQuitDialog("setup")
+	if err := a.RespondToClose(job.ID, closeCancel); err == nil {
+		t.Fatal("the close binding consumed a job request")
 	}
 }

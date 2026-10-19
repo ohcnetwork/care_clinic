@@ -10,6 +10,7 @@ import type {
   CarePlugin,
   PluginCatalogEntry,
   QuitRequest,
+  CloseChoice,
   ChannelStatus,
   ClientPreflight,
   ClientReachability,
@@ -135,6 +136,7 @@ declare global {
           SetUpdateChecks(app: boolean, care: boolean, adminPassword: string): Promise<void>;
           SetQuitDialogReady(ready: boolean): Promise<QuitRequest | null>;
           RespondToQuit(id: number, quit: boolean): Promise<void>;
+          RespondToClose(id: number, choice: CloseChoice): Promise<void>;
           SetConfirmationDialogReady(ready: boolean): Promise<ConfirmationRequest | null>;
           RespondToConfirmation(id: number, approved: boolean): Promise<void>;
         };

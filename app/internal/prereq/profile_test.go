@@ -1,9 +1,15 @@
 package prereq
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Windows only lets administrators write under HKCU\Software\Policies, so a
@@ -52,5 +58,64 @@ func TestRancherSettingsAreNotSharedBetweenCalls(t *testing.T) {
 	first[0] = "--mutated"
 	if rancherSettings()[0] == "--mutated" {
 		t.Fatal("callers can corrupt the settings used by every later launch")
+	}
+}
+
+func TestRancherProfileSizesTheVirtualMachine(t *testing.T) {
+	body := fmt.Sprintf(rancherProfilePlist, rancherProfileVersion, rancherMemoryGB)
+	if strings.Contains(body, "%!") {
+		t.Fatalf("profile template and its arguments disagree:\n%s", body)
+	}
+	if !strings.Contains(body, "<key>virtualMachine</key>\n\t<dict><key>memoryInGB</key><integer>3</integer></dict>") {
+		t.Fatalf("profile does not give the VM 3 GB:\n%s", body)
+	}
+}
+
+func TestRancherSwapOverrideIsAValidLimaProvisionScript(t *testing.T) {
+	var override struct {
+		Provision []struct {
+			Mode   string `yaml:"mode"`
+			Script string `yaml:"script"`
+		} `yaml:"provision"`
+	}
+	if err := yaml.Unmarshal([]byte(rancherSwapOverride()), &override); err != nil {
+		t.Fatal(err)
+	}
+	if len(override.Provision) != 1 || override.Provision[0].Mode != "system" {
+		t.Fatalf("want one system provision script, got %+v", override.Provision)
+	}
+	script := override.Provision[0].Script
+	if script != fmt.Sprintf(rancherSwapScript, rancherSwapGB) {
+		t.Fatalf("the script changed on its way through YAML:\n%s", script)
+	}
+	if !strings.Contains(script, "fallocate -l 4G ") {
+		t.Fatalf("swapfile is not 4 GB:\n%s", script)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	check := exec.Command("sh", "-n")
+	check.Stdin = strings.NewReader(script)
+	if out, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("swap script does not parse: %v\n%s", err, out)
+	}
+}
+
+func TestRancherSwapOverrideKeepsAnExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lima", "_config", "override.yaml")
+	if err := writeRancherSwapOverride(path); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != rancherSwapOverride() {
+		t.Fatalf("override not written: %q, %v", got, err)
+	}
+	if err := os.WriteFile(path, []byte("cpus: 4\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRancherSwapOverride(path); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != "cpus: 4\n" {
+		t.Fatalf("an operator's own override was replaced: %q", got)
 	}
 }

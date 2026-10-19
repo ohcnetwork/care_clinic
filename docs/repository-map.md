@@ -67,7 +67,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app.go`](../app/app.go) | `App` state, construction, log/event delivery, mDNS advertiser ownership and watcher. | [Architecture](architecture.md), [Wails application](wails-application.md). |
 | [`app_lifecycle.go`](../app/app_lifecycle.go) | Startup refresh, shutdown, second launch, close confirmation, bounded stop-for-quit. | [Wails application](wails-application.md). |
 | [`app_confirmation.go`](../app/app_confirmation.go) | ID-scoped permission requests, independent response channel, native fallback and shutdown cancellation. | [Confirmation protocol](wails-application.md#in-window-permission-confirmations). |
-| [`app_quit.go`](../app/app_quit.go) | Registered running-job quit requests and guarded responses. | [Closing the application](wails-application.md#closing-the-application). |
+| [`app_quit.go`](../app/app_quit.go) | Registered running-job and close requests, guarded responses, background or stop-and-quit. | [Closing the application](wails-application.md#closing-the-application). |
 | [`app_config.go`](../app/app_config.go) | `Config`, OS configuration path, strict initial loading, cached/atomic saves and forgetting state. | [Configuration](configuration-and-settings.md). |
 | [`app_client.go`](../app/app_client.go) | Native client connection, pinned trust/ownership journal, TLS verification, and exact-certificate uninstall with role reset after success. | [Native integrations](native-integrations.md), [Wails application](wails-application.md). |
 | [`app_installdir.go`](../app/app_installdir.go) | Fixed runtime kit path, unpacking/preservation rules, creation of a configured `Clinic`. | [Configuration](configuration-and-settings.md). |
@@ -156,8 +156,8 @@ app/internal/
 |   |-- build.go
 |   |-- build_test.go
 |   |-- deployment_test.go
-|   |-- parallel.go
-|   `-- parallel_test.go
+|   |-- jobs.go
+|   `-- jobs_test.go
 |-- health/
 |   `-- health.go
 |-- plugins/

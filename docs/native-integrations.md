@@ -1615,6 +1615,7 @@ Rancher Desktop themselves rather than through CARE:
 | `application.autoStart: true` | Rancher Desktop starts at login, so the clinic comes back after a reboot without anyone opening it. |
 | `application.startInBackground: true` | Rancher Desktop starts without its window; the operator only ever sees CARE Clinic. |
 | `application.pathManagementStrategy: rcfiles` | Lets Rancher Desktop put `~/.rd/bin` on the shell PATH, matching what `AugmentedPath` already prepends. Ignored on Windows. |
+| `virtualMachine.memoryInGB: 3` (macOS only) | The running clinic needs about 1.2 GB. Builds need more, and that comes from the swapfile below rather than from RAM the Mac gives up for as long as Rancher runs. Windows sizes WSL through `.wslconfig`, so the registry profile does not carry it. |
 
 | Platform | Profile location |
 | --- | --- |
@@ -1631,6 +1632,34 @@ operator, no profile lands, and Rancher Desktop opens its welcome dialog and
 downloads Kubernetes. `rancherProfileWritten` reads the `version` value back
 first, so a start that already has the profile does not shell out to `reg` six
 more times.
+
+#### VM swap on macOS
+
+Rancher Desktop's VM has no swap of its own, and its root filesystem is a tmpfs
+held in RAM. The CARE frontend's Dockerfile lets Node's heap grow to 4 GB, so in
+a 3 GB VM a frontend build would be killed by the kernel the moment memory ran
+out. Every profile write on macOS therefore also writes Lima's
+`~/Library/Application Support/rancher-desktop/lima/_config/override.yaml` with
+one `system` provision script (`rancherSwapOverride`), which Lima runs at every
+VM boot:
+
+- It waits up to 30 seconds for the data disk at `/mnt/data`, and skips swap if
+  the disk never appears.
+- It creates the 4 GB `/mnt/data/care-clinic.swap` once, with `fallocate`,
+  `chmod 600` and `mkswap`, and turns it on with `swapon` unless
+  `/proc/swaps` already lists it.
+- It always exits 0. A VM without swap still runs the clinic, so the script
+  never fails a boot.
+
+An existing `override.yaml` is the operator's own Lima configuration and is left
+untouched, so such a VM gets no swap from CARE. The override only takes effect
+the next time the VM boots. A failure to write it is returned from
+`writeRancherProfile` after `applyRancherProfileNow` has still run, so callers
+log the usual preconfiguration warning.
+
+Unlike the memory setting, which `rdctl set` cannot change without restarting
+the VM and is therefore applied on first run only, the swap override also
+reaches installations that already exist.
 
 Defaults are applied on first run only. An operator's later preference changes
 are kept, and an administrator's managed profile in `/Library/Managed
