@@ -269,7 +269,7 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `GitPlan()` | `ToolPlan` | Query. Describes the available Git action. |
 | `InstallDocker()` | `string` | Sync. Runs prerequisite provisioning and returns its result or error. |
 | `InstallGit()` | `string` | Sync. Runs Git provisioning. |
-| `OpenDocker()` | `void` | Sync. Attempts to launch the available Docker application: Rancher Desktop on macOS/Windows, the `docker` service on Linux. A Rancher Desktop that is stuck, or reports its VM up while Docker is not answering, is fully restarted instead. On Windows, an error after such a restart tells the operator to run `wsl --shutdown`. |
+| `OpenDocker()` | `void` | Sync. Attempts to launch the available Docker application: Rancher Desktop on macOS/Windows, the `docker` service on Linux. Returns at once when Docker already answers. A Rancher Desktop that is stuck, or reports its VM up while Docker is not answering, is fully restarted instead. On Windows, a readiness failure tells the operator to run `wsl --shutdown`. |
 | `RestartPlan()` | `RestartPlan` | Query. Describes a detected prerequisite-related reboot requirement. |
 | `RestartNow()` | `void` | Sync. Attempts to enable login startup, then requests an OS restart; autostart failure is logged. The residue scan does not count that login entry as an earlier clinic. |
 | `ClinicHealth()` | `Health` | Query. HTTP health probe, separate from name and certificate-trust checks. |

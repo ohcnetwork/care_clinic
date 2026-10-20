@@ -374,27 +374,28 @@ func (pr *Provisioner) OpenDocker() error {
 	pr.logln("Starting Docker...")
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		stuck := RancherStuck() || rancherReportsStarted()
+		if pr.dockerDaemonUp() {
+			pr.logln("Docker is ready.")
+			return nil
+		}
 		start := pr.startRancher
-		if stuck {
+		if RancherStuck() || rancherReportsStarted() {
 			start = pr.restartRancher
 		}
 		if err := start(); err != nil {
 			return err
-		}
-		if stuck && runtime.GOOS == "windows" {
-			if err := pr.waitForDocker(dockerReadyTimeout); err != nil {
-				return fmt.Errorf("%w. If Docker still doesn't answer after a restart, quit Rancher Desktop, "+
-					"run \"wsl --shutdown\" in PowerShell, then start Rancher Desktop again", err)
-			}
-			return nil
 		}
 	case "linux":
 		if err := elevate.Run("systemctl start docker", true); err != nil {
 			return fmt.Errorf("could not start the Docker service: %w", err)
 		}
 	}
-	return pr.waitForDocker(dockerReadyTimeout)
+	err := pr.waitForDocker(dockerReadyTimeout)
+	if err != nil && runtime.GOOS == "windows" {
+		return fmt.Errorf("%w. If Docker still doesn't answer, quit Rancher Desktop, "+
+			"run \"wsl --shutdown\" in PowerShell, then start Rancher Desktop again", err)
+	}
+	return err
 }
 
 // rancherRestartPause gives Rancher Desktop's virtual machine time to go away

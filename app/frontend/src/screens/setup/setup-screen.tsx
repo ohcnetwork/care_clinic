@@ -368,20 +368,15 @@ function SetupWizard({ form, patch, update, onBusy }: {
     }
   });
 
-  const cleanupDockerDown = requirements.checks.cleanup.error.startsWith(DOCKER_DOWN);
+  const polling = requirements.checks.cleanup.error.startsWith(DOCKER_DOWN) ? "cleanup" : autoPoll;
   useEffect(() => {
-    if (cleanupDockerDown) setAutoPoll("cleanup");
-    else setAutoPoll((current) => (current === "cleanup" ? null : current));
-  }, [cleanupDockerDown]);
-
-  useEffect(() => {
-    if (!autoPoll || page !== autoPoll || update.active) return;
+    if (!polling || page !== polling || update.active) return;
     const timer = window.setInterval(() => {
       if (!workRef.current) recheck(true);
     }, 5_000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPoll, page, update.active]);
+  }, [polling, page, update.active]);
 
   const changeHost = (value: string) => {
     changeForm({ hostInput: value });

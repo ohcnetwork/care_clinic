@@ -1617,10 +1617,14 @@ answers, and every Rancher launch resets it so a fresh start gets the full
 grace. The engine watch then restarts Rancher on its own after setup.
 
 `OpenDocker` is the explicit action (Start or Restart Rancher Desktop, and the
-engine watch). It restarts instead of starting whenever Rancher is stuck or
-reports its VM up, because a plain start is ignored while Rancher is running.
-On Windows, if Docker still does not answer after that restart, the error tells
-the operator to quit Rancher Desktop, run `wsl --shutdown`, and start it again.
+engine watch). It first asks Docker directly and returns without touching
+Rancher when Docker already answers, because a button can be pressed on a status
+fetched before Docker finished starting. Otherwise it restarts instead of
+starting whenever Rancher is stuck or reports its VM up, because a plain start
+is ignored while Rancher is running. On Windows, if Docker still does not answer
+by the end of the wait, whichever path started or restarted Rancher, the error
+tells the operator to quit Rancher Desktop, run `wsl --shutdown`, and start it
+again.
 CARE does not run `wsl --shutdown` itself: it also stops every other WSL
 distribution on the computer.
 
