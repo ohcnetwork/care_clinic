@@ -368,7 +368,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     }
   });
 
-  const polling = requirements.checks.cleanup.error.startsWith(DOCKER_DOWN) ? "cleanup" : autoPoll;
+  const polling = page === "cleanup" && requirements.checks.cleanup.error.startsWith(DOCKER_DOWN) ? "cleanup" : autoPoll;
   useEffect(() => {
     if (!polling || page !== polling || update.active) return;
     const timer = window.setInterval(() => {
