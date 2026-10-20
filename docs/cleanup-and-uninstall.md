@@ -856,7 +856,11 @@ message. While that error stands, the page re-checks every five seconds, hides
 the removal button, sends every Try again to a read-only re-check, and offers
 **Restart Rancher Desktop** (`OpenDocker`; **Start Docker** on Linux). Polling
 is derived from the cleanup check's result alone, so it starts and stops the
-same way after a page visit, Continue, Check again, or a purge. `proc.Runner.Capture` appends a
+same way after a page visit, Continue, Check again, or a purge. A background
+re-check keeps an action error, such as a failed Rancher restart with its
+`wsl --shutdown` advice, while Docker is still down, and clears it once Docker
+answers. On the Cleanup page the error alert's **Try again** only ever
+re-checks; removal runs only from the destructive button. `proc.Runner.Capture` appends a
 failed command's stderr to its error, so the log shows why `docker` refused.
 
 The App decides whether saved

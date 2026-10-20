@@ -850,6 +850,52 @@ test("cleanup stops polling once Docker answers even with leftovers", async ({ p
   await expect(retry).toBeEnabled();
 });
 
+test("a failed Rancher restart stays visible while Docker is down and never purges", async ({ page }) => {
+  await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");
+  await continueTo(page, "Removing stale files from an earlier setup");
+  await page.evaluate(() => {
+    window.careTest.fixtures.dockerScans = true;
+    window.careTest.fixtures.docker = { ok: false, message: "Rancher Desktop is open, but Docker inside it has stopped responding." };
+    window.careTest.failNext("PurgeResidue", "could not inspect clinic containers; start Docker and retry");
+  });
+  await page.getByRole("button", { name: "Remove it all" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for Rancher Desktop" })).toBeVisible();
+  await page.evaluate(() => window.careTest.failNext("OpenDocker", "run \"wsl --shutdown\" in PowerShell"));
+  await page.getByRole("button", { name: "Restart Rancher Desktop" }).click();
+  const restartError = page.getByRole("alert").filter({ hasText: "wsl --shutdown" });
+  await expect(restartError).toBeVisible();
+  const scans = await calls(page, "ScanResidue");
+  await expect.poll(() => calls(page, "ScanResidue"), { timeout: 10_000 }).toBeGreaterThan(scans);
+  await expect(restartError).toBeVisible();
+  await page.evaluate(() => { window.careTest.fixtures.docker = { ok: true, message: "" }; });
+  await expect(page.getByRole("heading", { name: "Still on this computer" })).toBeVisible({ timeout: 10_000 });
+  await expect(restartError).toHaveCount(0);
+});
+
+test("the alert retry after a failed Rancher restart never purges", async ({ page }) => {
+  await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");
+  await continueTo(page, "Removing stale files from an earlier setup");
+  await page.evaluate(() => {
+    window.careTest.fixtures.dockerScans = true;
+    window.careTest.fixtures.docker = { ok: false, message: "Rancher Desktop is open, but Docker inside it has stopped responding." };
+    window.careTest.failNext("PurgeResidue", "could not inspect clinic containers; start Docker and retry");
+  });
+  await page.getByRole("button", { name: "Remove it all" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for Rancher Desktop" })).toBeVisible();
+  const purges = await calls(page, "PurgeResidue");
+  await page.evaluate(() => {
+    window.careTest.failNext("OpenDocker", "Rancher Desktop stopped before Docker was ready");
+    window.careTest.fixtures.docker = { ok: true, message: "" };
+  });
+  await page.getByRole("button", { name: "Restart Rancher Desktop" }).click();
+  await expect(page.getByRole("heading", { name: "Still on this computer" })).toBeVisible();
+  const alert = page.getByRole("alert").filter({ hasText: "couldn't be brought back" });
+  await expect(alert).toBeVisible();
+  await alert.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Still on this computer" })).toBeVisible();
+  expect(await calls(page, "PurgeResidue")).toBe(purges);
+});
+
 for (const clean of [true, false]) {
   test(`cleanup handles null traces with clean=${clean} without reloading`, async ({ page }) => {
     await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");

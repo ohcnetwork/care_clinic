@@ -154,7 +154,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
           </Callout></div> : null}
         </div>
       )}
-      {check.error || actionError ? <Callout tone="danger" title={actionError?.title ?? "This step couldn't finish"}>{actionError?.message || check.error}<div className="on-actions"><Button disabled={busy} onClick={() => actionError && page !== "space" && !dockerDown ? onAction(page) : onCheck()}>Try again</Button><LogButton /></div></Callout> : null}
+      {check.error || actionError ? <Callout tone="danger" title={actionError?.title ?? "This step couldn't finish"}>{actionError?.message || check.error}<div className="on-actions"><Button disabled={busy} onClick={() => actionError && page !== "space" && page !== "cleanup" ? onAction(page) : onCheck()}>Try again</Button><LogButton /></div></Callout> : null}
       {actionNote && !actionError ? <Callout>{actionNote}{!busy ? <div className="on-actions">{footer()}</div> : null}</Callout> : null}
     </>
   );

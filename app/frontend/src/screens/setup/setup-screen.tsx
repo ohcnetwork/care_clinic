@@ -254,12 +254,12 @@ function SetupWizard({ form, patch, update, onBusy }: {
     if (target === "review") { await validateReview(); return; }
   };
 
-  const execute = async (name: string, fn: () => Promise<void>, recoveryAction = false) => {
+  const execute = async (name: string, fn: () => Promise<void>, recoveryAction = false, keepProblem = false) => {
     if (workRef.current || addressQueuedRef.current || addressTasks.current.size || restartRef.current || update.isActive() || care.busy) return;
     workRef.current = true;
     onBusy(true);
     setOperation(name);
-    setProblem(null);
+    if (!keepProblem) setProblem(null);
     if (recoveryAction) setRecoveryError("");
     try { await fn(); } catch (e) {
       care.log(`setup ${name}: ${errorText(e)}`);
@@ -289,15 +289,16 @@ function SetupWizard({ form, patch, update, onBusy }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const recheck = () => void execute("checking", async () => {
+  const recheck = (background = false) => void execute("checking", async () => {
     if (isRequirement(pageRef.current)) {
       const target = pageRef.current;
       const ok = await requirements.check(target);
       markDone(target, ok);
+      if (background && !requirements.current.current.cleanup.error.startsWith(DOCKER_DOWN)) setProblem(null);
       if (ok) { setAutoPoll(null); setActionNote(""); }
       else if (target === "windows" && requirements.current.current.windows.value?.restart.needed) setRestart(requirements.current.current.windows.value.restart);
     }
-  });
+  }, false, background);
 
   const perform = (action: RequirementAction) => void execute(action, async () => {
     setAutoPoll(null);
@@ -376,7 +377,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
   useEffect(() => {
     if (!autoPoll || page !== autoPoll || update.active) return;
     const timer = window.setInterval(() => {
-      if (!workRef.current) recheck();
+      if (!workRef.current) recheck(true);
     }, 5_000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -505,7 +506,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
       next={continueSetup} nextDisabled={!ready} editing={editing} update={update}>
       <RestartDialog plan={restart} onDismiss={() => setRestart(null)} />
       {isRequirement(page) ? <RequirementStep page={page} checks={requirements.checks} busy={locked} tool={tool} download={download}
-        actionError={problem} actionNote={actionNote} cleanupBefore={cleanupBefore} onAction={perform} onCheck={recheck}
+        actionError={problem} actionNote={actionNote} cleanupBefore={cleanupBefore} onAction={perform} onCheck={() => recheck()}
         onRestart={() => setRestart(requirements.current.current.windows.value?.restart ?? null)} />
         : page === "address" ? <AddressStep value={form.hostInput} result={address} disabled={operation !== "" || update.active || care.busy} onChange={changeHost} onCheck={() => void checkAddress(formRef.current.hostInput)} />
         : page === "backup" ? <BackupStep form={form} space={space} folderProblem={folderError} recovery={recovery} recoveryError={recoveryError} busy={locked} action={operation}

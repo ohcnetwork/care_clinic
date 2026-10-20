@@ -57,6 +57,7 @@ func RancherStuck() bool {
 	}
 	if !rancherDesktopRunning() {
 		silentRancher.reset()
+		unansweredDocker.reset()
 		return false
 	}
 	now := time.Now()
