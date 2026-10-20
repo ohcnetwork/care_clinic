@@ -76,8 +76,10 @@ var findCLI = func() string {
 	return ""
 }
 
+var cliEnv = []string{"TAILSCALE_BE_CLI=1"}
+
 func capture(run proc.Runner, cli string, args ...string) (string, error) {
-	out, err := run.CaptureIn(timeout, nil, cli, args...)
+	out, err := run.CaptureIn(timeout, cliEnv, cli, args...)
 	if err == nil {
 		return out, nil
 	}
