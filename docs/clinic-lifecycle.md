@@ -111,7 +111,7 @@ remaining teardown files and the residue package.
 | [`stop.go`](../app/internal/clinic/stop.go) | Data-preserving stop and restart implemented as Stop followed by Start. |
 | [`rebuild.go`](../app/internal/clinic/rebuild.go) | Explicit backend and frontend rebuild-and-restart paths. |
 | [`compose/build.go`](../app/internal/compose/build.go) | Source checkout cache, image fingerprints, four image builds, local freshness checks, and post-rebuild dangling-image cleanup. |
-| [`compose/parallel.go`](../app/internal/compose/parallel.go) | Parallel build groups: shared cancellation, per-job log prefixes, first-error reporting, and deferred prune. |
+| [`compose/jobs.go`](../app/internal/compose/jobs.go) | Build groups that run their jobs one at a time: cancellation, per-job log prefixes, first-error reporting, and deferred prune. |
 | [`compose/channel.go`](../app/internal/compose/channel.go) | Branch resolution through `git ls-remote` without credential prompts, and the `channel.lock` record. |
 | [`compose/update.go`](../app/internal/compose/update.go) | Staging a newer commit into the `-next` images, declining, and applying a staged build by retag. |
 | [`clinic/update.go`](../app/internal/clinic/update.go) | Channel status, the safety backup taken before anything is retagged, live update application, and applying a staged update during startup. |
@@ -293,8 +293,8 @@ error. There is no implicit rollback of earlier successful steps.
 | 4 | `ApplyDomain()` | Apply the clinic host to managed settings and deployment assets. |
 | 5 | Create the backup directory with `MkdirAll(..., 0755)` | The destination may now exist even if later setup fails; its location is logged. |
 | 6 | `Backups().EnsureKeysDir()` | Prepare the keys directory before a Docker bind mount can create a root-owned source directory. |
-| 7 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The two slow image builds run while steps 8–9 continue. |
-| 8 | `Parallel(EnsureCaddy, EnsureBackup)` | Build the Caddy/WAF and cryptographic tooling images side by side. On error, the background group is cancelled and waited for before `Setup()` returns. |
+| 7 | `Sequence(EnsureCaddy, EnsureBackup)` | Build the Caddy/WAF image, then the cryptographic tooling image. An error returns before any other build starts. |
+| 8 | Start `EnsureBackend` and `EnsureFrontend` as a background build group | The backend builds, then the frontend, while step 9 continues. Only one image builds at a time. |
 | 9 | `setUpThisComputerEarly()` | Start Caddy alone (`up -d --wait --no-deps caddy`), wait up to 60 seconds for its root certificate and site certificate, then run the this-computer setup so its approvals happen now instead of after the long builds. Any failure here is logged and left to the end of `Start()`. |
 | 10 | Wait for the background group | Backend and frontend image errors surface here. |
 | 11 | Log `Setup done.` | Preparation is complete, not proof that the clinic has started or that `SetupDone` was saved. |
@@ -372,25 +372,27 @@ flowchart TD
     Success -->|yes| Prune["Best-effort dangling-image prune"]
 ```
 
-### Parallel builds
+### Build groups
 
-`Builder.Parallel(jobs...)` runs several `Ensure...Image` or `Build...` jobs at
-once and returns the first failure, named after its job (`backend image: ...`).
-`Builder.Start(jobs...)` does the same in the background and returns a group to
-`Wait()` on or `Cancel()`. Each job gets its own worker builder whose runner
-carries a shared cancellable context, so the first failure kills the other jobs'
-`docker build` and `git` processes. Every log line from a job, including Docker's
-streamed build output, is prefixed with its label, such as `[backend]`. A panic
-inside a job becomes that job's error.
+`Builder.Sequence(jobs...)` runs several `Ensure...Image` or `Build...` jobs one
+after another and returns the first failure, named after its job
+(`backend image: ...`). Jobs after a failure do not run. `Builder.Start(jobs...)`
+does the same in the background and returns a group to `Wait()` on or
+`Cancel()`. Each job gets its own worker builder whose runner carries the
+group's cancellable context, so `Cancel()` kills the running job's
+`docker build` and `git` processes. Every log line from a job, including
+Docker's streamed build output, is prefixed with its label, such as
+`[backend]`. A panic inside a job becomes that job's error.
 
 A stale-image rebuild inside a group does not prune immediately, because
-`docker image prune` could race another build still in progress. It marks the
+`docker image prune` could race a build in another open group. It marks the
 owning builder instead, and the prune runs once the last open group on that
 builder finishes.
 
-`Setup()`, `Start()`, and `RebuildAll()` use these groups. Builds compete for
-the Docker VM's CPU and memory, so the saving comes mostly from overlapping
-downloads and from starting the slow builds before the interactive steps.
+`Setup()`, `Start()`, and the rebuilds use these groups. Builds run one at a
+time because they share the Docker VM's memory: the CARE frontend's Dockerfile
+lets Node's heap grow to 4 GB, so a frontend build next to the backend build,
+or next to the running clinic, can exhaust a 4 GB VM and be killed.
 
 An image-listing or image-inspection error is not treated as "image absent."
 It returns an error such as `inspect local images` or `inspect image ...`.
@@ -554,7 +556,7 @@ environment files, is not uploaded as their build context. Backend and
 frontend builds instead use their respective source directories.
 
 After a successful stale-image replacement through `ensure`, the builder
-attempts Docker's dangling-image prune. Inside a parallel build group that
+attempts Docker's dangling-image prune. Inside a build group that
 prune is deferred until the last open group on the builder finishes. It does not
 run that prune for a matching image, the initial missing-image path, or a direct
 explicit build.
@@ -784,7 +786,7 @@ flowchart TD
 ```
 
 The dependency file alone does **not** enforce "migrations before workers."
-That invariant is implemented by `Clinic.Start` and `RebuildBackend`.
+That invariant is implemented by `Clinic.Start`, which every rebuild ends with.
 
 | Named volume | Normal Compose name | Why it survives Stop |
 | --- | --- | --- |
@@ -832,7 +834,7 @@ flowchart TD
     PluginRecovery -->|Yes| Rollback["Restore previous plugins and image; verify health; return"]
     PluginRecovery -->|No| Recover["Backups.RecoverRestore"]
     Recover --> Ports["EnsurePortFree for HTTP and HTTPS"]
-    Ports --> Images["Ensure backend, frontend, backup, Caddy images in parallel"]
+    Ports --> Images["Ensure backend, frontend, backup, Caddy images, one at a time"]
     Images --> Keys["Ensure keys directory"]
     Keys --> Pause["Stop worker and scheduler; inspect every state"]
     Pause --> Core["Start db, redis, backend; wait up to 300 seconds"]
@@ -869,7 +871,7 @@ it.
 | Plugin recovery | `RecoverPlugins()` runs first; a found journal is recovered and Start returns without normal builds, migrations or queued updates. | Failed recovery retains the journal and reports that CARE could not be recovered. |
 | Restore recovery | `Backups().RecoverRestore()` runs on the normal startup path, after ruling out pending plugin recovery. | An uncertain restore must not be bypassed by an ordinary start. No later startup work runs on error. |
 | Ports | `health.EnsurePortFree(Runner(), host)` checks for conflicts on 80/443 while recognizing an already-running clinic proxy. | A conflicting listener blocks startup instead of failing later with only a port-bind error. |
-| Images | Ensure backend, frontend, backup, and Caddy in one parallel group. | Input/inspection/build errors propagate. Existing workers have not yet been deliberately stopped by this Start path. |
+| Images | Ensure backend, frontend, backup, and Caddy in one group, one image at a time. | Input/inspection/build errors propagate. Existing workers have not yet been deliberately stopped by this Start path. |
 | Keys | Ensure the bind-mount source exists. | Do not allow Compose to create the missing key directory with unintended ownership. |
 | Worker guard | Stop and verify worker/scheduler state. | No migration is attempted without verified quiescence of these processes. |
 | Core startup | Compose `up -d --wait --wait-timeout 300 db redis backend`. | Return an explicit backend-startup error; verified-stopped workers remain stopped. |
@@ -954,7 +956,7 @@ that state machine:
   image pins, host, project, and log. Its `EnsureImage` callback ensures the
   backup image; `EnsureRestoreImages` ensures backend then backup;
   `Migrate(database, restoreID)` points to `migrateStaged`, not live `migrate`.
-- `Start`, `RebuildBackend`, and `RebuildFrontend` call `RecoverRestore` before
+- `Start` and every rebuild call `RecoverRestore` before
   their normal work.
 - A successful full Start calls `FinishRestore` only after the HTTP health
   wait.
@@ -1051,20 +1053,28 @@ or prevent a later bind race. Further transport details are in
 | --- | --- | --- |
 | `Stop()` | Log `Stopping CARE (data kept)...`, then Compose `stop`. | Does not remove containers, volumes, images, keys, settings, or native trust. A stop error propagates. |
 | `Restart()` | Call `Stop`; if successful, call the full `Start`. | This is not Compose `restart`: it includes recovery, freshness checks, migrations, Caddy recreation, and health. Stop failure prevents Start. |
-| `RebuildBackend()` | Recover pending restore work; explicitly build backend; stop/verify workers; start/wait backend; migrate once; sync frontend plugin rows (warning only); start/wait worker and scheduler. | No administrator creation, whole-stack HTTP wait, Caddy refresh, native setup, or `FinishRestore` call in this method. |
-| `RebuildFrontend()` | Recover pending restore work; explicitly build frontend; start/wait frontend. | Does not run migrations, stop workers, perform the full health wait, or refresh Caddy. |
-| `RebuildAll()` | Recover pending restore work; explicitly build backend and frontend in parallel while CARE keeps running; then `Restart()` (`compose stop`, then the full `Start()` sequence: image freshness, migrations, plugin sync, whole stack, Caddy refresh, health wait, restore finish). | Restarting stopped containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`; containers whose env files or images changed are recreated by `up`. It does not rebuild the backup or Caddy images unless their inputs changed, and it does not refresh the installed kit itself; the `rebuild-all` action does that first. |
+| `RebuildBackend()` | Recover pending restore work; Compose `down`; build the backend; then the full `Start()` sequence. | CARE is offline for the whole build. |
+| `RebuildFrontend()` | Recover pending restore work; Compose `down`; build the frontend; then the full `Start()` sequence. | CARE is offline for the whole build. |
+| `RebuildAll()` | Recover pending restore work; Compose `down`; build the backend, then the frontend; then the full `Start()` sequence. | Starting fresh containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`. It does not rebuild the backup or Caddy images unless their inputs changed, and it does not refresh the installed kit itself; the `rebuild-all` action does that first. |
 
-The backend and frontend rebuild methods use Compose waits of 300 seconds per selected startup
-phase. Short-form and healthy dependencies can also cause required dependency
-services to start; neither method requests `--no-deps` for its application
-service.
+All three share one path in [`rebuild.go`](../app/internal/clinic/rebuild.go).
+CARE is taken down before building so the build gets the Docker VM's memory
+instead of competing with the running clinic. `down` removes containers and the
+network, never volumes, so patient data, files and certificates are kept. If
+`down` fails, nothing is built and CARE keeps running.
 
-Backend building happens **before** stopping workers, so a build failure does
-not unnecessarily pause a healthy worker fleet. Once the worker guard has
-succeeded, backend-startup or migration failure leaves workers deliberately
-stopped. If worker resumption itself fails, the method returns that error and
-does not pretend the rebuild is complete.
+`Start()` after the build brings everything back the same way a normal start
+does: image freshness (already satisfied), worker stop and verification,
+migrations, administrator creation when a password was supplied, frontend
+plugin sync, the whole stack, the Caddy refresh, the health wait and
+`FinishRestore`. A migration failure leaves workers stopped, as in `Start()`.
+
+If the build fails, the old image still holds its tag, because `docker build`
+only retags on success. The rebuild then runs Compose
+`up -d --wait --wait-timeout 300` to bring CARE back on the images it had before
+and returns the build error. It does not go through `Start()` there, because
+`Start()`'s freshness check would try the same failed build again. If that
+restart also fails, both errors are returned.
 
 An explicit frontend build reads the current `frontend.env` and rewrites the
 source checkout's `.env.local`. It may still reuse both the source stamp and

@@ -83,13 +83,17 @@ func (a *App) engineBroken() bool {
 }
 
 func (a *App) recoverEngine() {
+	a.reviveEngine("Docker has not answered for over a minute; bringing Rancher Desktop back automatically...")
+}
+
+func (a *App) reviveEngine(reason string) {
 	if err := a.lockJob(); err != nil {
 		return
 	}
 	defer a.jobMu.Unlock()
 	a.activeJob.Store(jobPrereq)
 	defer a.activeJob.Store("")
-	a.logln("Docker has not answered for over a minute; bringing Rancher Desktop back automatically...")
+	a.logln(reason)
 	// OpenDocker starts a Rancher that quit and fully restarts a stuck one.
 	if err := a.provisioner().OpenDocker(); err != nil {
 		a.logln("error: automatic Rancher Desktop restart failed: " + err.Error())

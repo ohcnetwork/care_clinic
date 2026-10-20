@@ -100,29 +100,32 @@ answers cannot close the app. Unmounting unregisters the UI and invalidates its
 pending request. Until registration, the native confirmation remains available.
 
 `beforeClose` returns "prevent" at once, so the main thread never waits on a
-dialog. Confirming sets `quitConfirmed` and calls `wruntime.Quit`; the second
-`beforeClose` sees the flag and allows closing even though the job still holds
-the lock. Nothing is cancelled: Docker commands, installers, and elevated
-scripts that already started are not killed and may finish in the background.
+dialog. Confirming runs the same stop as an idle quit, without taking the
+operation lock the job still holds: `docker compose down` when this computer is
+the server, has a `docker-compose.yml` and Docker answers (90 s limit), then
+`rdctl shutdown`. Only then does it set `quitConfirmed` and call
+`wruntime.Quit`; the second `beforeClose` sees the flag and allows closing. If
+Compose fails, the app stays open and the request stays answerable. The job
+itself is not cancelled: commands, installers and elevated scripts that already
+started are not killed, but Rancher Desktop's shutdown stops every container.
 
-Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are ignored. With no work active, `beforeClose` asks about a running clinic.
+Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are ignored.
 
-There are three outcomes but only two buttons, because a platform message box cannot be relied on to offer more: Windows renders a question as a fixed two-button box regardless of what is requested (see [native dialog answers](#native-dialog-answers-are-not-the-button-labels)). `askBeforeQuit` therefore asks up to two plain yes/no questions instead of labelling one dialog with three choices:
+### Closing with no work active
 
-| Answer or condition | `quitChoice` | Result |
+The window's close button and the app quit command (Cmd+Q, the Dock's Quit, Alt+F4) all reach `beforeClose`: `HideWindowOnClose` is off on every platform, so macOS no longer hides the window silently and shows the same prompt as Windows.
+
+With no job running, a server whose setup is done gets one in-window question, a `quit-requested` request with `kind: "close"`. `beforeClose` first brings the window back (unhide and unminimise) so the question is visible even when it was in the background. Clients, unfinished setups, removals and `--uninstall` close without asking.
+
+| Choice | `RespondToClose` | Result |
 | --- | --- | --- |
-| "Quit CARE Clinic?" answered no | `quitStayOpen` | Prevent closing; the desktop remains open. |
-| Quit yes, "Shut the clinic down as well?" yes | `quitStopClinic` | Attempt a bounded Compose stop, then allow closing if it succeeds. |
-| Quit yes, shut down no | `quitLeaveClinicRunning` | Allow closing; containers keep serving. |
-| No clinic detected, dialog error, or prompt timeout | `quitLeaveClinicRunning` | Allow closing without claiming that containers were stopped. |
+| **Keep running in background** (focused default) | `background` | macOS hides the app (the Dock icon brings it back); Windows minimises the window to the taskbar. The clinic and its name advertising keep running. |
+| **Stop clinic and quit** | `quit` | Under the operation lock: `docker compose down` when the clinic has a Compose project and Docker answers (90 s limit), then `rdctl shutdown` to quit Rancher Desktop, then `wruntime.Quit`. If Compose fails to stop, the app stays open and the dialog offers the choices again. A Rancher Desktop shutdown failure is only logged. |
+| **Cancel** or Escape | `cancel` | Nothing happens. |
 
-Both questions default to the safe answer, so a stray Return neither quits a serving clinic nor shuts one down. `quitLeaveClinicRunning` is deliberately the zero value: an answer that never arrives should let the window close, matching the timeout, rather than wedging it open.
+`RespondToClose` accepts only the current close request, and `RespondToQuit` accepts only running-job requests, so neither binding can answer the other's dialog. Until the frontend registers, a native yes/no question stands in: Yes stops and quits, No keeps it running in the background.
 
-The prompt timeout is 30 seconds and covers both questions together; the explicit stop timeout is 90 seconds. The `closing` flag is set under the operation lock before an allowed exit. New protected jobs and reads reject it.
-
-Shutting the clinic down is also available without quitting, from the panel's Stop control. The second question is a convenience on the way out, not the only route.
-
-These semantics are separate from macOS window hiding: hiding a window is not necessarily process shutdown.
+Shutting the clinic down without quitting is available from the panel's Stop control.
 
 ### In-window permission confirmations
 
@@ -462,7 +465,7 @@ uses rather than assuming one:
 | Plan action | Behavior |
 | --- | --- |
 | `""` | Docker answers; the action proceeds. |
-| `open` | Ask the operator for confirmation, then `OpenDocker()`, which launches the engine and waits up to eight minutes. If Rancher exits during startup, retry its launch once and fail early if it does not stay running. Declining returns the readiness message as the error. |
+| `open` | On macOS and Windows, CARE owns Rancher Desktop (it no longer starts at login), so it logs that it is starting Rancher and calls `OpenDocker()` without asking. On Linux, where this runs `systemctl start docker` with an administrator prompt, it asks first and declining returns the readiness message as the error. `OpenDocker()` launches the engine and waits up to eight minutes; if Rancher exits during startup, it retries the launch once and fails early if it does not stay running. |
 | anything else | Return the readiness message and point at the requirements check; the engine is missing, not merely stopped. |
 
 `stop` is excluded deliberately: reporting that an unreachable clinic is not
@@ -516,6 +519,8 @@ File selection is not restore authorization. Full validation and data replacemen
 | `RemoveApp()` | `void` | Waits for any running job, refuses while the computer is still set up, then quits and removes the app. |
 | `AutostartEnabled()` | `boolean` | Reads the platform's login-startup state. |
 | `SetAutostart(on)` | `void` | Sync. Changes the platform login-startup entry. |
+| `KeepAwakeEnabled()` | `boolean` | Reads `keep_awake` from `config.json`. |
+| `SetKeepAwake(on)` | `void` | Sync. Saves `keep_awake`, then rechecks the sleep hold in the background. See [keep awake](native-integrations.md#keep-awake-while-the-clinic-runs). |
 | `SetQuitDialogReady(ready)` | `QuitRequest` or `null` | Registers/unregisters the running-job quit UI and returns a pending snapshot. Unregistration invalidates its current request. |
 | `RespondToQuit(id, quit)` | `void` | Answers only the current running-job quit request; stale/replayed IDs reject. A positive answer requests application exit, not job rollback. |
 | `SetConfirmationDialogReady(ready)` | `ConfirmationRequest` or `null` | Registers/unregisters the permission UI and returns a pending snapshot. Unregistration declines any waiting request. |
@@ -557,7 +562,7 @@ read them next to what they were doing, keep them on screen, and copy them.
 emits `care-error` instead of an error box. What stays native is `askBeforeQuit`
 and the stop failure that follows it, because the window is already closing and
 there is nothing left to render into, and `ensureDockerReady`'s offer to start
-the container engine, which is asked from inside a job.
+the Docker service on Linux, which is asked from inside a job.
 
 Two consequences are worth keeping in mind when adding a prompt. A choice
 between more than two outcomes cannot be a single message box, because the
@@ -608,8 +613,8 @@ The legacy `pct` weights in that file order milestones; they are not percentages
 to display. Visible earlier/now/latest tags are omitted, while accessible
 current/completed stage descriptions remain.
 The amber long-running note is based on fifteen minutes without a new `care-log`
-line. Parallel build milestones use the builder's own phase lines rather than
-per-image output, which could otherwise advance while other builds still run.
+line. Build milestones use the builder's own phase lines rather than
+per-image output, which could otherwise advance while later builds still wait.
 
 Lines such as `$ care start` in the desktop log are action labels written by the state store. They do not imply that this repository ships a separate `care` command-line program.
 

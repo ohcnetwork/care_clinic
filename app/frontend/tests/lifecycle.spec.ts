@@ -184,6 +184,55 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
   });
 }
 
+for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) {
+  test(`closing offers background or quit and defaults to background at ${size.width}x${size.height}`, async ({ page }) => {
+    await page.setViewportSize(size);
+    await panel(page);
+    await page.evaluate(() => window.careTest.requestClose());
+    await expect(dialog(page)).toContainText("Close CARE Clinic?");
+    const background = dialog(page).getByRole("button", { name: "Keep running in background", exact: true });
+    await expect(background).toBeFocused();
+    await expect(dialog(page).getByRole("button", { name: "Stop clinic and quit", exact: true })).toBeVisible();
+    expect(await dialog(page).evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return bounds.left >= 0 && bounds.right <= innerWidth && bounds.top >= 0 &&
+        bounds.bottom <= innerHeight && element.scrollWidth <= element.clientWidth;
+    })).toBe(true);
+    await capture(page, `close-${size.width}x${size.height}`);
+    await page.keyboard.press("Enter");
+    await expect(dialog(page)).toBeHidden();
+    expect((await calls(page, "RespondToClose")).map((call) => call.args)).toEqual([[1, "background"]]);
+    expect(await calls(page, "RespondToQuit")).toHaveLength(0);
+  });
+}
+
+test("stopping the clinic to quit shows progress and blocks other answers", async ({ page }) => {
+  await panel(page);
+  await page.evaluate(() => window.careTest.requestClose());
+  await page.evaluate(() => window.careTest.hold("RespondToClose"));
+  await dialog(page).getByRole("button", { name: "Stop clinic and quit", exact: true }).click();
+  await expect(dialog(page)).toContainText("Stopping the clinic and Rancher Desktop");
+  await expect(dialog(page).getByRole("button", { name: "Keep running in background", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  expect((await calls(page, "RespondToClose")).map((call) => call.args)).toEqual([[1, "quit"]]);
+  await page.evaluate(() => window.careTest.release("RespondToClose"));
+  await expect(dialog(page)).toBeHidden();
+  expect(await page.evaluate(() => window.careTest.fixtures.closeChoice)).toBe("quit");
+});
+
+test("a failed stop keeps the close dialog open with a retryable choice", async ({ page }) => {
+  await panel(page);
+  await page.evaluate(() => window.careTest.requestClose());
+  await page.evaluate(() => window.careTest.failNext("RespondToClose", "private docker diagnostic"));
+  await dialog(page).getByRole("button", { name: "Stop clinic and quit", exact: true }).click();
+  await expect(dialog(page).getByRole("alert")).toContainText("couldn't be stopped");
+  await expect(dialog(page)).not.toContainText("private docker");
+  await expect(dialog(page)).not.toContainText("Stopping the clinic and Rancher Desktop");
+  await page.keyboard.press("Escape");
+  await expect(dialog(page)).toBeHidden();
+  expect((await calls(page, "RespondToClose")).map((call) => call.args)).toEqual([[1, "quit"], [1, "cancel"]]);
+});
+
 test("Escape cancels the close request without stopping the accepted job", async ({ page }) => {
   await panel(page);
   await backup(page);
@@ -214,7 +263,7 @@ test("quit response and recheck failures stay visible and retryable without raw 
   await quit(page);
   await page.evaluate(() => window.careTest.failNext("RespondToQuit", "private runtime diagnostic"));
   await dialog(page).getByRole("button", { name: "Quit anyway", exact: true }).click();
-  await expect(dialog(page).getByRole("alert")).toContainText("couldn't be completed");
+  await expect(dialog(page).getByRole("alert")).toContainText("The clinic couldn't be stopped, so CARE Clinic is still open.");
   await expect(dialog(page)).not.toContainText("private runtime");
   expect(await page.evaluate(() => window.careTest.fixtures.quitAccepted)).toBe(false);
   await page.evaluate(() => window.careTest.failNext("SetQuitDialogReady", "private request diagnostic"));
@@ -467,7 +516,8 @@ test("Desktop installer handoff guards mutations across the entire panel", async
     window.careTest.finishUpdate();
   });
   await expect(page.getByRole("button", { name: "Back up now", exact: true })).toBeDisabled();
-  await expect(page.getByRole("switch")).toBeDisabled();
+  await expect(page.getByRole("switch")).toHaveCount(2);
+  for (const control of await page.getByRole("switch").all()) await expect(control).toBeDisabled();
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await expect(page.getByRole("button", { name: "Back up now", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Change folder", exact: true })).toBeDisabled();

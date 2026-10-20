@@ -131,6 +131,11 @@ type CareStore = {
   autostartSaving: boolean;
   autostartError: string;
   recheckAutostart: () => Promise<boolean>;
+  keepAwake: boolean;
+  keepAwakeReady: boolean;
+  keepAwakeSaving: boolean;
+  keepAwakeError: string;
+  recheckKeepAwake: () => Promise<boolean>;
   storage: StorageReport | null;
   storageError: string;
   recheckStorage: () => Promise<void>;
@@ -139,6 +144,7 @@ type CareStore = {
   /** Resolves true when the native job is accepted; care-done reports completion. */
   runAction: (action: string, adminPassword?: string) => Promise<boolean>;
   setAutostart: (on: boolean) => Promise<void>;
+  setKeepAwake: (on: boolean) => Promise<void>;
   restore: (backup: Backup, recoveryFile: string, adminPassword: string) => Promise<void>;
   restoreFile: (path: string, recoveryFile: string, adminPassword: string) => Promise<void>;
   uninstall: (
@@ -184,6 +190,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const [autostartReady, setAutostartReady] = useState(false);
   const [autostartSaving, setAutostartSaving] = useState(false);
   const [autostartError, setAutostartError] = useState("");
+  const [keepAwake, setKeepAwakeState] = useState(false);
+  const [keepAwakeReady, setKeepAwakeReady] = useState(false);
+  const [keepAwakeSaving, setKeepAwakeSaving] = useState(false);
+  const [keepAwakeError, setKeepAwakeError] = useState("");
   const [trouble, setTrouble] = useState(false);
   const [careUpdate, setCareUpdate] = useState<CareUpdate | null>(null);
   const [updateChecks, setUpdateChecks] = useState<UpdateChecks | null>(null);
@@ -211,6 +221,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const refreshPendingRef = useRef(false);
   const refreshEpochRef = useRef(0);
   const autostartPendingRef = useRef(false);
+  const keepAwakePendingRef = useRef(false);
   const setupEndedRef = useRef(false);
   const setupFailureReceivedRef = useRef(false);
   const bootStartedRef = useRef(false);
@@ -530,6 +541,40 @@ export function CareProvider({ children }: { children: ReactNode }) {
     [log, syncAutostart],
   );
 
+  const syncKeepAwake = useCallback(async () => {
+    try {
+      setKeepAwakeState(await bridge.KeepAwakeEnabled());
+      setKeepAwakeReady(true);
+      setKeepAwakeError("");
+      return true;
+    } catch (e) {
+      log(`read keep-awake setting: ${errorText(e)}`);
+      setKeepAwakeReady(false);
+      setKeepAwakeError("The keep-awake setting couldn't be checked. Try again.");
+      return false;
+    }
+  }, [log]);
+
+  const setKeepAwake = useCallback(
+    async (on: boolean) => {
+      if (busyRef.current || keepAwakePendingRef.current) return;
+      keepAwakePendingRef.current = true;
+      setKeepAwakeSaving(true);
+      setKeepAwakeError("");
+      try {
+        await bridge.SetKeepAwake(on);
+        if (await syncKeepAwake()) toast(on ? "Keep awake on" : "Keep awake off");
+      } catch (e) {
+        log(`keep-awake error: ${errorText(e)}`);
+        setKeepAwakeError("The keep-awake setting couldn't be saved. Try again.");
+      } finally {
+        keepAwakePendingRef.current = false;
+        setKeepAwakeSaving(false);
+      }
+    },
+    [log, syncKeepAwake],
+  );
+
   const restore = useCallback(
     async (backup: Backup, recoveryFile: string, adminPassword: string) => {
       if (busyRef.current) throw new Error("something else is still running");
@@ -651,6 +696,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
     await reloadBackups();
     await refresh();
     await syncAutostart();
+    await syncKeepAwake();
     try {
       const health = await bridge.ClinicHealth();
       if ((!health.active || restorePending || pluginPending) && !busyRef.current) {
@@ -667,7 +713,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       log(`startup status: ${errorText(e)}`);
       setSystemDetail("CARE couldn't check whether the clinic is running. Check again or open the log file for support.");
     }
-  }, [log, refresh, reloadBackups, runAction, syncAutostart, setFlow]);
+  }, [log, refresh, reloadBackups, runAction, syncAutostart, syncKeepAwake, setFlow]);
 
   const openPanel = useCallback(() => {
     setFlow("panel");
@@ -1073,6 +1119,11 @@ export function CareProvider({ children }: { children: ReactNode }) {
       autostartSaving,
       autostartError,
       recheckAutostart: syncAutostart,
+      keepAwake,
+      keepAwakeReady,
+      keepAwakeSaving,
+      keepAwakeError,
+      recheckKeepAwake: syncKeepAwake,
       storage,
       storageError,
       recheckStorage,
@@ -1080,6 +1131,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       reloadBackups,
       runAction,
       setAutostart,
+      setKeepAwake,
       restore,
       restoreFile,
       uninstall,
@@ -1089,9 +1141,9 @@ export function CareProvider({ children }: { children: ReactNode }) {
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
       run, setupReset, startInstall, resumeInstall, retryInstall, restartSetup, openPanel,
       tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
-      updateChecks, reloadUpdateChecks, saveUpdateChecks, installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, storage, storageError, recheckStorage,
-      refresh, reloadBackups, syncAutostart,
-      runAction, setAutostart, restore, restoreFile, uninstall, log,
+      updateChecks, reloadUpdateChecks, saveUpdateChecks, installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, keepAwake, keepAwakeReady, keepAwakeSaving, keepAwakeError, storage, storageError, recheckStorage,
+      refresh, reloadBackups, syncAutostart, syncKeepAwake,
+      runAction, setAutostart, setKeepAwake, restore, restoreFile, uninstall, log,
     ],
   );
 

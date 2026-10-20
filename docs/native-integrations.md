@@ -48,6 +48,7 @@ This guide describes the current source rather than historical design boards.
 - [Disk space and storage monitoring](#disk-space-and-storage-monitoring)
 - [Health and port checks](#health-and-port-checks)
 - [Login startup and restart detection](#login-startup-and-restart-detection)
+- [Keep awake while the clinic runs](#keep-awake-while-the-clinic-runs)
 - [Error handling and ownership rules](#error-handling-and-ownership-rules)
 - [Source-file role inventory](#source-file-role-inventory)
 - [Verification boundaries and historical differences](#verification-boundaries-and-historical-differences)
@@ -113,6 +114,7 @@ environment, browser, or architecture is supported or has been integration-teste
 | Network repair | `netfix` reports not applicable; no repair. | Public profiles can become Private; three owned inbound rules cover HTTP, HTTPS, and mDNS on Private and Domain profiles. | `netfix` reports not applicable; no repair. |
 | Atomic replacement | Rename within the destination directory, then sync that directory. | `MoveFileEx` with replacement and write-through flags. | Same Unix replacement implementation as macOS. |
 | Login startup | Per-user LaunchAgent plist. | Per-user `HKCU` Run value. | Per-user `.desktop` autostart file under `~/.config`. |
+| Keep awake | `/usr/bin/caffeinate -i -s -w <pid>` child process. | `SetThreadExecutionState(ES_CONTINUOUS \| ES_SYSTEM_REQUIRED)` on a locked OS thread. | `systemd-inhibit --what=idle:sleep --mode=block` around `tail --pid=<pid>`. |
 | Restart detection/action | No pending-restart detection; `Now` returns an unsupported error. | Two registry-key probes; restart action schedules `shutdown /r` after five seconds. | No pending-restart detection; `Now` returns an unsupported error. |
 | Automated Docker setup | Download the pinned, architecture-selected Rancher Desktop DMG and verify its SHA-256. | Download the pinned Rancher Desktop MSI, verify its SHA-256, and run it. | Download Docker's pinned static engine and Compose plugin, verify their SHA-256, install them with a systemd unit, `groupadd`, and `usermod`. |
 | Automated Git setup | Launch Command Line Tools installer with `xcode-select --install`. | Download the pinned Git for Windows installer, verify its SHA-256, and run it silently. | Supported package manager, otherwise a manual plan. |
@@ -1612,9 +1614,16 @@ Rancher Desktop themselves rather than through CARE:
 | `application.adminAccess: true` | Rancher Desktop only forwards host ports below 1024 with administrative access. Without it Caddy cannot take 80/443, every container still reports healthy, and `health.Wait` times out with no obvious cause. |
 | `containerEngine.name: moby` | Supplies dockerd and the `docker` CLI the engine calls. The containerd/nerdctl engine would fail every Compose command. |
 | `kubernetes.enabled: false` | k3s would consume roughly 1.5GB of RAM the clinic never uses. |
-| `application.autoStart: true` | Rancher Desktop starts at login, so the clinic comes back after a reboot without anyone opening it. |
+| `application.autoStart: false` | Rancher Desktop does not start at login by itself; CARE Clinic starts it. On a server whose setup is done, the panel's automatic start (`ClinicAction("start")`) passes `ensureDockerReady`, which starts Rancher through `OpenDocker` without asking when Docker is not answering, then starts the clinic in the same job, so the two can never race for the operation lock. The engine watch keeps Rancher running after that. CARE turns on its own login item when setup finishes, so the clinic still comes back after a reboot; with **Start at login** off, it stays down until someone opens CARE Clinic. |
 | `application.startInBackground: true` | Rancher Desktop starts without its window; the operator only ever sees CARE Clinic. |
+| `application.updater.enabled: false` | Rancher Desktop does not update itself; an unattended upgrade could restart the engine under a running clinic or change behaviour CARE relies on. |
+| `application.hideNotificationIcon: true` | No tray or menu-bar icon. Rancher Desktop is reached only through CARE's **Open Rancher** action or by opening the app itself. |
+| `application.window.quitOnClose: false` | Closing Rancher Desktop's window, if someone opens it, leaves the engine and the clinic running. |
+| `application.telemetry.enabled: false` | Clinic machines send no usage statistics to Rancher. |
+| `application.extensions.allowed.enabled: true` with an empty `list` | Rancher Desktop extensions cannot be installed from its UI. `rdctl set` has no flag for this, so only the profile carries it and it reaches a first run only. |
+| `diagnostics.connectivity.interval: 0` | Turns off Rancher Desktop's internet check every 5 seconds, which only produces noise on offline clinic networks. |
 | `application.pathManagementStrategy: rcfiles` | Lets Rancher Desktop put `~/.rd/bin` on the shell PATH, matching what `AugmentedPath` already prepends. Ignored on Windows. |
+| `virtualMachine.memoryInGB: 3` (macOS only) | The running clinic needs about 1.2 GB. Builds need more, and that comes from the swapfile below rather than from RAM the Mac gives up for as long as Rancher runs. The launch-time `rdctl set` also passes `--virtual-machine.memory-in-gb=3`, so existing Macs move to 3 GB on their next launch (one VM restart). Windows sizes WSL through `.wslconfig`, so neither the registry profile nor the Windows settings carry it. |
 
 | Platform | Profile location |
 | --- | --- |
@@ -1631,6 +1640,34 @@ operator, no profile lands, and Rancher Desktop opens its welcome dialog and
 downloads Kubernetes. `rancherProfileWritten` reads the `version` value back
 first, so a start that already has the profile does not shell out to `reg` six
 more times.
+
+#### VM swap on macOS
+
+Rancher Desktop's VM has no swap of its own, and its root filesystem is a tmpfs
+held in RAM. The CARE frontend's Dockerfile lets Node's heap grow to 4 GB, so in
+a 3 GB VM a frontend build would be killed by the kernel the moment memory ran
+out. Every profile write on macOS therefore also writes Lima's
+`~/Library/Application Support/rancher-desktop/lima/_config/override.yaml` with
+one `system` provision script (`rancherSwapOverride`), which Lima runs at every
+VM boot:
+
+- It waits up to 30 seconds for the data disk at `/mnt/data`, and skips swap if
+  the disk never appears.
+- It creates the 4 GB `/mnt/data/care-clinic.swap` once, with `fallocate`,
+  `chmod 600` and `mkswap`, and turns it on with `swapon` unless
+  `/proc/swaps` already lists it.
+- It always exits 0. A VM without swap still runs the clinic, so the script
+  never fails a boot.
+
+An existing `override.yaml` is the operator's own Lima configuration and is left
+untouched, so such a VM gets no swap from CARE. The override only takes effect
+the next time the VM boots. A failure to write it is returned from
+`writeRancherProfile` after `applyRancherProfileNow` has still run, so callers
+log the usual preconfiguration warning.
+
+Unlike the memory setting, which `rdctl set` cannot change without restarting
+the VM and is therefore applied on first run only, the swap override also
+reaches installations that already exist.
 
 Defaults are applied on first run only. An operator's later preference changes
 are kept, and an administrator's managed profile in `/Library/Managed
@@ -1697,8 +1734,9 @@ each `OpenDocker`:
 | `/opt/rancher-desktop` | A root-owned copy of the bundle's `lima/socket_vmnet` tree. Rancher compares it file by file. |
 | `/private/etc/sudoers.d/zzzzz-rancher-desktop-lima` | Lets Rancher run `socket_vmnet` without a password. `rancherSudoers` reproduces Rancher Desktop 1.24's `sudoersFile` layout, with one bridged entry per interface from `system_profiler SPNetworkDataType`, and it is checked with `visudo -cf` before install. Rancher compares the text exactly, so if a later Rancher release changes the layout, Rancher asks for the password itself again and `TestRancherSudoersMatchesRancherLayout` is the place to update. A new network adapter also changes the text; CARE rewrites it on the next start. |
 | `/var/run/docker.sock` → `~/.rd/docker.sock` | macOS empties `/var/run` at every boot. Without the link Rancher asks for the password after each reboot. |
-| `/Library/LaunchDaemons/org.ohcnetwork.care-clinic.docker-socket.plist` | Recreates that link at boot, before Rancher starts at login. It is left in place on uninstall, since it serves Rancher Desktop rather than the clinic. |
-| Stale `/private/var/run/socket_vmnet.*` sockets and pidfiles | Deleted, not created. A socket left by a stopped daemon lets Lima dial it before the new daemon listens, and the VM fails with `connection refused`. Only files whose pidfile names no running process are removed; see [Stale Rancher network sockets](cleanup-and-uninstall.md#stale-rancher-network-sockets-macos). |
+| `/Library/LaunchDaemons/org.ohcnetwork.care-clinic.docker-socket.plist` | Recreates that link at boot, before CARE Clinic starts Rancher at login. It is left in place on uninstall, since it serves Rancher Desktop rather than the clinic. |
+| `/private/etc/sudoers.d/care-clinic-vmnet` | Lets CARE delete the socket_vmnet files a stopped Rancher leaves behind without a password, so reopening Rancher after it quits does not ask again. `careVMNetCleanupSudoers` writes one `NOPASSWD` `/bin/rm -f <socket> <pidfile>` rule per daemon name (`host`, `rancher-desktop-shared`, and `rancher-desktop-bridged_<interface>` for each interface Rancher's file lists), with exact paths and no wildcards; interface names outside `[A-Za-z0-9_.-]` are skipped. It is a separate file because Rancher compares its own sudoers file's text exactly. It is checked with `visudo -cf`, installed `0644 root:wheel` like Rancher's own file, and rewritten when the interface list changes. It must stay world-readable: CARE reads it without root to decide whether it needs rewriting, and an unreadable file looks different every time, so CARE would ask for the password on every start. |
+| Stale `/private/var/run/socket_vmnet.*` sockets and pidfiles | Deleted, not created. A socket left by a stopped daemon lets Lima dial it before the new daemon listens, and the VM fails with `connection refused`. Only files whose pidfile names no running process are removed. `ensureRancherRoot` first removes them with `sudo -n` through the rule above; anything that is still left is removed inside the administrator prompt. See [Stale Rancher network sockets](cleanup-and-uninstall.md#stale-rancher-network-sockets-macos). |
 
 **Linux Docker**
 
@@ -2016,6 +2054,39 @@ window rather than start another independent backend. The bridge's
 set from that second launch. Detailed window/start behavior belongs to
 [The Wails application](wails-application.md).
 
+## Keep awake while the clinic runs
+
+Sources: [keepawake](../app/internal/sys/keepawake), [app_keep_awake.go](../app/app_keep_awake.go).
+
+The Overview switch **Keep this computer awake while the clinic runs** saves
+`keep_awake` in `config.json`. It is off by default and needs no admin
+password, like the login-startup switch.
+
+`watchKeepAwake` starts with the other startup watchers and checks every 30
+seconds; `SetKeepAwake` also checks once right after saving. The computer is
+held awake only when all of these are true:
+
+- `keep_awake` is on;
+- this is a server whose setup is done and which is not being removed;
+- a job such as a start, update or backup is running, or `https://localhost/ping/` answers healthy.
+
+When any of them stops being true, the hold is released and the computer can
+sleep again. A stopped clinic therefore never keeps the computer awake. A hold
+whose helper process has exited is noticed on the next check and taken again.
+Holding and releasing are logged once per change; a failure to hold is logged
+once until a hold succeeds.
+
+| Platform | Mechanism | What it blocks |
+| --- | --- | --- |
+| macOS | `caffeinate -i -s -w <pid>`. `-w` ends it when CARE Clinic exits, even after a crash. | Idle sleep always; system sleep only on AC power. Closing a laptop lid on battery still sleeps. |
+| Windows | `SetThreadExecutionState` with `ES_CONTINUOUS \| ES_SYSTEM_REQUIRED`, held by a goroutine locked to its OS thread; releasing resets it to `ES_CONTINUOUS`. Windows drops it when the process exits. | Idle sleep. The display may still turn off, and the user can still choose Sleep or close the lid. |
+| Linux | `systemd-inhibit --what=idle:sleep --mode=block` running `tail --pid=<pid> -f /dev/null`, so it ends with CARE Clinic. Without `systemd-inhibit` the hold fails and is logged. | Idle and requested sleep through logind. |
+
+The hold lives only as long as the CARE Clinic process. Closing the window
+with **Keep running in the background** keeps the process, so the hold stays.
+Quitting stops the clinic first; shutdown then releases the hold and stops later
+checks from taking it again.
+
 ### reboot: detect a pending Windows restart, not its exact cause
 
 Source: [reboot.go](../app/internal/sys/reboot/reboot.go).
@@ -2137,6 +2208,7 @@ For the rest of the repository, use [Repository map](repository-map.md).
 | [sys/netfix/netfix.go](../app/internal/sys/netfix/netfix.go) | Windows profile/rule readiness, scoped repair, verified prefix-owned removal, and non-Windows no-op entry points. |
 | [sys/netfix/netfix_test.go](../app/internal/sys/netfix/netfix_test.go) | Profile/rule validation, malformed/failed reads, repair-script scope, residue counts, and verified removal via string assertions and POSIX command fixtures. |
 | [sys/autostart/autostart.go](../app/internal/sys/autostart/autostart.go) | Per-user login registration presence and writes/removal for plist, registry Run value, and desktop entry. |
+| [sys/keepawake](../app/internal/sys/keepawake) | Per-platform sleep hold that ends with the process: `caffeinate`, `SetThreadExecutionState`, or `systemd-inhibit`. |
 | [sys/reboot/reboot.go](../app/internal/sys/reboot/reboot.go) | Windows pending-restart key probes, explanatory plan, and delayed restart command. |
 
 ### Readiness and clinic-side integration

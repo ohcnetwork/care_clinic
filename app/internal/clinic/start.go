@@ -21,7 +21,7 @@ func (e *Clinic) Start() error {
 	if err := e.applyStagedUpdate(); err != nil {
 		return err
 	}
-	if err := e.Builder().Parallel(compose.EnsureBackend, compose.EnsureFrontend,
+	if err := e.Builder().Sequence(compose.EnsureBackend, compose.EnsureFrontend,
 		compose.EnsureBackup, compose.EnsureCaddy); err != nil {
 		return err
 	}

@@ -33,8 +33,10 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
   const action = usePanelTask();
   const address = usePanelTask();
   const autostart = usePanelTask();
+  const keepAwake = usePanelTask();
   const status = panelStatus(care);
   const startupError = care.autostartError;
+  const keepAwakeError = care.keepAwakeError;
   const locked = care.busy || requirements.working || action.working;
   const mutationLocked = locked || updateLock.active;
   const run = (name: string) => {
@@ -97,14 +99,28 @@ export function OverviewTab({ onDiagnose }: { onDiagnose: () => void }) {
               }} />
             <span>Start when this computer starts</span>
           </label>
+          <label className="panel-autostart">
+            <Switch checked={care.keepAwake} disabled={mutationLocked || keepAwake.working || !care.keepAwakeReady || care.keepAwakeSaving}
+              aria-label="Keep this computer awake while the clinic runs"
+              onCheckedChange={(on) => {
+                if (locked || updateLock.isActive() || keepAwake.working || !care.keepAwakeReady || care.keepAwakeSaving) return;
+                void keepAwake.run(() => care.setKeepAwake(on),
+                  "Couldn't save the keep-awake preference. Try again, or open the log file for support.");
+              }} />
+            <span>Keep this computer awake while the clinic runs</span>
+          </label>
         </>}
       </div>
-      {action.error || autostart.error || startupError ? <div className="panel-hero-error">
-        <p className="panel-inline-error" role="alert">{action.error || autostart.error || startupError}</p>
+      {action.error || autostart.error || keepAwake.error || startupError || keepAwakeError ? <div className="panel-hero-error">
+        <p className="panel-inline-error" role="alert">{action.error || autostart.error || keepAwake.error || startupError || keepAwakeError}</p>
         <div className="panel-actions">
           {startupError ? <Button disabled={locked || autostart.working} onClick={() => void autostart.run(care.recheckAutostart,
             "Couldn't check the start preference. Try again, or open the log file for support.")}>
             Check start preference
+          </Button> : null}
+          {keepAwakeError ? <Button disabled={locked || keepAwake.working} onClick={() => void keepAwake.run(care.recheckKeepAwake,
+            "Couldn't check the keep-awake preference. Try again, or open the log file for support.")}>
+            Check keep-awake preference
           </Button> : null}
           <PanelLogButton />
         </div>

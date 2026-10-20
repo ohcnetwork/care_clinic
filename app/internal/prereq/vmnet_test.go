@@ -84,10 +84,29 @@ func TestVMNetCleanupIsEmptyWithoutLeftovers(t *testing.T) {
 	if files := staleVMNetFiles(dir, onlyAlive()); len(files) != 0 {
 		t.Errorf("expected nothing, got %v", files)
 	}
+	if cmds := staleVMNetSudoCmds(dir, onlyAlive()); len(cmds) != 0 {
+		t.Errorf("expected no sudo cleanup, got %v", cmds)
+	}
 	if cmds := rancherVMNetRemoveCmds(dir, onlyAlive()); len(cmds) != 0 {
 		t.Errorf("expected nothing, got %v", cmds)
 	}
 	if files := staleVMNetFiles(filepath.Join(dir, "missing"), onlyAlive()); len(files) != 0 {
 		t.Errorf("expected nothing for a missing dir, got %v", files)
+	}
+}
+
+func TestStaleVMNetSudoCmdsRemoveOnlyStoppedDaemons(t *testing.T) {
+	dir := writeVMNetFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "socket_vmnet.rancher-desktop-bad name"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := staleVMNetSudoCmds(dir, onlyAlive(200, 300))
+	var want [][]string
+	for _, name := range []string{"host", "rancher-desktop-bridged_en5", "rancher-desktop-shared"} {
+		want = append(want, []string{"-n", "/bin/rm", "-f",
+			filepath.Join(dir, "socket_vmnet."+name), filepath.Join(dir, name+"_socket_vmnet.pid")})
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v\nwant %v", got, want)
 	}
 }

@@ -151,6 +151,7 @@ func TestPoisonedLockIsIgnoredRatherThanTrusted(t *testing.T) {
 }
 
 func TestDroppedStagedBuildIsOfferedAgain(t *testing.T) {
+	dockerFixture(t)
 	b := builderFixture(t)
 	sha := "1111111111111111111111111111111111111111"
 	if err := WriteLock(b.dir, Lock{Backend: Channel{Ref: "develop", Next: sha, Declined: sha}}); err != nil {

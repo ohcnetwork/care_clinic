@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strings"
 
@@ -284,7 +285,9 @@ func (a *App) ensureDockerReady() error {
 	if plan.Action != prereq.ActionOpen {
 		return fmt.Errorf("%s CARE needs it to run the clinic; set it up from the requirements check", status.Message)
 	}
-	if !a.confirmDialog(plan.Label+"?", status.Message+"\n\nCARE needs it to run the clinic. "+
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		a.logln("Rancher Desktop isn't running; starting it with CARE Clinic...")
+	} else if !a.confirmDialog(plan.Label+"?", status.Message+"\n\nCARE needs it to run the clinic. "+
 		"Start it now and wait for it to be ready?") {
 		return errors.New(status.Message)
 	}

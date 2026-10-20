@@ -200,7 +200,7 @@ and [earlier-installation recovery](client-recovery.md).
 
 | Tab | What to use it for |
 | --- | --- |
-| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary and actionable problems. |
+| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, keep awake while running, phone/tablet connection, backup summary and actionable problems. |
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
 | Home access | Tailscale setup, turning home access on or off and doctor sharing. |
@@ -298,20 +298,20 @@ another restore.
 
 ### Advanced's 15-minute unlock
 
-Clinic settings are grouped into **Clinic details**, **Patients and visits**,
-**Billing**, **Backups** and **Staff access**. **Save changes** applies the
-selected preferences and may briefly interrupt staff using CARE. Less-used
-options keep their defaults or previously saved values. Only open
+Clinic settings live in a single **Clinic settings** panel with sections for
+**Clinic details**, **Patients and visits**, **Billing**, **Backups**,
+**Staff access** and **Extra settings (for support)**. Less-used options keep
+their defaults or previously saved values. Only change
 **Extra settings (for support)** when your CARE support person asks you to;
 its values override the defaults. Email, SMS and MFA settings remain excluded.
 
-Click a category to expand its settings inline; click it again to collapse it,
-or choose another category to switch. The Advanced header, other categories,
-password/recovery tools, backup recovery key, log and removal controls stay on
-the same page.
-Collapsing or switching with unsaved edits asks whether to keep editing or
-discard them; navigation never saves settings. Each expanded category contains
-its own save/discard controls and apply status.
+Click **Clinic settings** to expand every section at once; while collapsed only
+its heading shows. Edits in any number of sections share
+one sticky **Save changes** / **Discard** footer, so several settings are saved
+together and applied with a single restart or frontend rebuild. Collapsing with
+unsaved edits asks whether to keep editing or discard them; collapsing never
+saves settings. The password/recovery tools, backup recovery key, log and
+removal controls stay on the same page.
 
 Advanced locks **15 minutes after a successful unlock**, even while the user is
 active. It is not an inactivity timeout. Leaving the tab or using **Lock** locks
@@ -348,9 +348,12 @@ acknowledgement; repeat the interrupted action explicitly.
 ## Closing and removing CARE
 
 Closing during a native job asks whether to quit or **Keep waiting**; it never
-means the job succeeded. Already launched installers and processes are not
-automatically stopped. Closing an idle desktop and stopping the clinic are
-separate choices; macOS can also hide the window without exiting the process.
+means the job succeeded. Quitting still stops the clinic (`docker compose down`)
+and Rancher Desktop first; already launched installers and processes are not
+cancelled. Closing an idle server, by the close button or the quit
+command, asks once: **Keep running in background** (hide on macOS, minimise on
+Windows) or **Stop clinic and quit**, which stops the clinic and Rancher Desktop
+before exiting.
 
 Server removal belongs in Advanced and requires the CARE Clinic password and
 explicit deletion choices. Completion is acknowledged only after both native

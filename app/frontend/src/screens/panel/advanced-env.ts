@@ -1,7 +1,7 @@
 import { quote, type EnvChange, type EnvLine } from "@/lib/env-file";
 import type { Section } from "@/types";
 import { splitList } from "./env-controls";
-import { SETTING_BY_KEY, type Group, type Setting } from "./env-schema";
+import type { Setting } from "./env-schema";
 
 export type EnvDraft = Record<string, string | undefined>;
 
@@ -91,7 +91,7 @@ export function validateExtraSetting(key: string, value: string): string | null 
   if (/[\r\n\0]/.test(value)) return "Keep this value on one line.";
   if (key === "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG") {
     const uuid = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
-    if (!uuid.test(value)) return "Enter a valid geographic area ID, or remove this setting to leave the default area unset.";
+    if (!uuid.test(value)) return "Enter a valid location ID from CARE, or leave it blank for no default location.";
   }
   return null;
 }
@@ -118,37 +118,6 @@ export function validateSetting(setting: Setting, value: string | undefined): st
       return chosen.every((entry) => setting.options.some((option) => option.value === entry)) ? null : "Remove any unlisted options before saving this setting.";
     }
     default:
-      return null;
-  }
-}
-
-export function groupSummary(group: Group, draft: EnvDraft): string {
-  const value = (key: string) => {
-    const setting = SETTING_BY_KEY.get(key)!;
-    return effectiveSetting(setting, draft[key]);
-  };
-  const choice = (key: string) => {
-    const setting = SETTING_BY_KEY.get(key)!;
-    if (setting.kind !== "radio" && setting.kind !== "select") return "";
-    if (setting.kind === "select" && setting.none && value(key) === "") return setting.none;
-    return setting.options.find((option) => option.value === value(key))?.label ?? "Check current settings";
-  };
-  switch (group.id) {
-    case "backups": {
-      const days = Number(value("DB_BACKUP_RETENTION_PERIOD"));
-      return !Number.isSafeInteger(days) || days < 0 ? "Check backup retention" : days === 0 ? "Keep backups forever" : `Keep backups for ${days} ${days === 1 ? "day" : "days"}`;
-    }
-    case "signin":
-      return `Sign out after ${value("JWT_REFRESH_TOKEN_LIFETIME")} minutes without activity`;
-    case "branding": {
-      const languages = splitList(value("REACT_ALLOWED_LOCALES")).length;
-      return `${value("REACT_APP_TITLE") || "CARE"} · ${languages} ${languages === 1 ? "language" : "languages"}`;
-    }
-    case "visits":
-      return `${choice("REACT_DEFAULT_ENCOUNTER_TYPE")} · ${value("REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION") === "true" ? "Short" : "Standard"} registration form`;
-    case "billing":
-      return `${choice("REACT_DEFAULT_PAYMENT_METHOD")} · ${value("REACT_INVENTORY_DEFAULT_TAX_INCLUSIVE") === "true" ? "Prices include tax" : "Tax added separately"}`;
-    default:
-      return group.summary;
+      return current && setting.key === "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG" ? validateExtraSetting(setting.key, current) : null;
   }
 }

@@ -29,6 +29,7 @@ func (a *App) startup(ctx context.Context) {
 	// Before the role check: a first-run setup records the server role later in
 	// this same process. engineBroken stays inert until setup is done.
 	go a.watchEngine()
+	go a.watchKeepAwake()
 	if a.loadConfig().Role != roleServer {
 		return
 	}
@@ -142,6 +143,7 @@ func (a *App) shutdown(context.Context) {
 	if a.advStop != nil {
 		close(a.advStop)
 	}
+	a.stopKeepAwake()
 	a.advMu.Lock()
 	if a.adv != nil {
 		a.adv.Stop()
@@ -153,19 +155,9 @@ func (a *App) shutdown(context.Context) {
 const (
 	singleInstanceID = "ohc.care-clinic"
 
-	quitPromptTimeout = 30 * time.Second
-
 	stopDeadline = 90 * time.Second
 
 	jobPrereq = "prereq"
-)
-
-type quitChoice int
-
-const (
-	quitLeaveClinicRunning quitChoice = iota
-	quitStayOpen
-	quitStopClinic
 )
 
 func (a *App) onSecondInstance(options.SecondInstanceData) {
@@ -188,31 +180,55 @@ func (a *App) beforeClose(context.Context) (prevent bool) {
 	if a.closing {
 		return false
 	}
-	if a.osUninstall || a.loadConfig().Role != roleServer {
+	if a.osUninstall || !a.offersBackground() {
 		a.closing = true
 		return false
 	}
-	answer := make(chan quitChoice, 1)
-	go func() { answer <- a.askBeforeQuit() }()
+	a.askHowToClose()
+	return true
+}
 
-	select {
-	case sel := <-answer:
-		switch sel {
-		case quitStayOpen:
-			return true
-		case quitStopClinic:
-			if err := a.stopForQuit(); err != nil {
-				a.logln("error: " + err.Error())
-				a.alertDialog(failureTitle("stop"), err.Error())
-				return true
-			}
-		}
-		a.closing = true
-		return false
-	case <-time.After(quitPromptTimeout):
-		a.closing = true
-		return false
+func (a *App) offersBackground() bool {
+	cfg := a.loadConfig()
+	return cfg.Role == roleServer && cfg.SetupDone && !cfg.Removing
+}
+
+func (a *App) askHowToClose() {
+	if a.ctx == nil || !a.busyShown.CompareAndSwap(false, true) {
+		return
 	}
+	go func() {
+		a.bringToFront()
+		if request, ready := a.queueCloseDialog(); ready {
+			a.emit("quit-requested", request)
+			return
+		}
+		defer a.busyShown.Store(false)
+		prompt := closePrompt(a.loadConfig().MDNSName)
+		quit, err := a.askToProceed(prompt.title, prompt.message+
+			"\n\nStop the clinic and quit? Choose No to keep it running in the background.", "Quit")
+		if err != nil {
+			return
+		}
+		if !quit {
+			a.sendToBackground()
+			return
+		}
+		if err := a.shutDownForQuit(); err != nil {
+			a.logln("error: " + err.Error())
+			a.alertDialog(failureTitle("stop"), err.Error())
+			return
+		}
+		a.quitConfirmed.Store(true)
+		wruntime.Quit(a.ctx)
+	}()
+}
+
+func closePrompt(name string) quitPrompt {
+	return quitPrompt{"closing", "Close CARE Clinic?",
+		"Keep it running in the background so other devices on the clinic's WiFi can keep using " +
+			name + ", or quit to stop the clinic and Rancher Desktop on this computer. " +
+			"Nobody can use the clinic after quitting until CARE Clinic is opened again."}
 }
 
 func (a *App) runningJob() string {
@@ -236,6 +252,11 @@ func (a *App) askToQuitDuringJob(label string) {
 			return
 		}
 		a.logln("Quitting while " + prompt.doing + " was still running.")
+		if err := a.stopEverythingForQuit(); err != nil {
+			a.logln("error: " + err.Error())
+			a.alertDialog(failureTitle("stop"), err.Error())
+			return
+		}
 		a.quitConfirmed.Store(true)
 		wruntime.Quit(a.ctx)
 	}()
@@ -247,7 +268,7 @@ type quitPrompt struct {
 	message string
 }
 
-const leftRunning = "Commands that already started may keep running in the background for a few minutes."
+const leftRunning = "Quitting stops the clinic and Rancher Desktop first. Commands that already started may keep running in the background for a few minutes."
 
 func jobQuitPrompt(label string) quitPrompt {
 	switch label {
@@ -301,29 +322,6 @@ func jobQuitPrompt(label string) quitPrompt {
 		"CARE Clinic is in the middle of an operation (see the log). It stops where it is.\n\n" + leftRunning}
 }
 
-func (a *App) askBeforeQuit() quitChoice {
-	if !a.clinicRunning() {
-		return quitLeaveClinicRunning
-	}
-	name := a.loadConfig().MDNSName
-	quit, err := a.askToProceed("Quit CARE Clinic?",
-		"The clinic keeps running, but "+name+" will stop working for other devices "+
-			"on the clinic's WiFi until this app is open again.\n\nQuit anyway?", "Yes")
-	if err != nil {
-		return quitLeaveClinicRunning
-	}
-	if !quit {
-		return quitStayOpen
-	}
-	stop, err := a.askToProceed("Shut the clinic down as well?",
-		"Shutting down stops the clinic on this computer completely, so nobody can "+
-			"use it until it is started again.\n\nChoose No to leave it running.", "Yes")
-	if err != nil || !stop {
-		return quitLeaveClinicRunning
-	}
-	return quitStopClinic
-}
-
 func (a *App) clinicRunning() bool {
 	cfg := a.loadConfig()
 	if cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing {
@@ -344,6 +342,17 @@ func (a *App) clinicRunning() bool {
 	return false
 }
 
+func (a *App) clinicNeedsStopping() bool {
+	cfg := a.loadConfig()
+	if cfg.Role != roleServer || cfg.Removing {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(a.installDir(), "docker-compose.yml")); err != nil {
+		return false
+	}
+	return prereq.DockerCheck(a.engine().Runner()).OK
+}
+
 func (a *App) stopForQuit() error {
 	if err := a.requireServer(); err != nil {
 		return err
@@ -351,7 +360,7 @@ func (a *App) stopForQuit() error {
 	ctx, cancel := context.WithTimeout(context.Background(), stopDeadline)
 	defer cancel()
 	run := a.engine().Runner()
-	cmd := proc.CommandContext(ctx, "docker", "compose", "stop")
+	cmd := proc.CommandContext(ctx, "docker", "compose", "down")
 	cmd.Dir, cmd.Env = run.Dir, run.Env
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("Docker did not finish stopping; CARE Clinic was kept open: %w: %s", err, strings.TrimSpace(string(out)))

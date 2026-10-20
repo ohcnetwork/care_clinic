@@ -21,7 +21,7 @@ Staff browsers download a frontend plugin's bundle straight from its `url`. If t
 
 ## The catalog: `catalog.yml`
 
-[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. The catalog currently contains CARE Onboarding and [Files on every address](https://github.com/ohcnetwork/care_multihost_files_be) (`care_multihost_files_be`, which makes file links follow the address a request came in on; see [Home access](home-access.md)). Both are enabled by default for new clinic installations only. It also offers [Filly](https://github.com/ohcnetwork/care_filly) (`care_filly`), which is not a default; see [Filly](#filly). Custom plugins and previously saved plugins remain supported.
+[`app/internal/plugins/catalog.yml`](../app/internal/plugins/catalog.yml) lists the plugins offered in the **Add a plugin** menu. It is embedded into the binary with `go:embed`, so changing it requires a new CARE Clinic release. The catalog currently contains CARE Onboarding and [Files on every address](https://github.com/ohcnetwork/care_multihost_files_be) (`care_multihost_files_be`, which makes file links follow the address a request came in on; see [Home access](home-access.md)). Both are enabled by default for new clinic installations only. It also offers [Filly](https://github.com/ohcnetwork/care_filly) (`care_filly`) and Faster appointments (`care_fasterappointments_fe`), which are not defaults; see [Filly](#filly) and [Faster appointments](#faster-appointments). Custom plugins and previously saved plugins remain supported.
 
 ### Structure
 
@@ -109,6 +109,21 @@ As a result:
 | `MEDISPEAK_BASE_URL` | The Medispeak v2 API root. |
 
 The CARE server needs internet access to reach Medispeak. Filly's database tables are created by the `manage.py migrate --noinput` that runs after every plugin apply, so no separate `migrate care_filly` step is needed. Its frontend, `care_filly_fe`, is not in this catalog: enable it from CARE's own plugin marketplace after the backend is applied.
+
+### Faster appointments
+
+Faster appointments (`care_fasterappointments_fe`) speeds up front-desk booking. The catalog entry is frontend only and loads its remote from `https://care-faster-appointments.pages.dev/assets/remoteEntry.js`, so staff browsers need internet access. The plugin reads its settings from `meta.config`; settings placed directly under `meta` are ignored.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `auto_create_invoice` | `true` | Create the invoice as soon as the appointment is booked. |
+| `collect_payment_on_appointment_page` | `true` | Offer payment collection on the appointment page. |
+| `print_invoice_on_appointment_page` | `true` | Offer invoice printing on the appointment page. |
+| `redirect_to_invoice` | `false` | Open the invoice instead of collecting payment on the appointment page. |
+| `mark_balanced_on_full_payment` | `true` | Mark an invoice as balanced once a recorded payment covers it in full. |
+| `payment_methods` | `cash`, `ddpo` | Payment methods offered when collecting payment. |
+
+It overrides three CARE components. `PaymentReconciliationSheet` is registered in CARE's source and always overridable. `AppointmentDetail` and `ScheduleResourceSelector` take effect only when the CARE frontend is built with them in `REACT_MFE_REGISTERED_COMPONENTS`, which the bundled frontend environment does not set. Do not add `PaymentReconciliationSheet` to that list: the build-time scanner does not count a `register()` call as a component, and the CARE frontend build fails on an unknown name.
 
 ## Desktop components
 
@@ -282,7 +297,7 @@ This read-only check is not an end-to-end failing-plugin rollback test. For
 that test, use a disposable or backed-up clinic, stop competing Desktop
 processes, then use **Save and apply** with a known-bad plugin configuration.
 
-`Start` and `RebuildBackend` also sync after migrations. There a failure is only logged as a warning, because a missing plugin screen is less harmful than a clinic that will not start. Syncing on every start also repairs rows after a database restore or a hand edit in CARE's admin.
+`Start`, and so every rebuild, also syncs after migrations. There a failure is only logged as a warning, because a missing plugin screen is less harmful than a clinic that will not start. Syncing on every start also repairs rows after a database restore or a hand edit in CARE's admin.
 
 ## The panel
 

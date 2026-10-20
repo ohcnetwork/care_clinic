@@ -3,6 +3,7 @@ package prereq
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -155,4 +156,19 @@ func distroListed(out []byte, name string) bool {
 		}
 	}
 	return false
+}
+
+func ShutdownRancher(ctx context.Context) error {
+	rdctl := rdctlPath()
+	if rdctl == "" {
+		return nil
+	}
+	cmd := proc.CommandContext(ctx, rdctl, "shutdown")
+	if home, err := os.UserHomeDir(); err == nil {
+		cmd.Dir = home
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }

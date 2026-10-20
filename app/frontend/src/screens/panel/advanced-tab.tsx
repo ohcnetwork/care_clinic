@@ -34,7 +34,7 @@ function AdvancedContent() {
   const active = flow === "panel" && tab === "advanced";
   const [adminPassword, setAdminPassword] = useState<string | null>(null);
   const [unlockedAt, setUnlockedAt] = useState(0);
-  const [groupId, setGroupId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [working, setWorking] = useState(false);
   const [expired, setExpired] = useState(false);
   const [pendingSettings, setPendingSettings] = useState<Section[]>([]);
@@ -44,17 +44,17 @@ function AdvancedContent() {
     setAdminPassword(password);
     setUnlockedAt(Date.now());
     setExpired(false);
-    setGroupId(null);
+    setSettingsOpen(false);
   };
   const lock = () => {
     setAdminPassword(null);
-    setGroupId(null);
+    setSettingsOpen(false);
     setWorking(false);
   };
   useEffect(() => {
     if (active) return;
     setAdminPassword(null);
-    setGroupId(null);
+    setSettingsOpen(false);
     setWorking(false);
     setExpired(false);
   }, [active]);
@@ -62,7 +62,7 @@ function AdvancedContent() {
     if (!adminPassword || !active) return;
     const timer = window.setTimeout(() => {
       setAdminPassword(null);
-      setGroupId(null);
+      setSettingsOpen(false);
       setWorking(false);
       setExpired(true);
     }, Math.max(0, unlockedAt + UNLOCK_MS - Date.now()));
@@ -97,7 +97,7 @@ function AdvancedContent() {
       <WebPasswordReset adminPassword={adminPassword} />
       <ExportBackupRecovery adminPassword={adminPassword} />
       <UpdateCheckSettings adminPassword={adminPassword} />
-      <EnvEditor adminPassword={adminPassword} groupId={groupId} onGroupChange={setGroupId} onWorkingChange={setWorking}
+      <EnvEditor adminPassword={adminPassword} expanded={settingsOpen} onExpandedChange={setSettingsOpen} onWorkingChange={setWorking}
         pendingFiles={pendingSettings} onPendingFilesChange={setPendingSettings} onApplicationAccepted={() => setApplyingSettings(true)} />
       <>
         <LogRow />

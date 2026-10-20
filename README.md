@@ -71,7 +71,7 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   backup-now and one explicit **Restore from a backup file** path for local or
   imported files. Restoring requires the CARE Clinic admin password, a recovery file
   for encrypted backups, and acknowledgement that clinic records will be replaced.
-- **Advanced** — ten everyday choices grouped into Clinic details, Patients and
+- **Advanced** — ten everyday choices in one Clinic settings panel with sections for Clinic details, Patients and
   visits, Billing, Backups and Staff access, plus CARE Clinic password recovery,
   log, rebuild and uninstall. Less-used local options keep their defaults or saved
   values and can be overridden in **Extra settings (for support)**.

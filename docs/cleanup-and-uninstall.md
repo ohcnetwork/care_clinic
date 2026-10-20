@@ -131,9 +131,10 @@ steps and does not fail the uninstall.
 - **Both platforms:** `rdctl shutdown` and `rdctl factory-reset` clear the VM,
   Rancher's settings and its Docker context.
 - **macOS:** removes the profile written by `profile.go`
-  (`io.rancherdesktop.profile.defaults`), Rancher's Library folders, `~/.rd`, and
+  (`io.rancherdesktop.profile.defaults`), Rancher's Library folders (including the Lima swap `override.yaml`; the swapfile itself lives on the VM disk that `factory-reset` removes), `~/.rd`, and
   the `MANAGED BY RANCHER DESKTOP` blocks in shell rc files. Then one administrator
-  prompt removes the app, `/opt/rancher-desktop`, the sudoers files, the
+  prompt removes the app, `/opt/rancher-desktop`, the sudoers files (Rancher's and
+  `care-clinic-vmnet`), the
   docker-socket LaunchDaemon, and the `/var/run/docker.sock` link, but only if
   that link points at `~/.rd`. The same prompt stops any socket_vmnet daemon
   still running for Rancher and deletes its socket and pidfile (see below).
@@ -160,11 +161,17 @@ connect: connection refused` even though the daemon comes up moments later.
 [`prereq/vmnet.go`](../app/internal/prereq/vmnet.go) finds these files and treats
 a daemon as live when its pidfile names a running process. Two paths use it:
 
-- **Before Rancher starts:** `rancherRootSetup` deletes every stale file (no live
-  process) inside its existing administrator prompt, both when the wizard
-  installs Rancher and in `ensureRancherRoot` before each `OpenDocker`. Live
-  daemons are never touched, so a running Rancher VM is unaffected, and a clean
-  machine adds no command and no prompt.
+- **Before Rancher starts:** `ensureRancherRoot` runs before each `OpenDocker`.
+  It first deletes each stopped daemon's socket and pidfile with
+  `sudo -n /bin/rm -f <socket> <pidfile>`, which
+  `/private/etc/sudoers.d/care-clinic-vmnet` allows without a password for
+  exact paths only. Quitting Rancher and opening it again from CARE therefore
+  asks for no password. Failures are ignored, for example before that file is
+  installed or for a daemon name it does not cover. `rancherRootSetup` then
+  deletes whatever is still stale inside its existing administrator prompt,
+  both when the wizard installs Rancher and as the fallback here. Live daemons
+  are never touched, so a running Rancher VM is unaffected, and a clean machine
+  adds no command and no prompt.
 - **Removing Rancher Desktop:** stops every live daemon with
   `pkill -F <pidfile> socket_vmnet` (the name guard avoids killing a process that
   reused the PID) and deletes all of the files in its existing administrator prompt.

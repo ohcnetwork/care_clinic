@@ -118,6 +118,7 @@ See [client removal](native-integrations.md#removing-client-access).
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
 | `app_update_checks_off` / `care_update_checks_off` | `AppUpdateChecksOff` / `CareUpdateChecksOff` | Set from Advanced with the admin password to stop CARE Clinic app or CARE software update checks. Omitted when false; missing means checks are on. See [Turning update checks off](#turning-update-checks-off). |
+| `keep_awake` | `KeepAwake` | Set from the Overview switch **Keep this computer awake while the clinic runs**. Omitted when false; missing means off. See [keep awake](native-integrations.md#keep-awake-while-the-clinic-runs). |
 
 The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login. To change a CARE web password, use **Reset a CARE web password** in Advanced; see [Resetting a CARE web password](backups-and-restore.md#resetting-a-care-web-password).
 
@@ -210,11 +211,11 @@ The startup refresh is skipped for incomplete setup, incomplete removal, and pen
 
 [`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx) starts a
 fixed `15 * 60 * 1000` millisecond timer after a successful password unlock.
-Typing, navigation within settings groups and other activity do not extend it.
+Typing, expanding or collapsing clinic settings and other activity do not extend it.
 Leaving Advanced, leaving the panel or using Lock clears the unlock sooner.
 A successful password change starts a fresh unlock with the new password.
 
-Expiry clears the retained password, selected settings group and mounted
+Expiry clears the retained password, collapses clinic settings and clears mounted
 sensitive/unsaved form state. The page reports that Advanced has locked.
 Already written files and accepted native jobs are not rolled back; saved
 settings that still need applying remain distinguishable from an unsaved draft.
@@ -289,7 +290,7 @@ Re-reading before writing avoids deliberately applying an old full-file snapshot
 The shipped [`backend.env`](../deployments/backend.env) sets:
 
 ```dotenv
-DB_BACKUP_RETENTION_PERIOD=14
+DB_BACKUP_RETENTION_PERIOD=1
 ```
 
 The editor reads this value from the installed file. Its schema puts it in the backend, gives it an integer control, requires a value, and allows 0 through 3650 days. The control has no hard-coded retention fallback.
@@ -314,9 +315,9 @@ The normal clinic editor exposes ten everyday choices:
 | Group | Settings |
 | --- | --- |
 | Clinic details | Clinic display name and languages for staff. |
-| Patients and visits | Usual visit type and a shorter registration form. |
+| Patients and visits | Usual visit type and a default patient location. |
 | Billing | Usual payment method, payment instructions, tax-inclusive prices and opening a bill after dispensing. |
-| Backups | How long to keep backups. |
+| Backups | Delete backups older than a number of days (shipped as 1; 0 never deletes). |
 | Staff access | How long inactive staff stay signed in. |
 
 Less-used local options, such as logos, country defaults, enabled visit types,
@@ -387,14 +388,14 @@ The new-install frontend template includes these visit/address settings:
 | --- | --- | --- |
 | `REACT_DEFAULT_ENCOUNTER_TYPE` | Empty | No explicit preset. A single enabled visit type is selected automatically; otherwise staff choose. Set `hh` for Home Health. |
 | `REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED` | `0` | The currently configured CARE frontend clamps this to **1 required address level**, not an optional address. |
-| `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled area. A support override must use the UUID of an existing CARE geographic organization, not its name. |
+| `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled location. Set it as **Default patient location** under Patients and visits, using the UUID of an existing CARE geographic organization, not its name. |
 
-The address settings are support-only. CARE's current behavior is defined in
+The minimum address levels setting is support-only. CARE's current behavior is defined in
 [`care.config.ts`](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/care.config.ts#L283-L303).
 Unlike generic extra settings, the default area cannot have a blank assignment:
 CARE's [build validator](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/scripts/validate-env.ts)
-requires a UUID when this key is present. The editor rejects blank or malformed
-area IDs; remove the setting to clear the default area.
+requires a UUID when this key is present. The editor rejects malformed location
+IDs; clearing the field removes the assignment instead of writing a blank one.
 Existing installations preserve their `frontend.env`, so template changes do
 not replace an existing clinic's choices or migrate missing keys automatically.
 

@@ -64,6 +64,8 @@ type App struct {
 
 	store storageWatch
 
+	awake keepAwakeState
+
 	osUninstall  bool
 	removeTarget string
 }

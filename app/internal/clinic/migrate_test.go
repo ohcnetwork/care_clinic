@@ -75,7 +75,12 @@ case "$1 $2" in
       *) [ "$CARE_MIGRATION_FAILURE" != inspection ] || exit 1; printf 'fixture-worker\n' ;;
     esac
     exit 0 ;;
-  'compose up') exit 0 ;;
+  'compose down') [ "$CARE_MIGRATION_FAILURE" != down ]; exit $? ;;
+  'compose up')
+    case "$*" in
+      *' --force-recreate caddy') [ "$CARE_MIGRATION_FAILURE" != proxy ]; exit $? ;;
+    esac
+    exit 0 ;;
   'compose run')
     printf '%s\n%s\n' "$POSTGRES_DB" "$DATABASE_URL" > "$CARE_MIGRATION_CREDENTIALS"
     exit 0 ;;
@@ -84,7 +89,12 @@ case "$1" in
   inspect)
     if [ "$CARE_MIGRATION_FAILURE" = running ]; then printf 'running\n'; else printf 'exited\n'; fi
     exit 0 ;;
-  build) exit 0 ;;
+  build)
+    [ "$CARE_MIGRATION_FAILURE" != build ] || exit 1
+    case "$*" in
+      *' -t fixture-frontend '*) [ "$CARE_MIGRATION_FAILURE" != frontend-build ]; exit $? ;;
+    esac
+    exit 0 ;;
 esac
 case "$*" in
   *' manage.py migrate --noinput') [ "$CARE_MIGRATION_FAILURE" != migration ]; exit $? ;;
@@ -155,29 +165,62 @@ func TestStartStopsAndChecksWorkersBeforeMigrations(t *testing.T) {
 	}
 }
 
-func TestRebuildPausesWorkersUntilMigrationsSucceed(t *testing.T) {
-	for _, failure := range []string{"stop", "migration", ""} {
+func TestRebuildStopsCAREBeforeBuildingAndMigratesBeforeWorkersResume(t *testing.T) {
+	for _, failure := range []string{"stop", "migration", "proxy"} {
 		t.Run(failure, func(t *testing.T) {
 			e, trace, _ := migrationFixture(t)
 			t.Setenv("CARE_MIGRATION_FAILURE", failure)
-			err := e.RebuildBackend()
-			if (err == nil) != (failure == "") {
-				t.Fatalf("unexpected rebuild result: %v", err)
+			if err := e.RebuildBackend(); err == nil {
+				t.Fatal("rebuild reported success after a stop, migration or proxy failure")
 			}
 			calls := trace()
+			down := strings.Index(calls, "compose down\n")
+			build := strings.Index(calls, "build -f "+filepath.Join(e.InstallDir, "src", "backend", "docker", "prod.Dockerfile"))
 			stop := strings.Index(calls, "compose stop celery-worker celery-beat")
 			migrate := strings.Index(calls, "manage.py migrate")
-			restart := strings.Index(calls, "compose up -d --wait --wait-timeout 300 celery-worker celery-beat")
-			if stop < 0 || (migrate >= 0 && migrate < stop) {
-				t.Fatal("rebuild migrated before stopping workers")
+			resume := strings.Index(calls, "compose up -d --wait --wait-timeout 300\n")
+			if down < 0 || build < down {
+				t.Fatalf("rebuild built the backend before stopping CARE:\n%s", calls)
 			}
-			if failure != "" && restart >= 0 {
-				t.Fatal("rebuild restarted workers after failure")
+			if stop < build || (migrate >= 0 && migrate < stop) {
+				t.Fatalf("rebuild migrated before stopping workers:\n%s", calls)
 			}
-			if failure == "" && restart < migrate {
-				t.Fatal("rebuild restarted workers before migration completed")
+			if failure != "proxy" && resume >= 0 {
+				t.Fatal("rebuild resumed the stack after a failure")
+			}
+			if failure == "proxy" && resume < migrate {
+				t.Fatal("rebuild resumed the stack before migration completed")
 			}
 		})
+	}
+}
+
+func TestRebuildRestartsThePreviousImagesWhenTheBuildFails(t *testing.T) {
+	e, trace, _ := migrationFixture(t)
+	frontendSource(t, e)
+	t.Setenv("CARE_MIGRATION_FAILURE", "build")
+	if err := e.RebuildFrontend(); err == nil || !strings.Contains(err.Error(), "frontend image") {
+		t.Fatalf("want the frontend build failure, got %v", err)
+	}
+	calls := trace()
+	build := strings.Index(calls, "build -t fixture-frontend")
+	up := strings.Index(calls, "compose up -d --wait --wait-timeout 300\n")
+	if build < strings.Index(calls, "compose down\n") || up < build {
+		t.Fatalf("a failed build did not start CARE again after stopping it:\n%s", calls)
+	}
+	if strings.Contains(calls, "manage.py migrate") {
+		t.Fatal("a failed build still ran migrations")
+	}
+}
+
+func TestRebuildLeavesCARERunningWhenItCannotStop(t *testing.T) {
+	e, trace, _ := migrationFixture(t)
+	t.Setenv("CARE_MIGRATION_FAILURE", "down")
+	if err := e.RebuildFrontend(); err == nil {
+		t.Fatal("rebuild reported success after compose down failed")
+	}
+	if calls := trace(); strings.Contains(calls, "build -t fixture-frontend") {
+		t.Fatalf("rebuild built while CARE was still running:\n%s", calls)
 	}
 }
 
@@ -249,8 +292,57 @@ func TestStagedDatabaseURLHandlesEscapedCredentials(t *testing.T) {
 	}
 }
 
-func TestRebuildAllBuildsBothImagesBeforeRestartingEverything(t *testing.T) {
+func TestRebuildAllBuildsOneImageAtATimeWhileCAREIsDown(t *testing.T) {
 	e, trace, _ := migrationFixture(t)
+	frontendSource(t, e)
+	t.Setenv("CARE_MIGRATION_FAILURE", "migration")
+	if err := e.RebuildAll(); err == nil {
+		t.Fatal("rebuild reported success after a migration failure")
+	}
+	calls := trace()
+	backend := strings.Index(calls, "build -f "+filepath.Join(e.InstallDir, "src", "backend", "docker", "prod.Dockerfile"))
+	frontend := strings.Index(calls, "build -t fixture-frontend")
+	down := strings.Index(calls, "compose down\n")
+	migrate := strings.Index(calls, "manage.py migrate")
+	if backend < 0 || frontend < 0 {
+		t.Fatalf("rebuild did not build both images:\n%s", calls)
+	}
+	if down < 0 || backend < down || frontend < backend {
+		t.Fatalf("rebuild did not stop CARE and then build the backend before the frontend:\n%s", calls)
+	}
+	if migrate < frontend {
+		t.Fatalf("rebuild migrated before both images were built:\n%s", calls)
+	}
+	if strings.Contains(calls, "compose up -d --wait --wait-timeout 300\n") {
+		t.Fatal("rebuild resumed the stack after a migration failure")
+	}
+}
+
+func TestRebuildAllMigratesTheRebuiltBackendWhenTheFrontendBuildFails(t *testing.T) {
+	e, trace, _ := migrationFixture(t)
+	frontendSource(t, e)
+	t.Setenv("CARE_MIGRATION_FAILURE", "frontend-build")
+	if err := e.RebuildAll(); err == nil || !strings.Contains(err.Error(), "frontend image") {
+		t.Fatalf("want the frontend build failure, got %v", err)
+	}
+	calls := trace()
+	frontend := strings.Index(calls, "build -t fixture-frontend")
+	backendUp := strings.Index(calls, "compose up -d --wait --wait-timeout 300 db redis backend\n")
+	migrate := strings.Index(calls, "manage.py migrate")
+	resume := strings.Index(calls, "compose up -d --wait --wait-timeout 300\n")
+	if frontend < 0 || backendUp < frontend {
+		t.Fatalf("the rebuilt backend was not started on its own after the frontend failed:\n%s", calls)
+	}
+	if migrate < backendUp {
+		t.Fatalf("the rebuilt backend was not migrated after the frontend failed:\n%s", calls)
+	}
+	if resume < migrate {
+		t.Fatalf("CARE resumed before the rebuilt backend was migrated:\n%s", calls)
+	}
+}
+
+func frontendSource(t *testing.T, e *Clinic) {
+	t.Helper()
 	stamp, err := os.ReadFile(filepath.Join(e.InstallDir, "src", "backend", ".care-source"))
 	if err != nil {
 		t.Fatal(err)
@@ -260,26 +352,5 @@ func TestRebuildAllBuildsBothImagesBeforeRestartingEverything(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(e.InstallDir, "src", "frontend", ".care-source"), stamp, 0o600); err != nil {
 		t.Fatal(err)
-	}
-	t.Setenv("CARE_MIGRATION_FAILURE", "migration")
-	if err := e.RebuildAll(); err == nil {
-		t.Fatal("rebuild reported success after a migration failure")
-	}
-	calls := trace()
-	backend := strings.Index(calls, "build -f "+filepath.Join(e.InstallDir, "src", "backend", "docker", "prod.Dockerfile"))
-	frontend := strings.Index(calls, "build -t fixture-frontend")
-	stop := strings.Index(calls, "compose stop\n")
-	migrate := strings.Index(calls, "manage.py migrate")
-	if backend < 0 || frontend < 0 {
-		t.Fatalf("rebuild did not build both images:\n%s", calls)
-	}
-	if stop < 0 || stop < backend || stop < frontend {
-		t.Fatalf("rebuild stopped CARE before the images were built:\n%s", calls)
-	}
-	if migrate < stop {
-		t.Fatalf("rebuild migrated before restarting:\n%s", calls)
-	}
-	if strings.Contains(calls, "compose up -d --wait --wait-timeout 300\n") {
-		t.Fatal("rebuild resumed the stack after a migration failure")
 	}
 }

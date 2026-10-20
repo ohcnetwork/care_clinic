@@ -459,6 +459,21 @@ test("a failed startup-preference read has a safe read-only retry", async ({ pag
   expect(await calls(page, "SetAutostart")).toBe(2);
 });
 
+test("the keep-awake switch saves the preference and survives a failed save", async ({ page }) => {
+  await openPanel(page);
+  const keepAwake = clinic(page).getByRole("switch", { name: "Keep this computer awake while the clinic runs" });
+  await expect(keepAwake).toBeEnabled();
+  await expect(keepAwake).not.toBeChecked();
+  await page.evaluate(() => window.careTest.failNext("SetKeepAwake", "private power permission failure"));
+  await keepAwake.click();
+  await expect(clinic(page)).toContainText("The keep-awake setting couldn't be saved");
+  await expect(clinic(page)).not.toContainText("private power permission failure");
+  await expect(keepAwake).not.toBeChecked();
+  await keepAwake.click();
+  await expect(keepAwake).toBeChecked();
+  expect(await calls(page, "SetKeepAwake")).toBe(2);
+});
+
 test("reopening stopped Rancher waits for native readiness, then unlocks clinic startup", async ({ page }) => {
   await page.clock.install();
   await openPanel(page);
