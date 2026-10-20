@@ -13,6 +13,7 @@ type Results = { [K in Method]: Awaited<ReturnType<Host[K]>> };
 type Fixtures = {
   disk: DiskStatus;
   docker: DockerStatus;
+  dockerScans: boolean;
   git: DockerStatus;
   wsl: NetworkStatus;
   network: NetworkStatus;
@@ -126,6 +127,7 @@ export function installTestHost() {
   const fixtures: Fixtures = {
     disk: { ok: true, message: "212 GB free", how: "", free: 212 * 2 ** 30, need: 30 * 2 ** 30 },
     docker: { ok: true, message: "" },
+    dockerScans: false,
     git: { ok: true, message: "" },
     wsl: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
     network: { applicable: state.platform === "windows", ok: true, message: "", how: "", fixable: true },
@@ -399,7 +401,10 @@ export function installTestHost() {
     DisableHomeAccess: async () => { requireServer(); fixtures.homeAccess.enabled = false; },
     DiskStatus: async () => ({ ...fixtures.disk }),
     MDNSStatus: async () => ({ ok: !fixtures.addressTaken, message: fixtures.addressTaken ? "care.local is already in use on this network (192.0.2.1)" : "" }),
-    ScanResidue: async () => ({ ...fixtures.residue }),
+    ScanResidue: async () => {
+      if (fixtures.dockerScans && !fixtures.docker.ok) throw new Error("could not locate the earlier installation; start Docker and try again");
+      return { ...fixtures.residue };
+    },
     ValidateDomain: async (name: string) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.local)?$/i.test(name) ? "" : "Invalid clinic name",
     ValidatePassword: async (password: string) => [...password].length < 8 ? "Password must be at least 8 characters."
       : [...password].length > 20 ? "Password must be 20 characters or fewer."

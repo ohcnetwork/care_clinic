@@ -1597,6 +1597,31 @@ Rancher Desktop executable lookup checks `%LOCALAPPDATA%\Programs`,
 `ProgramFiles`, `ProgramW6432`, and `C:\Program Files`, each with
 `Rancher Desktop\Rancher Desktop.exe`.
 
+### When Rancher Desktop counts as stuck
+
+`prereq.RancherStuck` decides whether an open Rancher Desktop needs a full
+restart (`rdctl shutdown`, a pause, then a start) rather than waiting. Callers
+only ask after Docker has just failed to answer. Rancher is stuck when its VM
+reports `ERROR` or `STOPPED`; when it reports `STARTED` on Windows but the
+`rancher-desktop` WSL distribution is not running; when its API has been silent
+for `rancherSilenceGrace` (2 minutes) on Windows and the distribution is not
+running; or when it reports `STARTED` on Windows and Docker has not answered for
+`rancherSilenceGrace`. `STARTING` and `STOPPING` are never stuck.
+
+The last rule covers Docker failing with "timeout dialing Hyper-V socket": the
+Windows-side proxy has lost its channel to the VM while Rancher and WSL both
+still report it running. `DockerCheck` resets that timer whenever Docker
+answers, and every Rancher launch resets it so a fresh start gets the full
+grace. The engine watch then restarts Rancher on its own after setup.
+
+`OpenDocker` is the explicit action (Start or Restart Rancher Desktop, and the
+engine watch). It restarts instead of starting whenever Rancher is stuck or
+reports `STARTED`, because a plain start is ignored while Rancher is running.
+On Windows, if Docker still does not answer after that restart, the error tells
+the operator to quit Rancher Desktop, run `wsl --shutdown`, and start it again.
+CARE does not run `wsl --shutdown` itself: it also stops every other WSL
+distribution on the computer.
+
 ### The Rancher Desktop deployment profile
 
 Source: [profile.go](../app/internal/prereq/profile.go).

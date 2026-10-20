@@ -850,10 +850,13 @@ A failed Docker query, inaccessible install/config path, or failed native
 inspection makes `Clean=false` even when no positive trace could be produced.
 An empty list plus an error is **unknown**, not clean.
 
-The setup Cleanup page asks `DockerStatus` whenever its scan or purge fails. If
-Docker is not answering, the page names that cause, shows the Docker status
-message, and re-checks every five seconds instead of offering another purge
-that cannot succeed until the engine is back. `proc.Runner.Capture` appends a
+The setup Cleanup page asks `DockerStatus` whenever its scan fails. If Docker
+is not answering, the check's error names that cause with the Docker status
+message. While that error stands, the page re-checks every five seconds, hides
+the removal button, sends every Try again to a read-only re-check, and offers
+**Restart Rancher Desktop** (`OpenDocker`; **Start Docker** on Linux). Polling
+is derived from the cleanup check's result alone, so it starts and stops the
+same way after a page visit, Continue, Check again, or a purge. `proc.Runner.Capture` appends a
 failed command's stderr to its error, so the log shows why `docker` refused.
 
 The App decides whether saved

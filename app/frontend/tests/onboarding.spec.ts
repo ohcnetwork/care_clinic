@@ -804,6 +804,52 @@ test("cleanup requires the destructive button and verifies partial removal befor
   await expect(page.getByRole("heading", { name: "Choosing the clinic address" })).toBeVisible();
 });
 
+test("cleanup waits for Docker without purging and restarts Rancher Desktop", async ({ page }) => {
+  await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");
+  await continueTo(page, "Removing stale files from an earlier setup");
+  await page.evaluate(() => {
+    window.careTest.fixtures.dockerScans = true;
+    window.careTest.fixtures.docker = { ok: false, message: "Rancher Desktop is open, but Docker inside it has stopped responding." };
+  });
+  await page.getByRole("button", { name: "Remove it all" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for Rancher Desktop" })).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText("Docker isn't answering");
+  await expect(page.getByRole("alert")).not.toContainText("Cleanup didn't finish");
+  await expect(page.getByRole("button", { name: "Remove it all" })).toHaveCount(0);
+  const purges = await calls(page, "PurgeResidue");
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for Rancher Desktop" })).toBeVisible();
+  expect(await calls(page, "PurgeResidue")).toBe(purges);
+  await page.getByRole("button", { name: "Restart Rancher Desktop" }).click();
+  expect(await calls(page, "OpenDocker")).toBe(1);
+  await expect(page.getByText("The check found no leftovers. Your backups have been kept.")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(forward(page)).toBeEnabled();
+  const scans = await calls(page, "ScanResidue");
+  await page.waitForTimeout(6_000);
+  expect(await calls(page, "ScanResidue")).toBe(scans);
+});
+
+test("cleanup stops polling once Docker answers even with leftovers", async ({ page }) => {
+  await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");
+  await continueTo(page, "Removing stale files from an earlier setup");
+  await page.evaluate(() => {
+    window.careTest.fixtures.dockerScans = true;
+    window.careTest.fixtures.docker = { ok: false, message: "Rancher Desktop is starting." };
+    window.careTest.failNext("PurgeResidue", "could not inspect clinic containers; start Docker and retry");
+  });
+  await page.getByRole("button", { name: "Remove it all" }).click();
+  await expect(page.getByRole("heading", { name: "Waiting for Rancher Desktop" })).toBeVisible();
+  await page.evaluate(() => { window.careTest.fixtures.docker = { ok: true, message: "" }; });
+  await expect(page.getByRole("heading", { name: "Still on this computer" })).toBeVisible({ timeout: 10_000 });
+  const retry = page.getByRole("button", { name: "Try again", exact: true });
+  await expect(retry).toHaveCount(1);
+  const scans = await calls(page, "ScanResidue");
+  await page.waitForTimeout(6_000);
+  expect(await calls(page, "ScanResidue")).toBe(scans);
+  await expect(retry).toBeEnabled();
+});
+
 for (const clean of [true, false]) {
   test(`cleanup handles null traces with clean=${clean} without reloading`, async ({ page }) => {
     await page.goto("/tests/fixtures/index.html?scenario=setup-cleanup");

@@ -100,5 +100,5 @@ export const DOCKER_DOWN = "Docker isn't answering, so this computer can't be ch
 export async function dockerProblem(): Promise<string> {
   const docker = await bridge.DockerStatus().catch(() => null);
   if (!docker || docker.ok) return "";
-  return `${DOCKER_DOWN} ${docker.message} CARE checks again automatically once it's running.`;
+  return `${DOCKER_DOWN} ${docker.message} CARE checks again automatically.`;
 }

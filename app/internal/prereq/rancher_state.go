@@ -59,10 +59,32 @@ func RancherStuck() bool {
 		silentRancher.reset()
 		return false
 	}
+	now := time.Now()
 	state, known := rancherVMState()
+	unanswered := time.Duration(0)
+	if known && state == "STARTED" {
+		unanswered = unansweredDocker.observe(false, now)
+	} else {
+		unansweredDocker.reset()
+	}
 	return vmStuck(state, known, runtime.GOOS == "windows", rancherDistroRunning,
-		silentRancher.observe(known, time.Now()))
+		silentRancher.observe(known, now), unanswered)
 }
+
+// rancherReportsStarted is for callers that have just seen Docker fail: a VM
+// Rancher calls started is then not answering, and a plain start is ignored.
+func rancherReportsStarted() bool {
+	if !rancherDesktopRunning() {
+		return false
+	}
+	state, known := rancherVMState()
+	return known && state == "STARTED"
+}
+
+// unansweredDocker times how long Docker has gone without answering while
+// Rancher reports its VM as started. Every caller of RancherStuck has just
+// seen Docker fail, and DockerCheck resets it whenever Docker answers.
+var unansweredDocker silence
 
 // rancherSilenceGrace is how long Rancher's API may stay silent before a
 // missing VM counts as stuck. A normal start answers within seconds.
@@ -96,8 +118,10 @@ func (s *silence) reset() { s.observe(true, time.Time{}) }
 // are Rancher's own transitions, and the caller waits them out. An unknown
 // state is a normal start at first, since Rancher's API does not answer
 // before its VM exists; only after silentFor passes the grace does a missing
-// VM count as stuck.
-func vmStuck(state string, known, windows bool, distroRunning func() bool, silentFor time.Duration) bool {
+// VM count as stuck. A started VM that Docker has not answered from for
+// unansweredFor past the grace is stuck too: on Windows its Hyper-V socket
+// can die while Rancher and WSL both still report it running.
+func vmStuck(state string, known, windows bool, distroRunning func() bool, silentFor, unansweredFor time.Duration) bool {
 	if !known {
 		return windows && silentFor >= rancherSilenceGrace && !distroRunning()
 	}
@@ -106,7 +130,7 @@ func vmStuck(state string, known, windows bool, distroRunning func() bool, silen
 		return true
 	case "STARTED":
 		// Rancher can still claim STARTED after WSL stopped its distribution.
-		return windows && !distroRunning()
+		return windows && (unansweredFor >= rancherSilenceGrace || !distroRunning())
 	}
 	return false
 }

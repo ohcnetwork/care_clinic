@@ -374,8 +374,20 @@ func (pr *Provisioner) OpenDocker() error {
 	pr.logln("Starting Docker...")
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		if err := pr.relaunchRancher(); err != nil {
+		stuck := RancherStuck() || rancherReportsStarted()
+		start := pr.startRancher
+		if stuck {
+			start = pr.restartRancher
+		}
+		if err := start(); err != nil {
 			return err
+		}
+		if stuck && runtime.GOOS == "windows" {
+			if err := pr.waitForDocker(dockerReadyTimeout); err != nil {
+				return fmt.Errorf("%w. If Docker still doesn't answer after a restart, quit Rancher Desktop, "+
+					"run \"wsl --shutdown\" in PowerShell, then start Rancher Desktop again", err)
+			}
+			return nil
 		}
 	case "linux":
 		if err := elevate.Run("systemctl start docker", true); err != nil {
@@ -399,7 +411,7 @@ func (pr *Provisioner) relaunchRancher() error {
 }
 
 func (pr *Provisioner) restartRancher() error {
-	pr.logln("Rancher Desktop is open, but its virtual machine has stopped; restarting Rancher Desktop...")
+	pr.logln("Rancher Desktop is open, but Docker inside it is not answering; restarting Rancher Desktop...")
 	if rdctl := rdctlPath(); rdctl != "" {
 		if err := pr.launcher().RunLauncher(rancherCommandTimeout, rdctl, "shutdown"); err != nil {
 			pr.logln("Warning: could not shut down Rancher Desktop before restarting it: " + err.Error())
@@ -412,6 +424,7 @@ func (pr *Provisioner) restartRancher() error {
 func (pr *Provisioner) startRancher() error {
 	// A fresh launch gets the full startup grace before silence counts against it.
 	silentRancher.reset()
+	unansweredDocker.reset()
 	pr.logln("Rancher launcher output is discarded; use Rancher Desktop's Troubleshooting logs for startup diagnostics.")
 	if err := writeRancherProfile(); err != nil {
 		pr.logln("Warning: could not preconfigure Rancher Desktop: " + err.Error())
