@@ -831,7 +831,7 @@ not complete.
 Conceptually:
 
 ```text
-Clean = no traces except possibly "images" and "firewall"
+Clean = no traces except possibly "images", "firewall", and "autostart"
         AND no inspection errors
 ```
 
@@ -840,9 +840,21 @@ other: network repair creates them before setup. The separate network check
 still validates their configuration. Uninstall and an actual residue purge
 still remove and verify owned firewall rules; only the first-run blocker changes.
 
+Start at login follows the same rule. On Windows, `RestartNow` turns it on so
+the app reopens after a prerequisite restart, so the first launch after that
+restart always finds it. Treating it as an old clinic sent first-run setup into
+a purge that needs a running Docker engine before one exists. Setup turns start
+at login on again when it finishes, and Uninstall and Purge still remove it.
+
 A failed Docker query, inaccessible install/config path, or failed native
 inspection makes `Clean=false` even when no positive trace could be produced.
 An empty list plus an error is **unknown**, not clean.
+
+The setup Cleanup page asks `DockerStatus` whenever its scan or purge fails. If
+Docker is not answering, the page names that cause, shows the Docker status
+message, and re-checks every five seconds instead of offering another purge
+that cannot succeed until the engine is back. `proc.Runner.Capture` appends a
+failed command's stderr to its error, so the log shows why `docker` refused.
 
 The App decides whether saved
 configuration represents installation state. A config containing only an

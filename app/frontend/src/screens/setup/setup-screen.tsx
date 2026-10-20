@@ -16,7 +16,7 @@ import { RequirementStep, type RequirementAction } from "./requirement-step";
 import { RestartDialog } from "./restart-dialog";
 import { SetupLayout } from "./setup-layout";
 import { backupProblem, EMPTY_RECOVERY, isRequirement, recoveryProblem, SETUP_LABELS, type RequirementPage } from "./setup-model";
-import { useSetupChecks } from "./use-setup-checks";
+import { DOCKER_DOWN, dockerProblem, useSetupChecks } from "./use-setup-checks";
 
 const ALL_STEPS: SetupPage[] = ["space", "windows", "software", "cleanup", "network", "address", "backup", "admin", "review", "install"];
 
@@ -239,6 +239,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     if (isRequirement(target)) {
       const ok = await requirements.check(target);
       markDone(target, ok);
+      pollWhileDockerDown(target);
       if (!stepsNow().includes(target)) {
         await visit(nextAfter(target), mode);
         return;
@@ -289,6 +290,10 @@ function SetupWizard({ form, patch, update, onBusy }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const pollWhileDockerDown = (target: RequirementPage) => {
+    if (target === "cleanup" && requirements.current.current.cleanup.error.startsWith(DOCKER_DOWN)) setAutoPoll("cleanup");
+  };
+
   const recheck = () => void execute("checking", async () => {
     if (isRequirement(pageRef.current)) {
       const target = pageRef.current;
@@ -296,6 +301,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
       markDone(target, ok);
       if (ok) { setAutoPoll(null); setActionNote(""); }
       else if (target === "windows" && requirements.current.current.windows.value?.restart.needed) setRestart(requirements.current.current.windows.value.restart);
+      else pollWhileDockerDown(target);
     }
   });
 
@@ -354,8 +360,10 @@ function SetupWizard({ form, patch, update, onBusy }: {
     } catch (e) {
       care.log(`setup ${action}: ${errorText(e)}`);
       const text = errorText(e);
+      const docker = action === "cleanup" ? await dockerProblem() : "";
+      if (docker) setAutoPoll("cleanup");
       setProblem(action === "cleanup"
-        ? { message: "Cleanup didn't finish. Check what's still listed and try again. Approve the request if your computer asks for permission." }
+        ? { message: docker || "Cleanup didn't finish. Check what's still listed and try again. Approve the request if your computer asks for permission." }
         : downloadProblem(e) ?? { message: /cancel|denied|permission|-128/i.test(text)
           ? "Your computer didn't approve the change. Try again and approve the request when your computer asks."
           : "The required change couldn't finish. Try again. If it keeps failing, send the log file to your support contact." });

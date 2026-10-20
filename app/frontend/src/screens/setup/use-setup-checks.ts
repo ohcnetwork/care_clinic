@@ -83,7 +83,8 @@ export function useSetupChecks() {
         }
       } catch (e) {
         log(`setup ${id}: ${errorText(e)}`);
-        update(id, { ...current.current[id], state: "failed", error: "This step couldn't be checked. Try again. If it keeps happening, share the log file with your support contact." });
+        const docker = id === "cleanup" ? await dockerProblem() : "";
+        update(id, { ...current.current[id], state: "failed", error: docker || "This step couldn't be checked. Try again. If it keeps happening, share the log file with your support contact." });
         return false;
       } finally { delete pending.current[id]; }
     })();
@@ -92,4 +93,12 @@ export function useSetupChecks() {
   }, [log, update]);
 
   return { checks, current, check };
+}
+
+export const DOCKER_DOWN = "Docker isn't answering, so this computer can't be checked for leftovers.";
+
+export async function dockerProblem(): Promise<string> {
+  const docker = await bridge.DockerStatus().catch(() => null);
+  if (!docker || docker.ok) return "";
+  return `${DOCKER_DOWN} ${docker.message} CARE checks again automatically once it's running.`;
 }

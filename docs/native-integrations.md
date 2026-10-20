@@ -314,8 +314,13 @@ The application boundaries are distinct:
   the separate `care-log` desktop event when a Wails context exists. The file
   logger itself knows nothing about that event.
 - [app_ui.go](../app/app_ui.go) returns an explicit error if `OpenLogFolder`
-  finds no log path. Otherwise it starts `open -R`, `explorer.exe /select,`, or
-  `xdg-open` as appropriate. A launch failure is returned; later opener exit
+  finds no log path. Otherwise it reveals the log file, or its folder when the
+  file does not exist yet, through `proc.Reveal`: `open -R` on macOS, `xdg-open`
+  of the folder on Linux, and `ShellExecute` of `explorer.exe /select,"<path>"`
+  on Windows. Windows does not go through `proc.Command`: its hidden-window
+  flags reach Explorer and keep the window from appearing, and Go's argument
+  quoting wraps the whole `/select,` argument when the path has a space, which
+  Explorer does not parse. A launch failure is returned; later opener exit
   status is ignored.
 
 `Logger.Fatal` is exceptional: it writes a fatal line and invokes `OnFatal` when
