@@ -1602,11 +1602,13 @@ Rancher Desktop executable lookup checks `%LOCALAPPDATA%\Programs`,
 `prereq.RancherStuck` decides whether an open Rancher Desktop needs a full
 restart (`rdctl shutdown`, a pause, then a start) rather than waiting. Callers
 only ask after Docker has just failed to answer. Rancher is stuck when its VM
-reports `ERROR` or `STOPPED`; when it reports `STARTED` on Windows but the
+reports `ERROR` or `STOPPED`; when it reports the VM up on Windows but the
 `rancher-desktop` WSL distribution is not running; when its API has been silent
 for `rancherSilenceGrace` (2 minutes) on Windows and the distribution is not
-running; or when it reports `STARTED` on Windows and Docker has not answered for
-`rancherSilenceGrace`. `STARTING` and `STOPPING` are never stuck.
+running; or when it reports the VM up on Windows and Docker has not answered for
+`rancherSilenceGrace`. `STARTING` and `STOPPING` are never stuck. Rancher
+reports a VM that is up as `STARTED`, or as `DISABLED` when Kubernetes is off,
+which CARE's deployment profile always sets; both count as up.
 
 The last rule covers Docker failing with "timeout dialing Hyper-V socket": the
 Windows-side proxy has lost its channel to the VM while Rancher and WSL both
@@ -1616,7 +1618,7 @@ grace. The engine watch then restarts Rancher on its own after setup.
 
 `OpenDocker` is the explicit action (Start or Restart Rancher Desktop, and the
 engine watch). It restarts instead of starting whenever Rancher is stuck or
-reports `STARTED`, because a plain start is ignored while Rancher is running.
+reports its VM up, because a plain start is ignored while Rancher is running.
 On Windows, if Docker still does not answer after that restart, the error tells
 the operator to quit Rancher Desktop, run `wsl --shutdown`, and start it again.
 CARE does not run `wsl --shutdown` itself: it also stops every other WSL

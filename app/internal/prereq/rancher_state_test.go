@@ -36,6 +36,9 @@ func TestVMStuck(t *testing.T) {
 		{"started but Docker silent past the grace", "STARTED", true, true, up, 0, rancherSilenceGrace, true},
 		{"starting with Docker silent", "STARTING", true, true, up, 0, time.Hour, false},
 		{"started on macOS with Docker silent", "STARTED", true, false, up, 0, time.Hour, false},
+		{"disabled Kubernetes with its VM gone", "DISABLED", true, true, down, 0, 0, true},
+		{"disabled Kubernetes and running", "DISABLED", true, true, up, 0, 0, false},
+		{"disabled Kubernetes with Docker silent past the grace", "DISABLED", true, true, up, 0, rancherSilenceGrace, true},
 	} {
 		if got := vmStuck(tc.state, tc.known, tc.windows, tc.distro, tc.silent, tc.docker); got != tc.want {
 			t.Errorf("%s: vmStuck = %v, want %v", tc.name, got, tc.want)

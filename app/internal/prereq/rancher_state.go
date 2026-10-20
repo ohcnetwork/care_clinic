@@ -62,7 +62,7 @@ func RancherStuck() bool {
 	now := time.Now()
 	state, known := rancherVMState()
 	unanswered := time.Duration(0)
-	if known && state == "STARTED" {
+	if known && vmReportedUp(state) {
 		unanswered = unansweredDocker.observe(false, now)
 	} else {
 		unansweredDocker.reset()
@@ -78,11 +78,18 @@ func rancherReportsStarted() bool {
 		return false
 	}
 	state, known := rancherVMState()
-	return known && state == "STARTED"
+	return known && vmReportedUp(state)
+}
+
+// vmReportedUp reports whether Rancher says its VM finished starting. With
+// Kubernetes off, as CARE's profile sets it, Rancher reports a running VM as
+// DISABLED rather than STARTED.
+func vmReportedUp(state string) bool {
+	return state == "STARTED" || state == "DISABLED"
 }
 
 // unansweredDocker times how long Docker has gone without answering while
-// Rancher reports its VM as started. Every caller of RancherStuck has just
+// Rancher reports its VM as up. Every caller of RancherStuck has just
 // seen Docker fail, and DockerCheck resets it whenever Docker answers.
 var unansweredDocker silence
 
@@ -128,8 +135,8 @@ func vmStuck(state string, known, windows bool, distroRunning func() bool, silen
 	switch state {
 	case "ERROR", "STOPPED":
 		return true
-	case "STARTED":
-		// Rancher can still claim STARTED after WSL stopped its distribution.
+	case "STARTED", "DISABLED":
+		// Rancher can still claim its VM is up after WSL stopped its distribution.
 		return windows && (unansweredFor >= rancherSilenceGrace || !distroRunning())
 	}
 	return false
