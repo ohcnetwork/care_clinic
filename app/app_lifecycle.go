@@ -36,6 +36,7 @@ func (a *App) startup(ctx context.Context) {
 	go func() {
 		a.log.Writef("docker: %s", prereq.DockerCheck(a.engine().Runner()).Message)
 		prereq.EnsureRancherSettings()
+		a.startEngineWithApp()
 	}()
 	go a.watchForCareUpdates()
 	go a.watchStorage()

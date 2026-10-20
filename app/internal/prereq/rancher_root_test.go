@@ -32,3 +32,34 @@ func TestRancherSudoersMatchesRancherLayout(t *testing.T) {
 		t.Fatalf("sudoers drifted from Rancher Desktop's layout:\n%s", got)
 	}
 }
+
+func TestCareVMNetCleanupSudoersListsExactPaths(t *testing.T) {
+	got := careVMNetCleanupSudoers([]string{"en0", "bad iface*"})
+	want := "# Clear stopped Rancher Desktop socket_vmnet files - CARE Clinic\n\n" +
+		"%everyone ALL=(root:wheel) NOPASSWD:NOSETENV: /bin/rm -f /private/var/run/socket_vmnet.host /private/var/run/host_socket_vmnet.pid\n" +
+		"%everyone ALL=(root:wheel) NOPASSWD:NOSETENV: /bin/rm -f /private/var/run/socket_vmnet.rancher-desktop-bridged_en0 /private/var/run/rancher-desktop-bridged_en0_socket_vmnet.pid\n" +
+		"%everyone ALL=(root:wheel) NOPASSWD:NOSETENV: /bin/rm -f /private/var/run/socket_vmnet.rancher-desktop-shared /private/var/run/rancher-desktop-shared_socket_vmnet.pid\n"
+	if got != want {
+		t.Fatalf("got:\n%s", got)
+	}
+}
+
+func TestStaleVMNetSudoCmdsMatchCleanupSudoers(t *testing.T) {
+	rules := careVMNetCleanupSudoers([]string{"en0"})
+	for _, name := range []string{"host", "rancher-desktop-bridged_en0", "rancher-desktop-shared"} {
+		cmd := "/bin/rm -f " + strings.Join(vmnetPaths(vmnetRunDir, name), " ") + "\n"
+		if !strings.Contains(rules, "NOPASSWD:NOSETENV: "+cmd) {
+			t.Errorf("no rule for %s", name)
+		}
+	}
+}
+
+func TestSudoersInstallLeavesFileReadableForComparison(t *testing.T) {
+	cmd := sudoersInstallCmd("/tmp/x", careVMNetSudoers)
+	if !strings.Contains(cmd, "install -m 0644 -o root -g wheel '/tmp/x' "+careVMNetSudoers) {
+		t.Fatalf("CARE re-reads this file without root to decide whether to rewrite it: %s", cmd)
+	}
+	if !strings.HasPrefix(cmd, "/usr/sbin/visudo -cf '/tmp/x' && ") {
+		t.Fatalf("sudoers must be validated before install: %s", cmd)
+	}
+}

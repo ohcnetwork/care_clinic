@@ -206,7 +206,7 @@ and [earlier-installation recovery](client-recovery.md).
 | Home access | Tailscale setup, turning home access on or off and doctor sharing. |
 | Updates | Separate CARE backend/frontend updates and CARE Clinic application updates. |
 | Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No CARE Clinic password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
-| Advanced | Ten everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
+| Advanced | Eleven everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
 
 **Connect phone or tablet** displays a real QR code for
 `http://<clinic>.local/setup`. Phones and tablets still need to follow their
@@ -298,20 +298,20 @@ another restore.
 
 ### Advanced's 15-minute unlock
 
-Clinic settings are grouped into **Clinic details**, **Patients and visits**,
-**Billing**, **Backups** and **Staff access**. **Save changes** applies the
-selected preferences and may briefly interrupt staff using CARE. Less-used
-options keep their defaults or previously saved values. Only open
+Clinic settings live in a single **Clinic settings** panel with sections for
+**Clinic details**, **Patients and visits**, **Billing**, **Backups**,
+**Staff access** and **Extra settings (for support)**. Less-used options keep
+their defaults or previously saved values. Only change
 **Extra settings (for support)** when your CARE support person asks you to;
 its values override the defaults. Email, SMS and MFA settings remain excluded.
 
-Click a category to expand its settings inline; click it again to collapse it,
-or choose another category to switch. The Advanced header, other categories,
-password/recovery tools, backup recovery key, log and removal controls stay on
-the same page.
-Collapsing or switching with unsaved edits asks whether to keep editing or
-discard them; navigation never saves settings. Each expanded category contains
-its own save/discard controls and apply status.
+Click **Clinic settings** to expand every section at once; while collapsed only
+its heading shows. Edits in any number of sections share
+one sticky **Save changes** / **Discard** footer, so several settings are saved
+together and applied with a single restart or frontend rebuild. Collapsing with
+unsaved edits asks whether to keep editing or discard them; collapsing never
+saves settings. The password/recovery tools, backup recovery key, log and
+removal controls stay on the same page.
 
 Advanced locks **15 minutes after a successful unlock**, even while the user is
 active. It is not an inactivity timeout. Leaving the tab or using **Lock** locks

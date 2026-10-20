@@ -19,6 +19,7 @@ const (
 )
 
 type vmnetDaemon struct {
+	name string
 	sock string
 	pid  string
 	live bool
@@ -36,7 +37,7 @@ func rancherVMNetDaemons(dir string, alive func(int) bool) []vmnetDaemon {
 	byName := map[string]*vmnetDaemon{}
 	get := func(name string) *vmnetDaemon {
 		if byName[name] == nil {
-			byName[name] = &vmnetDaemon{}
+			byName[name] = &vmnetDaemon{name: name}
 		}
 		return byName[name]
 	}
@@ -91,6 +92,32 @@ func (d vmnetDaemon) files() []string {
 		}
 	}
 	return out
+}
+
+func vmnetPaths(dir, name string) []string {
+	return []string{filepath.Join(dir, vmnetSockPrefix+name), filepath.Join(dir, name+vmnetPidSuffix)}
+}
+
+func vmnetSudoName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-' && r != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+func staleVMNetSudoCmds(dir string, alive func(int) bool) [][]string {
+	var cmds [][]string
+	for _, d := range rancherVMNetDaemons(dir, alive) {
+		if !d.live && vmnetSudoName(d.name) {
+			cmds = append(cmds, append([]string{"-n", "/bin/rm", "-f"}, vmnetPaths(dir, d.name)...))
+		}
+	}
+	return cmds
 }
 
 func staleVMNetFiles(dir string, alive func(int) bool) []string {

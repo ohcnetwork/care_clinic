@@ -38,3 +38,21 @@
       configs:
         MEDISPEAK_API_KEY: ""
         MEDISPEAK_BASE_URL: ""
+- description: Faster front-desk booking. Issues the token and invoice right after an appointment is booked, remembers the last practitioner, location and service, and marks invoices balanced once fully paid. Requires internet access.
+  default: false
+  plugin:
+    id: care_fasterappointments_fe
+    label: Faster appointments
+    frontend:
+      slug: care_fasterappointments_fe
+      url: https://care-faster-appointments.pages.dev/assets/remoteEntry.js
+      meta:
+        config:
+          auto_create_invoice: true
+          collect_payment_on_appointment_page: true
+          mark_balanced_on_full_payment: true
+          payment_methods:
+            - cash
+            - ddpo
+          print_invoice_on_appointment_page: true
+          redirect_to_invoice: false

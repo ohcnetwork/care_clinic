@@ -111,7 +111,7 @@ func darwinRancherRootCmds(home string) []string {
 	if target, err := os.Readlink(dockerSockLink); err == nil && target == filepath.Join(home, ".rd", "docker.sock") {
 		cmds = append(cmds, "rm -f "+dockerSockLink)
 	}
-	for _, p := range []string{rancherSudoersPath, rancherOldSudoers, rancherOptDir, rancherAppMac} {
+	for _, p := range []string{rancherSudoersPath, rancherOldSudoers, careVMNetSudoers, rancherOptDir, rancherAppMac} {
 		if _, err := os.Lstat(p); err == nil {
 			cmds = append(cmds, "rm -rf "+elevate.ShQuote(p))
 		}

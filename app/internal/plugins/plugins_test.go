@@ -280,15 +280,24 @@ func TestCatalogPluginsTakeSourcesFromTheCatalogAndKeepSettings(t *testing.T) {
 	}
 }
 
-func TestCatalogOffersOnboardingMultihostFilesAndFilly(t *testing.T) {
+func TestCatalogOffersOnboardingMultihostFilesFillyAndFasterAppointments(t *testing.T) {
 	catalog, err := Catalog()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 3 || catalog[0].Plugin.ID != "care_onboarding_fe" || !catalog[0].Default ||
+	if len(catalog) != 4 || catalog[0].Plugin.ID != "care_onboarding_fe" || !catalog[0].Default ||
 		catalog[1].Plugin.ID != "care_multihost_files_be" || !catalog[1].Default ||
-		catalog[2].Plugin.ID != "care_filly" || catalog[2].Default || catalog[2].AddToExisting {
-		t.Fatalf("expected onboarding and multihost files by default, and Filly on request: %#v", catalog)
+		catalog[2].Plugin.ID != "care_filly" || catalog[2].Default || catalog[2].AddToExisting ||
+		catalog[3].Plugin.ID != "care_fasterappointments_fe" || catalog[3].Default || catalog[3].AddToExisting {
+		t.Fatalf("expected onboarding and multihost files by default, and Filly and Faster appointments on request: %#v", catalog)
+	}
+	faster := catalog[3].Plugin
+	if faster.Backend != nil || faster.Frontend == nil || faster.Frontend.Slug != "care_fasterappointments_fe" {
+		t.Fatalf("expected a frontend-only Faster appointments entry: %#v", faster)
+	}
+	config, ok := faster.Frontend.Meta["config"].(map[string]any)
+	if !ok || config["auto_create_invoice"] != true || config["redirect_to_invoice"] != false {
+		t.Fatalf("expected Faster appointments settings under meta.config: %#v", faster.Frontend.Meta)
 	}
 }
 

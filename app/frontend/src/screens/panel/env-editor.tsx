@@ -16,7 +16,7 @@ import { ENV_KEY_RE, getValue, type EnvChange, type EnvLine } from "@/lib/env-fi
 import { useCare } from "@/state/care-store";
 import type { Section } from "@/types";
 import {
-  editableEnvLines, effectiveSetting, groupSummary, mergeEnvChanges, validateExtraSetting, validateSetting, type EnvDraft,
+  editableEnvLines, effectiveSetting, mergeEnvChanges, validateExtraSetting, validateSetting, type EnvDraft,
 } from "./advanced-env";
 import {
   AdvancedError, AdvancedNotice, AdvancedSecretInput, advancedProblem, useAdvancedLock, type AdvancedProblem,
@@ -55,10 +55,10 @@ function customRows(files: Files, take: () => number): CustomRow[] {
   return rows;
 }
 
-export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChange, pendingFiles, onPendingFilesChange, onApplicationAccepted }: {
+export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedChange, onWorkingChange, pendingFiles, onPendingFilesChange, onApplicationAccepted }: {
   adminPassword: string;
-  groupId?: string | null;
-  onGroupChange?: (group: string | null) => void;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   onWorkingChange?: (working: boolean) => void;
   pendingFiles?: Section[];
   onPendingFilesChange?: (files: Section[]) => void;
@@ -66,9 +66,8 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
 }) {
   const { busy, restorePending, runAction, operationError } = useCare();
   const lock = useAdvancedLock();
-  const [localGroup, setLocalGroup] = useState<string | null>(null);
-  const selected = groupId === undefined ? localGroup : groupId;
-  const group = GROUPS.find((entry) => entry.id === selected);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const editing = expandedProp === undefined ? localExpanded : expandedProp;
   const [files, setFiles] = useState<Files | null>(null);
   const [initial, setInitial] = useState<EnvDraft>({});
   const [draft, setDraft] = useState<EnvDraft>({});
@@ -88,16 +87,14 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
   const loadingRequest = useRef<{ password: string; promise: Promise<Files> } | null>(null);
   const savedFiles = useRef(new Set<Section>(pendingFiles ?? []));
   const cancelRef = useRef<HTMLButtonElement>(null);
-  const previousGroup = useRef<string | null>(null);
-  const pendingGroup = useRef<string | null>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const take = () => nextUid.current++;
-  const editing = selected !== null;
   const working = busy || saving || applying || restorePending;
   const locked = working || lock.disabled;
 
-  const changePage = (next: string | null) => {
-    setLocalGroup(next);
-    onGroupChange?.(next);
+  const setEditing = (next: boolean) => {
+    setLocalExpanded(next);
+    onExpandedChange?.(next);
   };
   const readFiles = useCallback(async (): Promise<Files> => {
     const [backend, frontend] = await Promise.all(SECTIONS.map((file) => bridge.ReadEnv(file, adminPassword)));
@@ -169,12 +166,12 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
   }, [custom, customInitial]);
   const errors = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const setting of group?.settings ?? []) {
+    for (const setting of SETTINGS) {
       if (!dirtyKeys.includes(setting.key)) continue;
       const error = validateSetting(setting, draft[setting.key]);
       if (error) out[setting.key] = error;
     }
-    if (group?.id === "visits" && dirtyKeys.includes("REACT_DEFAULT_ENCOUNTER_TYPE") && files) {
+    if (dirtyKeys.includes("REACT_DEFAULT_ENCOUNTER_TYPE") && files) {
       const selectedVisit = draft.REACT_DEFAULT_ENCOUNTER_TYPE ?? "";
       const configured = getValue(files.frontend.lines, "REACT_ALLOWED_ENCOUNTER_CLASSES");
       const allowed = configured === undefined ? VISIT_OPTIONS.map((option) => option.value) : splitList(configured);
@@ -192,7 +189,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       if (!key) out[id] = "Give the setting a name.";
       else if (!ENV_KEY_RE.test(key)) out[id] = "Start with a letter or _. Use only letters, digits and _.";
       else if (isHiddenKey(key)) out[id] = MANAGED_NOTES[key] ?? "This setting is protected by CARE Clinic.";
-      else if (SETTING_BY_KEY.has(key)) out[id] = `Change “${SETTING_BY_KEY.get(key)!.label}” in its settings group instead.`;
+      else if (SETTING_BY_KEY.has(key)) out[id] = `Change “${SETTING_BY_KEY.get(key)!.label}” in its section above instead.`;
       else if ((names.get(`${row.file}:${key}`) ?? 0) > 1) out[id] = "This setting is listed twice.";
       else if (customDelta.changed.some((changed) => changed.uid === row.uid)) {
         const error = validateExtraSetting(key, row.value);
@@ -200,14 +197,14 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
       }
     }
     return out;
-  }, [group, draft, custom, dirtyKeys, customDelta, files]);
+  }, [draft, custom, dirtyKeys, customDelta, files]);
   const changeCount = dirtyKeys.length + customDelta.changed.length + customDelta.removed.length;
-  const hasErrors = Object.keys(errors).some((key) => selected === "other" ? key.startsWith("custom:") : !key.startsWith("custom:"));
+  const hasErrors = Object.keys(errors).length > 0;
   const disabled = locked || loading || !files;
   const canSave = !disabled && (changeCount > 0 || needsApply.length > 0) && !hasErrors;
   const touched = new Set([...dirtyKeys.map((key) => SETTING_BY_KEY.get(key)!.file),
     ...customDelta.changed.map((row) => row.file), ...customDelta.removed.map((row) => row.file), ...needsApply]);
-  const frontendOnly = touched.size > 0 ? !touched.has("backend") : !!group && group.settings.every((setting) => setting.file === "frontend");
+  const frontendOnly = touched.size > 0 && !touched.has("backend");
 
   const commitFile = (file: Section, text: string) => {
     const next = { text, lines: editableEnvLines(text) };
@@ -291,49 +288,51 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
     setSaveProblem(null);
     setNotice("");
   };
-  const toggleGroup = (id: string) => {
+  const toggleEditing = () => {
     if (busy || saving || applying || lock.isLocked()) return;
-    const next = selected === id ? null : id;
-    if (changeCount) {
-      previousGroup.current = id;
-      pendingGroup.current = next;
-      setDiscarding(true);
-    } else changePage(next);
+    if (editing && changeCount) setDiscarding(true);
+    else setEditing(!editing);
   };
   const patchCustom = (uid: number, patch: Partial<CustomRow>) => {
     if (disabled || lock.isLocked()) return;
     setCustom((current) => current.map((row) => row.uid === uid ? { ...row, ...patch } : row));
   };
-  const categories = [
-    ...GROUPS.map((entry, index) => ({
-      id: entry.id, title: entry.title, Icon: ICONS[index],
-      summary: files ? groupSummary(entry, initial) : "Settings haven't been read",
-    })),
-    { id: "other", title: "Extra settings (for support)", Icon: Settings2,
-      summary: "Only open this if your CARE support person asks you to" },
-  ];
+  const sections = GROUPS.map((entry, index) => ({ ...entry, Icon: ICONS[index] }));
   const expandedContent = <>
-    <h3 className="advanced-expanded-title">{group?.title ?? "Extra settings (for support)"}</h3>
-    {group ? <div className="advanced-settings-card">
-      {group.settings.map((setting) => <SettingRow key={setting.key} setting={setting} changed={dirtyKeys.includes(setting.key)} error={errors[setting.key]}>
-        <SettingControl setting={visibleOptions(setting, files)} value={draft[setting.key]} disabled={disabled} invalid={!!errors[setting.key]}
-          onChange={(value) => {
-            if (disabled || lock.isLocked()) return;
-            setNotice(""); setDraft((current) => ({ ...current, [setting.key]: value }));
-          }} />
-      </SettingRow>)}
-    </div> : <div className="advanced-custom-list">
-      <p className="advanced-card-description">Values here override CARE's standard defaults. Only add or change them with help from your support person. Protected connection and online-service settings cannot be changed here.</p>
-      {custom.length === 0 ? <p className="advanced-field-hint">No extra settings added.</p> : null}
-      {custom.map((row) => <CustomRowView key={row.uid} row={row} error={errors[`custom:${row.uid}`]} disabled={disabled}
-        onKeyChange={(key) => patchCustom(row.uid, { key, file: fileForKey(key.trim()) })}
-        onValueChange={(value) => patchCustom(row.uid, { value })}
-        onRemove={() => { if (!disabled && !lock.isLocked()) setCustom((current) => current.filter((entry) => entry.uid !== row.uid)); }} />)}
-      <Button type="button" className="self-start" disabled={disabled} onClick={() => {
-        if (!disabled && !lock.isLocked()) setCustom((current) =>
-          [...current, { uid: take(), key: "", value: "", file: "backend", isNew: true }]);
-      }}>Add setting</Button>
-    </div>}
+    {sections.map(({ id, title, Icon, settings }) => <section key={id} className="advanced-settings-section"
+      data-advanced-section={id} aria-labelledby={`advanced-section-${id}`}>
+      <header className="advanced-section-head">
+        <span className="advanced-icon"><Icon aria-hidden="true" /></span>
+        <h3 className="advanced-section-title advanced-grow" id={`advanced-section-${id}`}>{title}</h3>
+      </header>
+      <div className="advanced-settings-card">
+        {settings.map((setting) => <SettingRow key={setting.key} setting={setting} changed={dirtyKeys.includes(setting.key)} error={errors[setting.key]}>
+          <SettingControl setting={visibleOptions(setting, files)} value={draft[setting.key]} disabled={disabled} invalid={!!errors[setting.key]}
+            onChange={(value) => {
+              if (disabled || lock.isLocked()) return;
+              setNotice(""); setDraft((current) => ({ ...current, [setting.key]: value }));
+            }} />
+        </SettingRow>)}
+      </div>
+    </section>)}
+    <section className="advanced-settings-section" data-advanced-section="other" aria-labelledby="advanced-section-other">
+      <header className="advanced-section-head">
+        <span className="advanced-icon"><Settings2 aria-hidden="true" /></span>
+        <h3 className="advanced-section-title advanced-grow" id="advanced-section-other">Extra settings (for support)</h3>
+      </header>
+      <div className="advanced-custom-list">
+        <p className="advanced-card-description">Values here override CARE's standard defaults. Only add or change them with help from your support person. Protected connection and online-service settings cannot be changed here.</p>
+        {custom.length === 0 ? <p className="advanced-field-hint">No extra settings added.</p> : null}
+        {custom.map((row) => <CustomRowView key={row.uid} row={row} error={errors[`custom:${row.uid}`]} disabled={disabled}
+          onKeyChange={(key) => patchCustom(row.uid, { key, file: fileForKey(key.trim()) })}
+          onValueChange={(value) => patchCustom(row.uid, { value })}
+          onRemove={() => { if (!disabled && !lock.isLocked()) setCustom((current) => current.filter((entry) => entry.uid !== row.uid)); }} />)}
+        <Button type="button" className="self-start" disabled={disabled} onClick={() => {
+          if (!disabled && !lock.isLocked()) setCustom((current) =>
+            [...current, { uid: take(), key: "", value: "", file: "backend", isNew: true }]);
+        }}>Add setting</Button>
+      </div>
+    </section>
     <footer className="advanced-settings-foot">
       <p role="status">{saving ? "Saving settings…" : applying ? "Applying settings — staff may need to wait." :
         needsApply.length > 0 && !changeCount ? "Saved changes still need to be applied." :
@@ -361,26 +360,22 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
     </AdvancedNotice> : null}
 
     <section className="advanced-card" aria-labelledby="advanced-settings-title">
-      <header className="advanced-groups-head">
-        <h2 className="advanced-card-title" id="advanced-settings-title">Clinic settings</h2>
-        <p className="advanced-card-description">Everyday choices for your clinic. Applying changes may briefly interrupt staff using CARE.</p>
+      <header className="advanced-settings-head" data-expanded={editing}>
+        <span className="advanced-icon"><Settings2 aria-hidden="true" /></span>
+        <span className="advanced-grow">
+          <h2 className="advanced-card-title" id="advanced-settings-title">
+            <button type="button" ref={toggleRef} className="advanced-settings-toggle" data-advanced-settings-toggle
+              aria-expanded={editing} aria-controls="advanced-settings-content" aria-describedby="advanced-settings-description"
+              disabled={!files || loading || saving || applying || busy || lock.disabled}
+              onClick={toggleEditing}>Clinic settings</button>
+          </h2>
+          <p className="advanced-card-description" id="advanced-settings-description">Everyday choices for your clinic, all in one place. Save once to apply every change; applying may briefly interrupt staff using CARE.</p>
+        </span>
+        {editing ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </header>
-      {categories.map(({ id, title, summary, Icon }) => {
-        const expanded = selected === id;
-        return <div key={id} className="advanced-group-item">
-          <button type="button" className="advanced-group" data-advanced-group={id}
-            id={`advanced-group-${id}`} aria-expanded={expanded} aria-controls={`advanced-group-content-${id}`}
-            disabled={!files || loading || saving || applying || busy || lock.disabled}
-            onClick={() => toggleGroup(id)}>
-            <span className="advanced-icon"><Icon aria-hidden="true" /></span>
-            <span className="advanced-grow"><strong>{title}</strong><span className="advanced-group-summary">{summary}</span></span>
-            {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-          </button>
-          <div id={`advanced-group-content-${id}`} role="region" aria-labelledby={`advanced-group-${id}`} hidden={!expanded}>
-            {expanded ? expandedContent : null}
-          </div>
-        </div>;
-      })}
+      <div id="advanced-settings-content" role="region" aria-labelledby="advanced-settings-title" hidden={!editing}>
+        {editing ? expandedContent : null}
+      </div>
     </section>
     {!editing && needsApply.length > 0 ? <Button type="button" className="self-start" disabled={!canSave} onClick={() => void save()}>Apply saved changes</Button> : null}
 
@@ -389,7 +384,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
         onOpenAutoFocus={(event) => { event.preventDefault(); cancelRef.current?.focus(); }}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
-          document.querySelector<HTMLButtonElement>(`[data-advanced-group="${previousGroup.current}"]`)?.focus();
+          toggleRef.current?.focus();
         }}>
         <AlertDialogTitle>Discard unsaved settings?</AlertDialogTitle>
         <AlertDialogDescription>Your unsaved edits will be lost. Settings already saved to this computer aren't undone.</AlertDialogDescription>
@@ -397,7 +392,7 @@ export function EnvEditor({ adminPassword, groupId, onGroupChange, onWorkingChan
           <Button type="button" ref={cancelRef} onClick={() => setDiscarding(false)}>Keep editing</Button>
           <Button type="button" disabled={locked} onClick={() => {
             if (locked || lock.isLocked()) return;
-            discard(); setDiscarding(false); changePage(pendingGroup.current);
+            discard(); setDiscarding(false); setEditing(false);
           }}>Discard changes</Button>
         </div>
       </AlertDialogContent>

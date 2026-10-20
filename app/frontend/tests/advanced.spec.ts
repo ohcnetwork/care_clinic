@@ -63,11 +63,15 @@ async function unlock(page: Page, password = desktopPassword) {
   await root(page).getByLabel("CARE Clinic admin password", { exact: true }).fill(password);
   await root(page).getByRole("button", { name: "Unlock", exact: true }).click();
   await expect(root(page).getByRole("heading", { name: "Clinic settings", exact: true })).toBeVisible();
-  await expect(root(page).getByRole("button", { name: /^Staff access/ })).toBeEnabled();
+  await expect(settingsToggle(page)).toBeEnabled();
+}
+
+function settingsToggle(page: Page) {
+  return root(page).locator("[data-advanced-settings-toggle]");
 }
 
 async function group(page: Page, name: string) {
-  await root(page).locator("[data-advanced-group]").filter({ hasText: name }).click();
+  if (await settingsToggle(page).getAttribute("aria-expanded") !== "true") await settingsToggle(page).click();
   await expect(root(page).getByRole("heading", { name, exact: true })).toBeVisible();
 }
 
@@ -153,7 +157,7 @@ test("support overrides require a valid default area UUID without restricting ot
   for (const value of [
     "", "Kerala", ` ${areaId} `, areaId.replace("-4a8b-", "-9a8b-"), areaId.replace("-b849-", "-7849-"),
   ]) {
-    expect(validateExtraSetting(key, value), value).toContain("remove this setting");
+    expect(validateExtraSetting(key, value), value).toContain("leave it blank");
   }
   for (const value of [
     areaId, areaId.toUpperCase(), "01933cc4-e57f-785b-955f-2f00e2a241bb",
@@ -166,13 +170,13 @@ test("support overrides require a valid default area UUID without restricting ot
   expect(validateExtraSetting("REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED", "0")).toBeNull();
 });
 
-test("Advanced exposes only ten everyday clinic choices and keeps local extras overridable", () => {
+test("Advanced exposes only eleven everyday clinic choices and keeps local extras overridable", () => {
   expect(GROUPS.map((entry) => entry.id)).toEqual([
     "branding", "visits", "billing", "backups", "signin",
   ]);
   expect(SETTINGS.map((setting) => setting.key)).toEqual([
     "REACT_APP_TITLE", "REACT_ALLOWED_LOCALES", "REACT_DEFAULT_ENCOUNTER_TYPE",
-    "REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION", "REACT_DEFAULT_PAYMENT_METHOD",
+    "REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION", "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", "REACT_DEFAULT_PAYMENT_METHOD",
     "REACT_DEFAULT_PAYMENT_TERMS", "REACT_INVENTORY_DEFAULT_TAX_INCLUSIVE",
     "REACT_ENABLE_AUTO_INVOICE_AFTER_DISPENSE", "DB_BACKUP_RETENTION_PERIOD", "JWT_REFRESH_TOKEN_LIFETIME",
   ]);
@@ -184,7 +188,7 @@ test("Advanced exposes only ten everyday clinic choices and keeps local extras o
   }
   for (const key of [
     ...extraSettings.map((entry) => entry.split("=")[0]),
-    "TIME_ZONE", "CUSTOM_SECRET", "REACT_CARE_ENABLE_DASHBOARD", "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG",
+    "TIME_ZONE", "CUSTOM_SECRET", "REACT_CARE_ENABLE_DASHBOARD",
     "REACT_MAIN_LOGO", "REACT_AUTO_REFRESH_INTERVAL", "REACT_ALLOWED_ENCOUNTER_CLASSES",
   ]) {
     expect(SETTING_BY_KEY.has(key), key).toBe(false);
@@ -204,10 +208,10 @@ test("new clinic templates include visit and address defaults without an invalid
 test("email, SMS, patient sign-in and MFA settings cannot reappear in support-only extras", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await expect(root(page).locator("[data-advanced-group]")).toHaveCount(6);
-  await expect(root(page).getByRole("button", { name: /^Patient sign-in/ })).toHaveCount(0);
-  await expect(root(page).getByRole("button", { name: /^Outgoing email/ })).toHaveCount(0);
   await group(page, "Extra settings (for support)");
+  await expect(root(page).locator("[data-advanced-section]")).toHaveCount(6);
+  await expect(root(page).getByRole("heading", { name: /^Patient sign-in/ })).toHaveCount(0);
+  await expect(root(page).getByRole("heading", { name: /^Outgoing email/ })).toHaveCount(0);
   const existingNames = root(page).getByLabel("Setting name", { exact: true });
   await expect(existingNames).toHaveCount(extraSettings.length);
   for (const [index, entry] of extraSettings.entries()) {
@@ -239,19 +243,16 @@ for (const size of [{ width: 1100, height: 700 }, { width: 720, height: 560 }]) 
     await screenshot(page, `advanced-recovery-form-${size.width}x${size.height}`);
     await root(page).getByRole("button", { name: "Cancel", exact: true }).click();
     await unlock(page);
-    await expect(root(page)).toContainText("Keep backups forever");
-    await expect(root(page)).toContainText("Sunrise Clinic");
+    await expect(root(page)).not.toContainText("Sunrise Clinic");
     await screenshot(page, `advanced-overview-${size.width}x${size.height}`);
-    for (const entry of GROUPS) {
-      await group(page, entry.title);
-      await expect(root(page).locator(".advanced-settings-card .advanced-setting")).toHaveCount(entry.settings.length);
-      await fits(page);
-      await root(page).locator(`[data-advanced-group="${entry.id}"]`).click();
-    }
     await group(page, "Staff access");
+    for (const entry of GROUPS) {
+      await expect(root(page).getByRole("heading", { name: entry.title, exact: true })).toBeVisible();
+      await expect(root(page).locator(`[data-advanced-section="${entry.id}"] .advanced-setting`)).toHaveCount(entry.settings.length);
+    }
     await fits(page);
-    await screenshot(page, `advanced-signin-${size.width}x${size.height}`);
-    await root(page).locator('[data-advanced-group="signin"]').click();
+    await screenshot(page, `advanced-settings-${size.width}x${size.height}`);
+    await settingsToggle(page).click();
     await root(page).getByRole("button", { name: "Change password", exact: true }).click();
     await expect(dialog(page)).toBeVisible();
     await fits(page);
@@ -270,7 +271,7 @@ test("Advanced navigation never starts writes, rebuilds, recovery resets or remo
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Staff access");
-  await root(page).locator('[data-advanced-group="signin"]').click();
+  await settingsToggle(page).click();
   await openRemoval(page);
   await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
   for (const method of ["WriteEnv", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes", "ResetWebPassword"]) {
@@ -325,7 +326,7 @@ test("group validation, discard and collapse confirmation never save implicitly"
   await expect(root(page)).toContainText("Must be at least 5");
   await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
   await minutes.fill("20");
-  await root(page).locator('[data-advanced-group="signin"]').click();
+  await settingsToggle(page).click();
   await expect(dialog(page)).toContainText("Discard unsaved settings?");
   await dialog(page).getByRole("button", { name: "Keep editing" }).click();
   await expect(minutes).toHaveValue("20");
@@ -334,46 +335,65 @@ test("group validation, discard and collapse confirmation never save implicitly"
   expect(await count(page, "WriteEnv")).toBe(0);
 });
 
-test("categories expand inline, stay keyboard accessible and confirm dirty switches and collapse", async ({ page }) => {
+test("all settings expand in one place, stay keyboard accessible and confirm a dirty collapse", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  const staff = root(page).locator('[data-advanced-group="signin"]');
-  const details = root(page).locator('[data-advanced-group="branding"]');
-  await staff.focus();
+  const toggle = settingsToggle(page);
+  await expect(root(page).getByRole("heading", { name: "Clinic settings", exact: true })).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.focus();
   await page.keyboard.press("Enter");
-  await expect(staff).toBeFocused();
-  await expect(staff).toHaveAttribute("aria-expanded", "true");
-  await expect(page.locator(`#${await staff.getAttribute("aria-controls")}`)).toBeVisible();
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator(`#${await toggle.getAttribute("aria-controls")}`)).toBeVisible();
+  for (const entry of GROUPS) await expect(root(page).getByRole("heading", { name: entry.title, exact: true })).toBeVisible();
+  await expect(root(page).getByRole("heading", { name: "Extra settings (for support)", exact: true })).toBeVisible();
+  await expect(root(page).getByRole("button", { name: "Save changes", exact: true })).toHaveCount(1);
   await expect(root(page).getByRole("heading", { name: "Advanced", exact: true })).toBeVisible();
   await expect(root(page).getByRole("button", { name: "Change password", exact: true })).toBeVisible();
   await expect(root(page).getByRole("heading", { name: "Log file", exact: true })).toBeVisible();
   await expect(root(page).getByRole("button", { name: "Uninstall…", exact: true })).toBeVisible();
-  await expect(root(page).locator("[data-advanced-group]")).toHaveCount(6);
   const minutes = root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" });
+  const title = root(page).getByLabel("Clinic display name", { exact: true });
   await minutes.fill("20");
-  await details.click();
+  await title.fill("Moonrise Clinic");
+  await toggle.click();
   await expect(dialog(page)).toContainText("Discard unsaved settings?");
   await dialog(page).getByRole("button", { name: "Keep editing" }).click();
   await expect(minutes).toHaveValue("20");
-  await expect(staff).toHaveAttribute("aria-expanded", "true");
-  await expect(details).toHaveAttribute("aria-expanded", "false");
-  await details.click();
+  await expect(title).toHaveValue("Moonrise Clinic");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await toggle.click();
   await dialog(page).getByRole("button", { name: "Discard changes", exact: true }).click();
-  await expect(details).toHaveAttribute("aria-expanded", "true");
-  await expect(staff).toHaveAttribute("aria-expanded", "false");
-  await staff.click();
-  await expect(minutes).toHaveValue("30");
-  await minutes.fill("25");
-  await staff.click();
-  await dialog(page).getByRole("button", { name: "Discard changes", exact: true }).click();
-  await expect(staff).toBeFocused();
-  await expect(staff).toHaveAttribute("aria-expanded", "false");
-  await expect(page.locator(`#${await staff.getAttribute("aria-controls")}`)).toBeHidden();
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(`#${await toggle.getAttribute("aria-controls")}`)).toBeHidden();
   await page.keyboard.press("Space");
-  await expect(staff).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(minutes).toHaveValue("30");
+  await expect(title).not.toHaveValue("Moonrise Clinic");
   expect(await count(page, "WriteEnv")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
+});
+
+test("changes across sections save together and apply with a single action", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await group(page, "Staff access");
+  await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" }).fill("20");
+  await root(page).getByLabel("Clinic display name", { exact: true }).fill("Moonrise Clinic");
+  await root(page).getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(() => count(page, "WriteEnv")).toBe(2);
+  await expect.poll(() => count(page, "ClinicAction")).toBe(1);
+  const result = await page.evaluate(() => ({
+    files: window.careTest.calls.filter((call) => call.method === "WriteEnv").map((call) => call.args[0]).sort(),
+    actions: window.careTest.calls.filter((call) => call.method === "ClinicAction").map((call) => call.args[0]),
+    env: window.careTest.fixtures.env,
+  }));
+  expect(result.files).toEqual(["backend", "frontend"]);
+  expect(result.actions).toEqual(["start"]);
+  expect(result.env.backend).toContain("JWT_REFRESH_TOKEN_LIFETIME=20");
+  expect(result.env.frontend).toContain("Moonrise Clinic");
 });
 
 test("saving merges fresh settings once and waits for the accepted restart", async ({ page }) => {
@@ -463,19 +483,21 @@ test("usual visit choices respect the enabled visit types set by support", async
   expect(getValue(editableEnvLines(contents), "REACT_ALLOWED_ENCOUNTER_CLASSES")).toBe("amb");
 });
 
-test("support cannot save blank or malformed default area IDs", async ({ page }) => {
+test("the default patient location rejects malformed IDs and moves out of support extras", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
-  await group(page, "Extra settings (for support)");
-  const key = "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG";
-  await addCustomSetting(page, key, "");
-  const area = root(page).getByLabel(`Value for ${key}`, { exact: true });
+  await group(page, "Patients and visits");
+  const area = root(page).getByLabel("Default patient location", { exact: true });
   const save = root(page).getByRole("button", { name: "Save changes", exact: true });
-  for (const value of ["", "Kerala", "ea3f8598-3d8e-9a8b-b849-06128ae2e9a7"]) {
+  for (const value of ["Kerala", "ea3f8598-3d8e-9a8b-b849-06128ae2e9a7"]) {
     await area.fill(value);
-    await expect(root(page)).toContainText("Enter a valid geographic area ID");
+    await expect(root(page)).toContainText("Enter a valid location ID from CARE");
     await expect(save).toBeDisabled();
   }
+  await area.fill("");
+  await addCustomSetting(page, "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", "ea3f8598-3d8e-4a8b-b849-06128ae2e9a7");
+  await expect(root(page)).toContainText("Change “Default patient location” in its section above instead.");
+  await expect(save).toBeDisabled();
   await save.dispatchEvent("click");
   expect(await count(page, "WriteEnv")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
@@ -490,12 +512,12 @@ test("support can override address defaults, preserve zero and remove the defaul
   await unlock(page);
   await group(page, "Extra settings (for support)");
   const levels = root(page).getByLabel("Value for REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED", { exact: true });
-  const area = root(page).getByLabel("Value for REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", { exact: true });
+  const area = root(page).getByLabel("Default patient location", { exact: true });
   await expect(levels).toHaveValue("3");
-  await expect(area).toHaveCount(0);
+  await expect(area).toHaveValue("");
   await levels.fill("0");
   const areaId = "ea3f8598-3d8e-4a8b-b849-06128ae2e9a7";
-  await addCustomSetting(page, "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", areaId);
+  await area.fill(areaId);
   await addCustomSetting(page, "REACT_AUTO_REFRESH_INTERVAL", "60");
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
@@ -508,8 +530,6 @@ test("support can override address defaults, preserve zero and remove the defaul
   expect(getValue(lines, "REACT_DEFAULT_ENCOUNTER_TYPE")).toBe("");
   await expect(levels).toHaveValue("0");
   await area.fill("");
-  await expect(root(page).getByRole("button", { name: "Save changes", exact: true })).toBeDisabled();
-  await root(page).getByRole("button", { name: "Remove REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", exact: true }).click();
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => count(page, "WriteEnv")).toBe(2);
   await expect(root(page)).toContainText("Settings applied.");
@@ -531,7 +551,7 @@ test("protected and everyday keys cannot be duplicated in support-only extras", 
   await name.fill("ADDITIONAL_PLUGS");
   await expect(root(page)).toContainText("Use the Plugins tab instead");
   await name.fill("JWT_REFRESH_TOKEN_LIFETIME");
-  await expect(root(page)).toContainText("in its settings group instead");
+  await expect(root(page)).toContainText("in its section above instead");
   await name.fill("1INVALID");
   await expect(root(page)).toContainText("Start with a letter");
   expect(await count(page, "WriteEnv")).toBe(0);
@@ -761,11 +781,12 @@ test("unreadable settings never show guessed values or enable saving", async ({ 
   await root(page).getByLabel("CARE Clinic admin password", { exact: true }).fill(desktopPassword);
   await root(page).getByRole("button", { name: "Unlock", exact: true }).click();
   await expect(root(page)).toContainText("The clinic settings couldn't be read");
-  await expect(root(page)).not.toContainText("Keep backups forever");
   await expect(root(page)).not.toContainText("private setting detail");
-  await expect(root(page).getByRole("button", { name: /^Staff access/ })).toBeDisabled();
+  await expect(settingsToggle(page)).toBeDisabled();
   await root(page).getByRole("button", { name: "Try reading settings again" }).click();
-  await expect(root(page)).toContainText("Keep backups forever");
+  await expect(settingsToggle(page)).toBeEnabled();
+  await group(page, "Backups");
+  await expect(root(page).getByRole("spinbutton", { name: "Delete backups older than", exact: true })).toHaveValue("0");
   expect(await count(page, "WriteEnv")).toBe(0);
 });
 

@@ -91,19 +91,21 @@
 .advanced-outline-danger:not(:disabled):hover { border-color: #d74250; background: #fff4f4; color: #a11422; }
 .advanced-kicker { margin-bottom: 8px; color: #007d57; font-size: 11px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
 .advanced-env { display: flex; min-width: 0; flex-direction: column; gap: 16px; }
-.advanced-groups-head { padding: 18px 22px 12px; }
-.advanced-group { display: flex; align-items: center; gap: 14px; width: 100%; min-width: 0; padding: 15px 18px; border-top: 1px solid #ebf0ed; text-align: left; }
-.advanced-group-item:last-child > .advanced-group[aria-expanded="false"] { border-radius: 0 0 16px 16px; }
-.advanced-group[aria-expanded="true"] { background: #f6faf7; }
-.advanced-expanded-title { margin: 16px 22px 0; font-size: 14px; font-weight: 600; }
-.advanced-group:hover:not(:disabled) { background: #f6faf7; }
-.advanced-group:focus-visible { outline: 2px solid #00a878; outline-offset: -3px; border-radius: 9px; }
-.advanced-group:disabled { opacity: .6; }
-.advanced-group .advanced-icon { width: 32px; height: 32px; border-radius: 9px; }
-.advanced-group .advanced-icon svg { width: 17px; height: 17px; }
-.advanced-group strong { display: block; font-size: 14px; font-weight: 600; }
-.advanced-group-summary { display: block; margin-top: 2px; color: #697f75; font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
-.advanced-group > svg { flex: none; width: 16px; height: 16px; color: #93a99e; }
+.advanced-settings-head { position: relative; display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-radius: 16px; }
+.advanced-settings-head[data-expanded="true"] { border-radius: 16px 16px 0 0; background: #f6faf7; }
+.advanced-settings-head:hover:has(.advanced-settings-toggle:not(:disabled)) { background: #f6faf7; }
+.advanced-settings-head:has(.advanced-settings-toggle:disabled) { opacity: .6; }
+.advanced-settings-head > svg { flex: none; width: 16px; height: 16px; color: #93a99e; }
+.advanced-settings-toggle { font: inherit; color: inherit; text-align: left; }
+.advanced-settings-toggle::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.advanced-settings-toggle:focus-visible { outline: none; }
+.advanced-settings-toggle:focus-visible::after { outline: 2px solid #00a878; outline-offset: -3px; border-radius: 14px; }
+.advanced-settings-section { border-top: 1px solid #ebf0ed; }
+.advanced-section-head { display: flex; align-items: center; gap: 14px; padding: 18px 22px 0; }
+.advanced-section-head .advanced-icon { width: 32px; height: 32px; border-radius: 9px; }
+.advanced-section-head .advanced-icon svg { width: 17px; height: 17px; }
+.advanced-section-title { font-size: 14px; font-weight: 600; }
+.advanced-settings-section > .advanced-custom-list { padding-top: 14px; }
 .advanced-settings-card { padding: 10px 28px; }
 .advanced-setting { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 260px); gap: 14px 24px; padding: 20px 0; border-bottom: 1px solid #ebf0ed; align-items: start; }
 .advanced-setting:last-child { border-bottom: 0; }
@@ -122,7 +124,7 @@
 .advanced-radio-segment > label:has([data-state="checked"]) { background: #fff; color: #17241e; box-shadow: 0 1px 3px #102c1a18; }
 .advanced-radio-segment > label:focus-within { outline: 2px solid #00865d; outline-offset: 1px; }
 .advanced-radio-segment [data-slot="radio-group-item"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.advanced-settings-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 24px; border-top: 1px solid #dce5df; background: #fff; border-radius: 0 0 16px 16px; }
+.advanced-settings-foot { position: sticky; bottom: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 24px; border-top: 1px solid #dce5df; background: #fff; border-radius: 0 0 16px 16px; }
 .advanced-settings-foot > p { flex: 1; min-width: 120px; color: #697f75; font-size: 12px; line-height: 1.5; }
 .advanced-settings-foot svg { width: 15px; height: 15px; }
 .advanced-settings-foot [data-slot="button"] { border-radius: 10px; }

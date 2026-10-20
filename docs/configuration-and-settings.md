@@ -211,11 +211,11 @@ The startup refresh is skipped for incomplete setup, incomplete removal, and pen
 
 [`advanced-tab.tsx`](../app/frontend/src/screens/panel/advanced-tab.tsx) starts a
 fixed `15 * 60 * 1000` millisecond timer after a successful password unlock.
-Typing, navigation within settings groups and other activity do not extend it.
+Typing, expanding or collapsing clinic settings and other activity do not extend it.
 Leaving Advanced, leaving the panel or using Lock clears the unlock sooner.
 A successful password change starts a fresh unlock with the new password.
 
-Expiry clears the retained password, selected settings group and mounted
+Expiry clears the retained password, collapses clinic settings and clears mounted
 sensitive/unsaved form state. The page reports that Advanced has locked.
 Already written files and accepted native jobs are not rolled back; saved
 settings that still need applying remain distinguishable from an unsaved draft.
@@ -290,7 +290,7 @@ Re-reading before writing avoids deliberately applying an old full-file snapshot
 The shipped [`backend.env`](../deployments/backend.env) sets:
 
 ```dotenv
-DB_BACKUP_RETENTION_PERIOD=14
+DB_BACKUP_RETENTION_PERIOD=1
 ```
 
 The editor reads this value from the installed file. Its schema puts it in the backend, gives it an integer control, requires a value, and allows 0 through 3650 days. The control has no hard-coded retention fallback.
@@ -310,14 +310,14 @@ assignments are quoted and normalized individually; new values use the file's
 existing line-ending convention. Friendly controls and new custom edits require
 single-line values. This is still not a replacement for the native dotenv parser.
 
-The normal clinic editor exposes ten everyday choices:
+The normal clinic editor exposes eleven everyday choices:
 
 | Group | Settings |
 | --- | --- |
 | Clinic details | Clinic display name and languages for staff. |
-| Patients and visits | Usual visit type and a shorter registration form. |
+| Patients and visits | Usual visit type, a shorter registration form and a default patient location. |
 | Billing | Usual payment method, payment instructions, tax-inclusive prices and opening a bill after dispensing. |
-| Backups | How long to keep backups. |
+| Backups | Delete backups older than a number of days (shipped as 1; 0 never deletes). |
 | Staff access | How long inactive staff stay signed in. |
 
 Less-used local options, such as logos, country defaults, enabled visit types,
@@ -388,14 +388,14 @@ The new-install frontend template includes these visit/address settings:
 | --- | --- | --- |
 | `REACT_DEFAULT_ENCOUNTER_TYPE` | Empty | No explicit preset. A single enabled visit type is selected automatically; otherwise staff choose. Set `hh` for Home Health. |
 | `REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED` | `0` | The currently configured CARE frontend clamps this to **1 required address level**, not an optional address. |
-| `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled area. A support override must use the UUID of an existing CARE geographic organization, not its name. |
+| `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled location. Set it as **Default patient location** under Patients and visits, using the UUID of an existing CARE geographic organization, not its name. |
 
-The address settings are support-only. CARE's current behavior is defined in
+The minimum address levels setting is support-only. CARE still requires a patient location with the shorter registration form, which is why the default location sits beside it. CARE's current behavior is defined in
 [`care.config.ts`](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/care.config.ts#L283-L303).
 Unlike generic extra settings, the default area cannot have a blank assignment:
 CARE's [build validator](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/scripts/validate-env.ts)
-requires a UUID when this key is present. The editor rejects blank or malformed
-area IDs; remove the setting to clear the default area.
+requires a UUID when this key is present. The editor rejects malformed location
+IDs; clearing the field removes the assignment instead of writing a blank one.
 Existing installations preserve their `frontend.env`, so template changes do
 not replace an existing clinic's choices or migrate missing keys automatically.
 

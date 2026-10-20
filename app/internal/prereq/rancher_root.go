@@ -18,6 +18,7 @@ const (
 	rancherOptDir      = "/opt/rancher-desktop"
 	rancherSudoersPath = "/private/etc/sudoers.d/zzzzz-rancher-desktop-lima"
 	rancherOldSudoers  = "/private/etc/sudoers.d/rancher-desktop-lima"
+	careVMNetSudoers   = "/private/etc/sudoers.d/care-clinic-vmnet"
 	dockerSockLink     = "/var/run/docker.sock"
 	dockerSockDaemon   = "/Library/LaunchDaemons/org.ohcnetwork.care-clinic.docker-socket.plist"
 	dockerSockLabel    = "org.ohcnetwork.care-clinic.docker-socket"
@@ -75,9 +76,15 @@ func rancherRootSetup(all bool) (*rootSetup, error) {
 		if err != nil {
 			return r, err
 		}
-		r.cmds = append(r.cmds, "/usr/sbin/visudo -cf "+elevate.ShQuote(tmp)+
-			" && mkdir -p /private/etc/sudoers.d"+
-			" && install -m 0644 -o root -g wheel "+elevate.ShQuote(tmp)+" "+rancherSudoersPath)
+		r.cmds = append(r.cmds, sudoersInstallCmd(tmp, rancherSudoersPath))
+	}
+	cleanup := careVMNetCleanupSudoers(ifaces)
+	if current, err := os.ReadFile(careVMNetSudoers); all || err != nil || string(current) != cleanup {
+		tmp, err := r.stage("care-vmnet-sudoers-*", cleanup)
+		if err != nil {
+			return r, err
+		}
+		r.cmds = append(r.cmds, sudoersInstallCmd(tmp, careVMNetSudoers))
 	}
 	if _, err := os.Lstat(rancherOldSudoers); err == nil {
 		r.cmds = append(r.cmds, "rm -f "+rancherOldSudoers)
@@ -103,6 +110,7 @@ func rancherRootSetup(all bool) (*rootSetup, error) {
 }
 
 func (pr *Provisioner) ensureRancherRoot() error {
+	clearStaleVMNetWithoutPassword()
 	setup, err := rancherRootSetup(false)
 	defer setup.cleanup()
 	if err != nil {
@@ -116,6 +124,12 @@ func (pr *Provisioner) ensureRancherRoot() error {
 		return fmt.Errorf("Rancher Desktop needs administrator approval to forward ports 80 and 443: %w", err)
 	}
 	return nil
+}
+
+func clearStaleVMNetWithoutPassword() {
+	for _, args := range staleVMNetSudoCmds(vmnetRunDir, processAlive) {
+		_ = proc.Command("/usr/bin/sudo", args...).Run()
+	}
 }
 
 func treeMatches(src, dst string) bool {
@@ -191,6 +205,29 @@ func rancherSudoers(ifaces []string) string {
 		b.WriteString("\n")
 	}
 	b.WriteString(block("rancher-desktop-shared", "--vmnet-mode=shared --vmnet-gateway=192.168.205.1 --vmnet-dhcp-end=192.168.205.254 --vmnet-mask=255.255.255.0"))
+	return b.String()
+}
+
+func sudoersInstallCmd(tmp, dst string) string {
+	return "/usr/sbin/visudo -cf " + elevate.ShQuote(tmp) +
+		" && mkdir -p /private/etc/sudoers.d" +
+		" && install -m 0644 -o root -g wheel " + elevate.ShQuote(tmp) + " " + dst
+}
+
+func careVMNetCleanupSudoers(ifaces []string) string {
+	names := []string{"host"}
+	for _, iface := range ifaces {
+		if vmnetSudoName(iface) {
+			names = append(names, "rancher-desktop-bridged_"+iface)
+		}
+	}
+	names = append(names, "rancher-desktop-shared")
+	var b strings.Builder
+	b.WriteString("# Clear stopped Rancher Desktop socket_vmnet files - CARE Clinic\n\n")
+	for _, n := range names {
+		b.WriteString("%everyone ALL=(root:wheel) NOPASSWD:NOSETENV: /bin/rm -f " +
+			strings.Join(vmnetPaths(vmnetRunDir, n), " ") + "\n")
+	}
 	return b.String()
 }
 

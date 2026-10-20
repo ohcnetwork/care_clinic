@@ -71,6 +71,45 @@ func TestRancherProfileSizesTheVirtualMachine(t *testing.T) {
 	}
 }
 
+func TestRancherSettingsKeepRancherHeadless(t *testing.T) {
+	joined := strings.Join(rancherSettings(), " ")
+	for _, want := range []string{
+		"--application.auto-start=false",
+		"--application.updater.enabled=false",
+		"--application.hide-notification-icon=true",
+		"--application.telemetry.enabled=false",
+		"--application.window.quit-on-close=false",
+		"--diagnostics.connectivity.interval=0",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("rdctl settings miss %s: %s", want, joined)
+		}
+	}
+	body := fmt.Sprintf(rancherProfilePlist, rancherProfileVersion, rancherMemoryGB)
+	for _, want := range []string{
+		"<key>autoStart</key><false/>",
+		"<key>hideNotificationIcon</key><true/>",
+		"<key>telemetry</key>\n\t\t<dict><key>enabled</key><false/></dict>",
+		"<key>window</key>\n\t\t<dict><key>quitOnClose</key><false/></dict>",
+		"<dict><key>enabled</key><true/><key>list</key><array/></dict>",
+		"<dict><key>interval</key><integer>0</integer></dict>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("profile misses %q:\n%s", want, body)
+		}
+	}
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	path := filepath.Join(t.TempDir(), "profile.plist")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("/usr/bin/plutil", "-lint", path).CombinedOutput(); err != nil {
+		t.Fatalf("profile is not a valid plist: %v\n%s", err, out)
+	}
+}
+
 func TestRancherSwapOverrideIsAValidLimaProvisionScript(t *testing.T) {
 	var override struct {
 		Provision []struct {

@@ -30,11 +30,26 @@ const rancherProfilePlist = `<?xml version="1.0" encoding="UTF-8"?>
 	<key>application</key>
 	<dict>
 		<key>adminAccess</key><true/>
-		<key>autoStart</key><true/>
+		<key>autoStart</key><false/>
 		<key>startInBackground</key><true/>
 		<key>pathManagementStrategy</key><string>rcfiles</string>
+		<key>hideNotificationIcon</key><true/>
 		<key>updater</key>
 		<dict><key>enabled</key><false/></dict>
+		<key>telemetry</key>
+		<dict><key>enabled</key><false/></dict>
+		<key>window</key>
+		<dict><key>quitOnClose</key><false/></dict>
+		<key>extensions</key>
+		<dict>
+			<key>allowed</key>
+			<dict><key>enabled</key><true/><key>list</key><array/></dict>
+		</dict>
+	</dict>
+	<key>diagnostics</key>
+	<dict>
+		<key>connectivity</key>
+		<dict><key>interval</key><integer>0</integer></dict>
 	</dict>
 	<key>containerEngine</key>
 	<dict><key>name</key><string>moby</string></dict>
@@ -120,9 +135,14 @@ func writeRancherProfileWindows() error {
 		"/v", rancherAdminAccessValue, "/f").Run()
 	args := [][]string{
 		{rancherProfileKey, "/v", "version", "/t", "REG_DWORD", "/d", fmt.Sprint(rancherProfileVersion)},
-		{rancherProfileKey + `\application`, "/v", "autoStart", "/t", "REG_DWORD", "/d", "1"},
+		{rancherProfileKey + `\application`, "/v", "autoStart", "/t", "REG_DWORD", "/d", "0"},
 		{rancherProfileKey + `\application`, "/v", "startInBackground", "/t", "REG_DWORD", "/d", "1"},
+		{rancherProfileKey + `\application`, "/v", "hideNotificationIcon", "/t", "REG_DWORD", "/d", "1"},
 		{rancherProfileKey + `\application\updater`, "/v", "enabled", "/t", "REG_DWORD", "/d", "0"},
+		{rancherProfileKey + `\application\telemetry`, "/v", "enabled", "/t", "REG_DWORD", "/d", "0"},
+		{rancherProfileKey + `\application\window`, "/v", "quitOnClose", "/t", "REG_DWORD", "/d", "0"},
+		{rancherProfileKey + `\application\extensions\allowed`, "/v", "enabled", "/t", "REG_DWORD", "/d", "1"},
+		{rancherProfileKey + `\diagnostics\connectivity`, "/v", "interval", "/t", "REG_DWORD", "/d", "0"},
 		{rancherProfileKey + `\containerEngine`, "/v", "name", "/t", "REG_SZ", "/d", "moby"},
 		{rancherProfileKey + `\kubernetes`, "/v", "enabled", "/t", "REG_DWORD", "/d", "0"},
 	}
@@ -149,9 +169,13 @@ func rancherProfileWritten() bool {
 
 func rancherSettings() []string {
 	settings := []string{
-		"--application.auto-start=true",
+		"--application.auto-start=false",
 		"--application.start-in-background=true",
 		"--application.updater.enabled=false",
+		"--application.hide-notification-icon=true",
+		"--application.telemetry.enabled=false",
+		"--application.window.quit-on-close=false",
+		"--diagnostics.connectivity.interval=0",
 		"--container-engine.name=moby",
 		"--kubernetes.enabled=false",
 	}
