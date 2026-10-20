@@ -45,6 +45,11 @@ screen's time estimate is not a deadline or measured installation progress.
    15 minutes, depending on internet speed), Git (5 to 10 minutes on macOS, 1 to
    3 minutes elsewhere), and removing an earlier setup (1 to 3 minutes). These
    are estimates, not measured progress.
+   The earlier-installation check needs Docker. If Docker stops answering, that
+   screen says so instead of offering removal, re-checks every five seconds, and
+   offers **Restart Rancher Desktop** (**Start Docker** on Linux). A
+   start-at-login entry left by a setup restart is not treated as an earlier
+   installation.
    The free-space screen shows both the space needed and the amount available:
    green when sufficient, red when space needs freeing. CARE Clinic needs at least
    **30 GB** on the clinic data drive (`storage.InstallMinFree`); a separate settings

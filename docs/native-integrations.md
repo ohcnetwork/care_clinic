@@ -1828,8 +1828,9 @@ uses `https://git-scm.com/downloads`.
 
 ### Waiting, downloads, and side effects
 
-`OpenDocker` launches Rancher Desktop on macOS/Windows. On Linux it elevates
-`systemctl start docker`. It then uses `dockerReadyTimeout = 8 * time.Minute`,
+`OpenDocker` launches Rancher Desktop on macOS/Windows, or restarts it when it
+is stuck or reports its VM up (see "When Rancher Desktop counts as stuck"). On
+Linux it elevates `systemctl start docker`. It then uses `dockerReadyTimeout = 8 * time.Minute`,
 checking full `DockerCheck` readiness and sleeping three seconds between
 unsuccessful checks. Poll deadlines are checked between probes; they are not
 hard cancellation deadlines for the whole operation.
