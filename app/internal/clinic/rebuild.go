@@ -27,16 +27,40 @@ func (e *Clinic) rebuild(start, done string, jobs ...compose.Job) error {
 	if err := e.dc("down"); err != nil {
 		return err
 	}
-	if err := e.Builder().Sequence(jobs...); err != nil {
-		e.logln("The build failed; starting CARE again on the images it had before...")
-		if upErr := e.dc("up", "-d", "--wait", "--wait-timeout", "300"); upErr != nil {
-			return errors.Join(err, fmt.Errorf("CARE could not be started again on its previous images: %w", upErr))
+	b := e.Builder()
+	backendRebuilt := false
+	for _, job := range jobs {
+		if err := b.Sequence(job); err != nil {
+			return e.restartAfterFailedBuild(err, backendRebuilt)
 		}
-		return err
+		if job.Label == compose.BuildBackend.Label {
+			backendRebuilt = true
+		}
 	}
 	if err := e.Start(); err != nil {
 		return err
 	}
 	e.logln(done)
 	return nil
+}
+
+func (e *Clinic) restartAfterFailedBuild(buildErr error, backendRebuilt bool) error {
+	if !backendRebuilt {
+		e.logln("The build failed; starting CARE again on the images it had before...")
+		if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300"); err != nil {
+			return errors.Join(buildErr, fmt.Errorf("CARE could not be started again on its previous images: %w", err))
+		}
+		return buildErr
+	}
+	e.logln("A later build failed after the backend was rebuilt; migrating the database before starting CARE again...")
+	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300", "db", "redis", "backend"); err != nil {
+		return errors.Join(buildErr, fmt.Errorf("the rebuilt backend could not be started; workers and the scheduler remain stopped: %w", err))
+	}
+	if err := e.migrate(); err != nil {
+		return errors.Join(buildErr, err)
+	}
+	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300"); err != nil {
+		return errors.Join(buildErr, fmt.Errorf("CARE could not be started again after the backend rebuild: %w", err))
+	}
+	return buildErr
 }

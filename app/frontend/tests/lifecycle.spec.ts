@@ -263,7 +263,7 @@ test("quit response and recheck failures stay visible and retryable without raw 
   await quit(page);
   await page.evaluate(() => window.careTest.failNext("RespondToQuit", "private runtime diagnostic"));
   await dialog(page).getByRole("button", { name: "Quit anyway", exact: true }).click();
-  await expect(dialog(page).getByRole("alert")).toContainText("couldn't be completed");
+  await expect(dialog(page).getByRole("alert")).toContainText("The clinic couldn't be stopped, so CARE Clinic is still open.");
   await expect(dialog(page)).not.toContainText("private runtime");
   expect(await page.evaluate(() => window.careTest.fixtures.quitAccepted)).toBe(false);
   await page.evaluate(() => window.careTest.failNext("SetQuitDialogReady", "private request diagnostic"));

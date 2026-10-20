@@ -348,8 +348,9 @@ acknowledgement; repeat the interrupted action explicitly.
 ## Closing and removing CARE
 
 Closing during a native job asks whether to quit or **Keep waiting**; it never
-means the job succeeded. Already launched installers and processes are not
-automatically stopped. Closing an idle server, by the close button or the quit
+means the job succeeded. Quitting still stops the clinic (`docker compose down`)
+and Rancher Desktop first; already launched installers and processes are not
+cancelled. Closing an idle server, by the close button or the quit
 command, asks once: **Keep running in background** (hide on macOS, minimise on
 Windows) or **Stop clinic and quit**, which stops the clinic and Rancher Desktop
 before exiting.

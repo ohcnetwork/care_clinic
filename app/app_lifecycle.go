@@ -36,7 +36,6 @@ func (a *App) startup(ctx context.Context) {
 	go func() {
 		a.log.Writef("docker: %s", prereq.DockerCheck(a.engine().Runner()).Message)
 		prereq.EnsureRancherSettings()
-		a.startEngineWithApp()
 	}()
 	go a.watchForCareUpdates()
 	go a.watchStorage()
@@ -253,6 +252,11 @@ func (a *App) askToQuitDuringJob(label string) {
 			return
 		}
 		a.logln("Quitting while " + prompt.doing + " was still running.")
+		if err := a.stopEverythingForQuit(); err != nil {
+			a.logln("error: " + err.Error())
+			a.alertDialog(failureTitle("stop"), err.Error())
+			return
+		}
 		a.quitConfirmed.Store(true)
 		wruntime.Quit(a.ctx)
 	}()
@@ -264,7 +268,7 @@ type quitPrompt struct {
 	message string
 }
 
-const leftRunning = "Commands that already started may keep running in the background for a few minutes."
+const leftRunning = "Quitting stops the clinic and Rancher Desktop first. Commands that already started may keep running in the background for a few minutes."
 
 func jobQuitPrompt(label string) quitPrompt {
 	switch label {
@@ -338,6 +342,17 @@ func (a *App) clinicRunning() bool {
 	return false
 }
 
+func (a *App) clinicNeedsStopping() bool {
+	cfg := a.loadConfig()
+	if cfg.Role != roleServer || cfg.Removing {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(a.installDir(), "docker-compose.yml")); err != nil {
+		return false
+	}
+	return prereq.DockerCheck(a.engine().Runner()).OK
+}
+
 func (a *App) stopForQuit() error {
 	if err := a.requireServer(); err != nil {
 		return err
@@ -345,7 +360,7 @@ func (a *App) stopForQuit() error {
 	ctx, cancel := context.WithTimeout(context.Background(), stopDeadline)
 	defer cancel()
 	run := a.engine().Runner()
-	cmd := proc.CommandContext(ctx, "docker", "compose", "stop")
+	cmd := proc.CommandContext(ctx, "docker", "compose", "down")
 	cmd.Dir, cmd.Env = run.Dir, run.Env
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("Docker did not finish stopping; CARE Clinic was kept open: %w: %s", err, strings.TrimSpace(string(out)))

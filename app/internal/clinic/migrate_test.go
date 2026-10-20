@@ -89,7 +89,12 @@ case "$1" in
   inspect)
     if [ "$CARE_MIGRATION_FAILURE" = running ]; then printf 'running\n'; else printf 'exited\n'; fi
     exit 0 ;;
-  build) [ "$CARE_MIGRATION_FAILURE" != build ]; exit $? ;;
+  build)
+    [ "$CARE_MIGRATION_FAILURE" != build ] || exit 1
+    case "$*" in
+      *' -t fixture-frontend '*) [ "$CARE_MIGRATION_FAILURE" != frontend-build ]; exit $? ;;
+    esac
+    exit 0 ;;
 esac
 case "$*" in
   *' manage.py migrate --noinput') [ "$CARE_MIGRATION_FAILURE" != migration ]; exit $? ;;
@@ -310,6 +315,29 @@ func TestRebuildAllBuildsOneImageAtATimeWhileCAREIsDown(t *testing.T) {
 	}
 	if strings.Contains(calls, "compose up -d --wait --wait-timeout 300\n") {
 		t.Fatal("rebuild resumed the stack after a migration failure")
+	}
+}
+
+func TestRebuildAllMigratesTheRebuiltBackendWhenTheFrontendBuildFails(t *testing.T) {
+	e, trace, _ := migrationFixture(t)
+	frontendSource(t, e)
+	t.Setenv("CARE_MIGRATION_FAILURE", "frontend-build")
+	if err := e.RebuildAll(); err == nil || !strings.Contains(err.Error(), "frontend image") {
+		t.Fatalf("want the frontend build failure, got %v", err)
+	}
+	calls := trace()
+	frontend := strings.Index(calls, "build -t fixture-frontend")
+	backendUp := strings.Index(calls, "compose up -d --wait --wait-timeout 300 db redis backend\n")
+	migrate := strings.Index(calls, "manage.py migrate")
+	resume := strings.Index(calls, "compose up -d --wait --wait-timeout 300\n")
+	if frontend < 0 || backendUp < frontend {
+		t.Fatalf("the rebuilt backend was not started on its own after the frontend failed:\n%s", calls)
+	}
+	if migrate < backendUp {
+		t.Fatalf("the rebuilt backend was not migrated after the frontend failed:\n%s", calls)
+	}
+	if resume < migrate {
+		t.Fatalf("CARE resumed before the rebuilt backend was migrated:\n%s", calls)
 	}
 }
 

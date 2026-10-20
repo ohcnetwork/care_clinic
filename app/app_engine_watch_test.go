@@ -46,21 +46,3 @@ func TestEngineWatchForgetsBackoffAfterRecovery(t *testing.T) {
 		t.Fatal("a new outage after recovery waited out the earlier attempt's back-off")
 	}
 }
-
-func TestStartEngineWithAppLeavesUnsetServersAndClientsAlone(t *testing.T) {
-	for name, cfg := range map[string]Config{
-		"server mid-setup": {Role: roleServer},
-		"client":           {Role: roleClient, SetupDone: true},
-		"removing server":  {Role: roleServer, SetupDone: true, Removing: true},
-	} {
-		a := &App{cfg: cfg}
-		a.startEngineWithApp()
-		if a.activeJob.Load() != nil && a.activeJob.Load() != "" {
-			t.Errorf("%s: started a job: %v", name, a.activeJob.Load())
-		}
-		if err := a.lockJob(); err != nil {
-			t.Errorf("%s: job lock was left held: %v", name, err)
-		}
-		a.jobMu.Unlock()
-	}
-}

@@ -82,12 +82,6 @@ func (a *App) engineBroken() bool {
 	return prereq.RancherDown()
 }
 
-func (a *App) startEngineWithApp() {
-	if a.engineBroken() {
-		a.reviveEngine("Rancher Desktop no longer starts at login; starting it with CARE Clinic...")
-	}
-}
-
 func (a *App) recoverEngine() {
 	a.reviveEngine("Docker has not answered for over a minute; bringing Rancher Desktop back automatically...")
 }

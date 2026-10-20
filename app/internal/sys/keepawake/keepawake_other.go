@@ -3,32 +3,57 @@
 package keepawake
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/sys/proc"
 )
+
+const settle = 500 * time.Millisecond
 
 func Start() (*Hold, error) {
 	cmd, err := command()
 	if err != nil {
 		return nil, err
 	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	done := make(chan struct{})
+	var exitErr error
 	go func() {
-		_ = cmd.Wait()
+		exitErr = cmd.Wait()
 		close(done)
 	}()
+	select {
+	case <-done:
+		return nil, helperExit(exitErr, stderr.String())
+	case <-time.After(settle):
+	}
 	return &Hold{done: done, release: func() {
 		_ = cmd.Process.Kill()
 		<-done
 	}}, nil
+}
+
+func helperExit(err error, stderr string) error {
+	detail := strings.TrimSpace(stderr)
+	if err == nil {
+		err = errors.New("the sleep blocker exited straight away")
+	}
+	if detail != "" {
+		return fmt.Errorf("%w: %s", err, detail)
+	}
+	return err
 }
 
 func command() (*exec.Cmd, error) {

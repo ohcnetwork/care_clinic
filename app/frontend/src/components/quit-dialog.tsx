@@ -70,8 +70,14 @@ export function QuitDialog() {
     }
   };
 
-  const answer = (quit: boolean) => respond((id) => bridge.RespondToQuit(id, quit),
-    "The close request couldn't be completed. Check it again before closing this window.");
+  const answer = (quit: boolean) => {
+    if (pending.current) return Promise.resolve();
+    setQuitting(quit);
+    return respond((id) => bridge.RespondToQuit(id, quit),
+      quit
+        ? "The clinic couldn't be stopped, so CARE Clinic is still open. Try again, or keep waiting."
+        : "The close request couldn't be completed. Check it again before closing this window.");
+  };
 
   const choose = (choice: CloseChoice) => {
     if (pending.current) return Promise.resolve();
@@ -127,7 +133,7 @@ export function QuitDialog() {
           </AlertDialogFooter>
         ) : (
           <AlertDialogFooter>
-            <Button disabled={busy} onClick={() => void answer(true)}>Quit anyway</Button>
+            <Button disabled={busy} onClick={() => void answer(true)}>{quitting ? <Spinner /> : null}Quit anyway</Button>
             <Button ref={keepWaiting} variant="primary" disabled={busy} onClick={() => void answer(false)}>Keep waiting</Button>
           </AlertDialogFooter>
         )}

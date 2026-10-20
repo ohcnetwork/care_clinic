@@ -90,14 +90,21 @@ func (a *App) RespondToQuit(id uint64, quit bool) (err error) {
 	if quit && a.ctx == nil {
 		return errors.New("the desktop runtime is not available")
 	}
-	if err := a.takeQuitRequest(id, quitKindJob); err != nil {
+	if !quit {
+		return a.takeQuitRequest(id, quitKindJob)
+	}
+	if err := a.checkQuitRequest(id, quitKindJob); err != nil {
 		return err
 	}
-	if quit {
-		a.logln("Quitting after confirmation while an operation may still be running.")
-		a.quitConfirmed.Store(true)
-		wruntime.Quit(a.ctx)
+	a.logln("Quitting after confirmation while an operation may still be running.")
+	if err := a.stopEverythingForQuit(); err != nil {
+		return err
 	}
+	if err := a.takeQuitRequest(id, quitKindJob); err != nil {
+		a.logln("The quit request changed while the clinic was stopping; quitting as chosen.")
+	}
+	a.quitConfirmed.Store(true)
+	wruntime.Quit(a.ctx)
 	return nil
 }
 
@@ -159,8 +166,16 @@ func (a *App) shutDownForQuit() error {
 	defer a.jobMu.Unlock()
 	a.activeJob.Store("quit")
 	defer a.activeJob.Store("")
-	if a.clinicRunning() {
-		a.logln("Stopping the clinic before quitting...")
+	if err := a.stopEverythingForQuit(); err != nil {
+		return err
+	}
+	a.closing = true
+	return nil
+}
+
+func (a *App) stopEverythingForQuit() error {
+	if a.clinicNeedsStopping() {
+		a.logln("Stopping the clinic (docker compose down) before quitting...")
 		if err := a.stopForQuit(); err != nil {
 			return err
 		}

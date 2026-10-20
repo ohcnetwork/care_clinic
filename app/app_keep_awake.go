@@ -11,10 +11,11 @@ import (
 const keepAwakeInterval = 30 * time.Second
 
 type keepAwakeState struct {
-	mu      sync.Mutex
-	hold    *keepawake.Hold
-	failed  bool
-	stopped bool
+	mu        sync.Mutex
+	hold      *keepawake.Hold
+	failed    bool
+	announced bool
+	stopped   bool
 }
 
 func (a *App) KeepAwakeEnabled() bool { return a.loadConfig().KeepAwake }
@@ -65,10 +66,19 @@ func (a *App) syncKeepAwake() {
 	}
 	want := a.wantKeepAwake()
 	if a.awake.hold != nil && (!want || !a.awake.hold.Alive()) {
+		died := want
 		a.awake.hold.Release()
 		a.awake.hold = nil
+		if died && !a.awake.failed {
+			a.logln("error: the sleep blocker stopped unexpectedly; this computer may sleep until it starts again.")
+			a.awake.failed = true
+		}
 		if !want {
-			a.logln("This computer may sleep again.")
+			if a.awake.announced {
+				a.logln("This computer may sleep again.")
+			}
+			a.awake.announced = false
+			a.awake.failed = false
 		}
 	}
 	if !want || a.awake.hold != nil {
@@ -82,8 +92,10 @@ func (a *App) syncKeepAwake() {
 		a.awake.failed = true
 		return
 	}
-	a.logln("Keeping this computer awake while the clinic runs.")
-	a.awake.failed = false
+	if !a.awake.announced {
+		a.logln("Keeping this computer awake while the clinic runs.")
+		a.awake.announced = true
+	}
 	a.awake.hold = hold
 }
 

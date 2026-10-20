@@ -100,10 +100,14 @@ answers cannot close the app. Unmounting unregisters the UI and invalidates its
 pending request. Until registration, the native confirmation remains available.
 
 `beforeClose` returns "prevent" at once, so the main thread never waits on a
-dialog. Confirming sets `quitConfirmed` and calls `wruntime.Quit`; the second
-`beforeClose` sees the flag and allows closing even though the job still holds
-the lock. Nothing is cancelled: Docker commands, installers, and elevated
-scripts that already started are not killed and may finish in the background.
+dialog. Confirming runs the same stop as an idle quit, without taking the
+operation lock the job still holds: `docker compose down` when this computer is
+the server, has a `docker-compose.yml` and Docker answers (90 s limit), then
+`rdctl shutdown`. Only then does it set `quitConfirmed` and call
+`wruntime.Quit`; the second `beforeClose` sees the flag and allows closing. If
+Compose fails, the app stays open and the request stays answerable. The job
+itself is not cancelled: commands, installers and elevated scripts that already
+started are not killed, but Rancher Desktop's shutdown stops every container.
 
 Only one of these dialogs is shown at a time (`busyShown`); repeated quit attempts while one is open are ignored.
 
@@ -116,7 +120,7 @@ With no job running, a server whose setup is done gets one in-window question, a
 | Choice | `RespondToClose` | Result |
 | --- | --- | --- |
 | **Keep running in background** (focused default) | `background` | macOS hides the app (the Dock icon brings it back); Windows minimises the window to the taskbar. The clinic and its name advertising keep running. |
-| **Stop clinic and quit** | `quit` | Under the operation lock: `docker compose stop` if the clinic is running (90 s limit), then `rdctl shutdown` to quit Rancher Desktop, then `wruntime.Quit`. If Compose fails to stop, the app stays open and the dialog offers the choices again. A Rancher Desktop shutdown failure is only logged. |
+| **Stop clinic and quit** | `quit` | Under the operation lock: `docker compose down` when the clinic has a Compose project and Docker answers (90 s limit), then `rdctl shutdown` to quit Rancher Desktop, then `wruntime.Quit`. If Compose fails to stop, the app stays open and the dialog offers the choices again. A Rancher Desktop shutdown failure is only logged. |
 | **Cancel** or Escape | `cancel` | Nothing happens. |
 
 `RespondToClose` accepts only the current close request, and `RespondToQuit` accepts only running-job requests, so neither binding can answer the other's dialog. Until the frontend registers, a native yes/no question stands in: Yes stops and quits, No keeps it running in the background.
@@ -461,7 +465,7 @@ uses rather than assuming one:
 | Plan action | Behavior |
 | --- | --- |
 | `""` | Docker answers; the action proceeds. |
-| `open` | Ask the operator for confirmation, then `OpenDocker()`, which launches the engine and waits up to eight minutes. If Rancher exits during startup, retry its launch once and fail early if it does not stay running. Declining returns the readiness message as the error. |
+| `open` | On macOS and Windows, CARE owns Rancher Desktop (it no longer starts at login), so it logs that it is starting Rancher and calls `OpenDocker()` without asking. On Linux, where this runs `systemctl start docker` with an administrator prompt, it asks first and declining returns the readiness message as the error. `OpenDocker()` launches the engine and waits up to eight minutes; if Rancher exits during startup, it retries the launch once and fails early if it does not stay running. |
 | anything else | Return the readiness message and point at the requirements check; the engine is missing, not merely stopped. |
 
 `stop` is excluded deliberately: reporting that an unreachable clinic is not
@@ -558,7 +562,7 @@ read them next to what they were doing, keep them on screen, and copy them.
 emits `care-error` instead of an error box. What stays native is `askBeforeQuit`
 and the stop failure that follows it, because the window is already closing and
 there is nothing left to render into, and `ensureDockerReady`'s offer to start
-the container engine, which is asked from inside a job.
+the Docker service on Linux, which is asked from inside a job.
 
 Two consequences are worth keeping in mind when adding a prompt. A choice
 between more than two outcomes cannot be a single message box, because the

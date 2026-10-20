@@ -71,6 +71,17 @@ func TestRancherProfileSizesTheVirtualMachine(t *testing.T) {
 	}
 }
 
+func TestExistingMacInstallsGetTheVirtualMachineMemory(t *testing.T) {
+	joined := strings.Join(rancherSettings(), " ")
+	has := strings.Contains(joined, "--virtual-machine.memory-in-gb=3")
+	if runtime.GOOS == "darwin" && !has {
+		t.Fatalf("existing macOS installs would keep their old VM memory: %s", joined)
+	}
+	if runtime.GOOS != "darwin" && strings.Contains(joined, "memory-in-gb") {
+		t.Fatalf("VM memory belongs to WSL outside macOS: %s", joined)
+	}
+}
+
 func TestRancherSettingsKeepRancherHeadless(t *testing.T) {
 	joined := strings.Join(rancherSettings(), " ")
 	for _, want := range []string{

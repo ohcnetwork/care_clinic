@@ -182,6 +182,9 @@ func rancherSettings() []string {
 	if runtime.GOOS != "windows" {
 		settings = append(settings, "--application.admin-access=true")
 	}
+	if runtime.GOOS == "darwin" {
+		settings = append(settings, fmt.Sprintf("--virtual-machine.memory-in-gb=%d", rancherMemoryGB))
+	}
 	return settings
 }
 
