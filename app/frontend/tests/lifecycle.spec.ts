@@ -516,7 +516,8 @@ test("Desktop installer handoff guards mutations across the entire panel", async
     window.careTest.finishUpdate();
   });
   await expect(page.getByRole("button", { name: "Back up now", exact: true })).toBeDisabled();
-  await expect(page.getByRole("switch")).toBeDisabled();
+  await expect(page.getByRole("switch")).toHaveCount(2);
+  for (const control of await page.getByRole("switch").all()) await expect(control).toBeDisabled();
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await expect(page.getByRole("button", { name: "Back up now", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Change folder", exact: true })).toBeDisabled();

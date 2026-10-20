@@ -45,7 +45,7 @@ func TestLauncherHelper(t *testing.T) {
 		os.Exit(0)
 	}
 	dir, err := os.Getwd()
-	if err != nil || dir != os.Getenv("CARE_LAUNCHER_DIR") {
+	if err != nil || !sameDir(dir, os.Getenv("CARE_LAUNCHER_DIR")) {
 		os.Exit(90)
 	}
 	fmt.Println("launcher stdout")
@@ -67,6 +67,12 @@ func TestLauncherHelper(t *testing.T) {
 		os.Exit(7)
 	}
 	os.Exit(0)
+}
+
+func sameDir(a, b string) bool {
+	resolvedA, errA := filepath.EvalSymlinks(a)
+	resolvedB, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && resolvedA == resolvedB
 }
 
 func TestRunLauncher(t *testing.T) {

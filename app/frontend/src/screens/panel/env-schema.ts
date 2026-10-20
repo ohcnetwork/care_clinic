@@ -88,15 +88,6 @@ export const GROUPS: Group[] = [
         none: "No preference",
       },
       {
-        key: "REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION",
-        file: "frontend",
-        kind: "radio",
-        label: "Use a shorter registration form",
-        help: "Let staff register a patient with fewer details. CARE still asks for the patient's location, so set a default location below to fill it in.",
-        options: YES_NO(),
-        fallback: "false",
-      },
-      {
         key: "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG",
         file: "frontend",
         kind: "text",

@@ -170,13 +170,13 @@ test("support overrides require a valid default area UUID without restricting ot
   expect(validateExtraSetting("REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED", "0")).toBeNull();
 });
 
-test("Advanced exposes only eleven everyday clinic choices and keeps local extras overridable", () => {
+test("Advanced exposes only ten everyday clinic choices and keeps local extras overridable", () => {
   expect(GROUPS.map((entry) => entry.id)).toEqual([
     "branding", "visits", "billing", "backups", "signin",
   ]);
   expect(SETTINGS.map((setting) => setting.key)).toEqual([
     "REACT_APP_TITLE", "REACT_ALLOWED_LOCALES", "REACT_DEFAULT_ENCOUNTER_TYPE",
-    "REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION", "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", "REACT_DEFAULT_PAYMENT_METHOD",
+    "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG", "REACT_DEFAULT_PAYMENT_METHOD",
     "REACT_DEFAULT_PAYMENT_TERMS", "REACT_INVENTORY_DEFAULT_TAX_INCLUSIVE",
     "REACT_ENABLE_AUTO_INVOICE_AFTER_DISPENSE", "DB_BACKUP_RETENTION_PERIOD", "JWT_REFRESH_TOKEN_LIFETIME",
   ]);

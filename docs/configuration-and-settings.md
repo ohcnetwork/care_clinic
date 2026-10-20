@@ -310,12 +310,12 @@ assignments are quoted and normalized individually; new values use the file's
 existing line-ending convention. Friendly controls and new custom edits require
 single-line values. This is still not a replacement for the native dotenv parser.
 
-The normal clinic editor exposes eleven everyday choices:
+The normal clinic editor exposes ten everyday choices:
 
 | Group | Settings |
 | --- | --- |
 | Clinic details | Clinic display name and languages for staff. |
-| Patients and visits | Usual visit type, a shorter registration form and a default patient location. |
+| Patients and visits | Usual visit type and a default patient location. |
 | Billing | Usual payment method, payment instructions, tax-inclusive prices and opening a bill after dispensing. |
 | Backups | Delete backups older than a number of days (shipped as 1; 0 never deletes). |
 | Staff access | How long inactive staff stay signed in. |
@@ -390,7 +390,7 @@ The new-install frontend template includes these visit/address settings:
 | `REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED` | `0` | The currently configured CARE frontend clamps this to **1 required address level**, not an optional address. |
 | `REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG` | Unset (commented example) | No prefilled location. Set it as **Default patient location** under Patients and visits, using the UUID of an existing CARE geographic organization, not its name. |
 
-The minimum address levels setting is support-only. CARE still requires a patient location with the shorter registration form, which is why the default location sits beside it. CARE's current behavior is defined in
+The minimum address levels setting is support-only. CARE's current behavior is defined in
 [`care.config.ts`](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/care.config.ts#L283-L303).
 Unlike generic extra settings, the default area cannot have a blank assignment:
 CARE's [build validator](https://github.com/ohcnetwork/care_fe/blob/90d9a412e179584d5534d354bd4c7c61f42452da/scripts/validate-env.ts)

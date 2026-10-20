@@ -206,7 +206,7 @@ and [earlier-installation recovery](client-recovery.md).
 | Home access | Tailscale setup, turning home access on or off and doctor sharing. |
 | Updates | Separate CARE backend/frontend updates and CARE Clinic application updates. |
 | Plugins | Add catalog or custom plugins and Save and apply from a healthy running clinic. No CARE Clinic password is required. Entries stay **Not applied** until successful; a failed batch is discarded when leaving the tab. Failed loading rolls back to the previous configuration, and unfinished recovery exposes **Recover clinic** in Overview. |
-| Advanced | Eleven everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
+| Advanced | Ten everyday clinic settings, support-only extra overrides, CARE Clinic password/recovery management, diagnostic log, rebuild and uninstall. |
 
 **Connect phone or tablet** displays a real QR code for
 `http://<clinic>.local/setup`. Phones and tablets still need to follow their

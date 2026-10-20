@@ -76,7 +76,11 @@ case "$1 $2" in
     esac
     exit 0 ;;
   'compose down') [ "$CARE_MIGRATION_FAILURE" != down ]; exit $? ;;
-  'compose up') exit 0 ;;
+  'compose up')
+    case "$*" in
+      *' --force-recreate caddy') [ "$CARE_MIGRATION_FAILURE" != proxy ]; exit $? ;;
+    esac
+    exit 0 ;;
   'compose run')
     printf '%s\n%s\n' "$POSTGRES_DB" "$DATABASE_URL" > "$CARE_MIGRATION_CREDENTIALS"
     exit 0 ;;
@@ -157,13 +161,12 @@ func TestStartStopsAndChecksWorkersBeforeMigrations(t *testing.T) {
 }
 
 func TestRebuildStopsCAREBeforeBuildingAndMigratesBeforeWorkersResume(t *testing.T) {
-	for _, failure := range []string{"stop", "migration", ""} {
+	for _, failure := range []string{"stop", "migration", "proxy"} {
 		t.Run(failure, func(t *testing.T) {
 			e, trace, _ := migrationFixture(t)
 			t.Setenv("CARE_MIGRATION_FAILURE", failure)
-			err := e.RebuildBackend()
-			if (err == nil) != (failure == "") {
-				t.Fatalf("unexpected rebuild result: %v", err)
+			if err := e.RebuildBackend(); err == nil {
+				t.Fatal("rebuild reported success after a stop, migration or proxy failure")
 			}
 			calls := trace()
 			down := strings.Index(calls, "compose down\n")
@@ -177,10 +180,10 @@ func TestRebuildStopsCAREBeforeBuildingAndMigratesBeforeWorkersResume(t *testing
 			if stop < build || (migrate >= 0 && migrate < stop) {
 				t.Fatalf("rebuild migrated before stopping workers:\n%s", calls)
 			}
-			if failure != "" && resume >= 0 {
+			if failure != "proxy" && resume >= 0 {
 				t.Fatal("rebuild resumed the stack after a failure")
 			}
-			if failure == "" && resume < migrate {
+			if failure == "proxy" && resume < migrate {
 				t.Fatal("rebuild resumed the stack before migration completed")
 			}
 		})
