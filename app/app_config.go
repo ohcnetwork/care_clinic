@@ -34,6 +34,7 @@ type Config struct {
 	BackupKeyNeedsEnrollment bool      `json:"backup_key_needs_enrollment,omitempty"`
 	AppUpdateChecksOff       bool      `json:"app_update_checks_off,omitempty"`
 	CareUpdateChecksOff      bool      `json:"care_update_checks_off,omitempty"`
+	KeepAwake                bool      `json:"keep_awake,omitempty"`
 }
 
 const (

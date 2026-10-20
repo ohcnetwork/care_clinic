@@ -33,6 +33,7 @@ type Fixtures = {
   storage: StorageReport;
   channel: ChannelStatus;
   autostart: boolean;
+  keepAwake: boolean;
   importedBackup: ImportedBackup;
   recoveryFile: string;
   adminPassword: string;
@@ -156,6 +157,7 @@ export function installTestHost() {
     },
     channel: { backend_branch: "main", frontend_branch: "main", backend: "preview-backend-current", frontend: "preview-frontend-current", pending_backend: "", pending_frontend: "" },
     autostart: true,
+    keepAwake: false,
     importedBackup: { path: `${backupDir}/${exampleBackup.db_dump}`, dir: backupDir, db_dump: exampleBackup.db_dump, files_archive: exampleBackup.files_archive, label: exampleBackup.label, encrypted: true },
     recoveryFile: "/test-fixtures/recovery/CARE-backup-recovery.pem",
     adminPassword: "ClinicTest123",
@@ -455,6 +457,8 @@ export function installTestHost() {
     AutostartEnabled: async () => fixtures.autostart,
     SetAutostart: async (value: boolean) => { fixtures.autostart = value; },
     WasAutostartLaunched: async () => false,
+    KeepAwakeEnabled: async () => fixtures.keepAwake,
+    SetKeepAwake: async (value: boolean) => { fixtures.keepAwake = value; },
     CareUpdateStatus: async () => ({ ...fixtures.channel }),
     GetUpdateChecks: async () => ({ ...fixtures.updateChecks }),
     SetUpdateChecks: async (app: boolean, care: boolean, password: string) => {

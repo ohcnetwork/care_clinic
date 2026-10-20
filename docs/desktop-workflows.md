@@ -200,7 +200,7 @@ and [earlier-installation recovery](client-recovery.md).
 
 | Tab | What to use it for |
 | --- | --- |
-| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, phone/tablet connection, backup summary and actionable problems. |
+| Overview | Clinic health, Start/Stop/Restart, opening CARE, startup at login, keep awake while running, phone/tablet connection, backup summary and actionable problems. |
 | Backups | Actual backup policy and recent backup state, Back up now, backup destination management and restoring a selected file. |
 | Storage | Drive measurements and explicit cleanup of supported disposable Docker resources, not clinic records. |
 | Home access | Tailscale setup, turning home access on or off and doctor sharing. |

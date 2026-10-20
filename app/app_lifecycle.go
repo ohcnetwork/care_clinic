@@ -29,6 +29,7 @@ func (a *App) startup(ctx context.Context) {
 	// Before the role check: a first-run setup records the server role later in
 	// this same process. engineBroken stays inert until setup is done.
 	go a.watchEngine()
+	go a.watchKeepAwake()
 	if a.loadConfig().Role != roleServer {
 		return
 	}
@@ -142,6 +143,7 @@ func (a *App) shutdown(context.Context) {
 	if a.advStop != nil {
 		close(a.advStop)
 	}
+	a.stopKeepAwake()
 	a.advMu.Lock()
 	if a.adv != nil {
 		a.adv.Stop()

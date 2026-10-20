@@ -127,6 +127,8 @@ declare global {
           RemoveApp(): Promise<void>;
           AutostartEnabled(): Promise<boolean>;
           SetAutostart(on: boolean): Promise<void>;
+          KeepAwakeEnabled(): Promise<boolean>;
+          SetKeepAwake(on: boolean): Promise<void>;
           CareUpdateStatus(): Promise<ChannelStatus>;
           CheckCareUpdate(): Promise<void>;
           DismissCareUpdate(): Promise<void>;

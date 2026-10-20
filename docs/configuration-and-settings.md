@@ -118,6 +118,7 @@ See [client removal](native-integrations.md#removing-client-access).
 | `backup_certificate` | `BackupCertificate` | Public encryption certificate prepared before installation. Never the private key. |
 | `backup_recovery_path` / `backup_recovery_verified` | `BackupRecoveryPath` / `BackupRecoveryVerified` | Export location and successful setup verification; not used as an automatic restore-key fallback. |
 | `app_update_checks_off` / `care_update_checks_off` | `AppUpdateChecksOff` / `CareUpdateChecksOff` | Set from Advanced with the admin password to stop CARE Clinic app or CARE software update checks. Omitted when false; missing means checks are on. See [Turning update checks off](#turning-update-checks-off). |
+| `keep_awake` | `KeepAwake` | Set from the Overview switch **Keep this computer awake while the clinic runs**. Omitted when false; missing means off. See [keep awake](native-integrations.md#keep-awake-while-the-clinic-runs). |
 
 The plaintext administrator password and private recovery file are not stored in this object. There is no backup password. Setup passes the administrator password into CARE administrator creation, but subsequent CARE Clinic changes and recovery affect only the local bcrypt hash, not the CARE web login. To change a CARE web password, use **Reset a CARE web password** in Advanced; see [Resetting a CARE web password](backups-and-restore.md#resetting-a-care-web-password).
 

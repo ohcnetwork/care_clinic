@@ -33,6 +33,8 @@ const rancherProfilePlist = `<?xml version="1.0" encoding="UTF-8"?>
 		<key>autoStart</key><true/>
 		<key>startInBackground</key><true/>
 		<key>pathManagementStrategy</key><string>rcfiles</string>
+		<key>updater</key>
+		<dict><key>enabled</key><false/></dict>
 	</dict>
 	<key>containerEngine</key>
 	<dict><key>name</key><string>moby</string></dict>
@@ -120,6 +122,7 @@ func writeRancherProfileWindows() error {
 		{rancherProfileKey, "/v", "version", "/t", "REG_DWORD", "/d", fmt.Sprint(rancherProfileVersion)},
 		{rancherProfileKey + `\application`, "/v", "autoStart", "/t", "REG_DWORD", "/d", "1"},
 		{rancherProfileKey + `\application`, "/v", "startInBackground", "/t", "REG_DWORD", "/d", "1"},
+		{rancherProfileKey + `\application\updater`, "/v", "enabled", "/t", "REG_DWORD", "/d", "0"},
 		{rancherProfileKey + `\containerEngine`, "/v", "name", "/t", "REG_SZ", "/d", "moby"},
 		{rancherProfileKey + `\kubernetes`, "/v", "enabled", "/t", "REG_DWORD", "/d", "0"},
 	}
@@ -148,6 +151,7 @@ func rancherSettings() []string {
 	settings := []string{
 		"--application.auto-start=true",
 		"--application.start-in-background=true",
+		"--application.updater.enabled=false",
 		"--container-engine.name=moby",
 		"--kubernetes.enabled=false",
 	}

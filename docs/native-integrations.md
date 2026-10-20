@@ -48,6 +48,7 @@ This guide describes the current source rather than historical design boards.
 - [Disk space and storage monitoring](#disk-space-and-storage-monitoring)
 - [Health and port checks](#health-and-port-checks)
 - [Login startup and restart detection](#login-startup-and-restart-detection)
+- [Keep awake while the clinic runs](#keep-awake-while-the-clinic-runs)
 - [Error handling and ownership rules](#error-handling-and-ownership-rules)
 - [Source-file role inventory](#source-file-role-inventory)
 - [Verification boundaries and historical differences](#verification-boundaries-and-historical-differences)
@@ -113,6 +114,7 @@ environment, browser, or architecture is supported or has been integration-teste
 | Network repair | `netfix` reports not applicable; no repair. | Public profiles can become Private; three owned inbound rules cover HTTP, HTTPS, and mDNS on Private and Domain profiles. | `netfix` reports not applicable; no repair. |
 | Atomic replacement | Rename within the destination directory, then sync that directory. | `MoveFileEx` with replacement and write-through flags. | Same Unix replacement implementation as macOS. |
 | Login startup | Per-user LaunchAgent plist. | Per-user `HKCU` Run value. | Per-user `.desktop` autostart file under `~/.config`. |
+| Keep awake | `/usr/bin/caffeinate -i -s -w <pid>` child process. | `SetThreadExecutionState(ES_CONTINUOUS \| ES_SYSTEM_REQUIRED)` on a locked OS thread. | `systemd-inhibit --what=idle:sleep --mode=block` around `tail --pid=<pid>`. |
 | Restart detection/action | No pending-restart detection; `Now` returns an unsupported error. | Two registry-key probes; restart action schedules `shutdown /r` after five seconds. | No pending-restart detection; `Now` returns an unsupported error. |
 | Automated Docker setup | Download the pinned, architecture-selected Rancher Desktop DMG and verify its SHA-256. | Download the pinned Rancher Desktop MSI, verify its SHA-256, and run it. | Download Docker's pinned static engine and Compose plugin, verify their SHA-256, install them with a systemd unit, `groupadd`, and `usermod`. |
 | Automated Git setup | Launch Command Line Tools installer with `xcode-select --install`. | Download the pinned Git for Windows installer, verify its SHA-256, and run it silently. | Supported package manager, otherwise a manual plan. |
@@ -1614,6 +1616,7 @@ Rancher Desktop themselves rather than through CARE:
 | `kubernetes.enabled: false` | k3s would consume roughly 1.5GB of RAM the clinic never uses. |
 | `application.autoStart: true` | Rancher Desktop starts at login, so the clinic comes back after a reboot without anyone opening it. |
 | `application.startInBackground: true` | Rancher Desktop starts without its window; the operator only ever sees CARE Clinic. |
+| `application.updater.enabled: false` | Rancher Desktop does not update itself; an unattended upgrade could restart the engine under a running clinic or change behaviour CARE relies on. |
 | `application.pathManagementStrategy: rcfiles` | Lets Rancher Desktop put `~/.rd/bin` on the shell PATH, matching what `AugmentedPath` already prepends. Ignored on Windows. |
 | `virtualMachine.memoryInGB: 3` (macOS only) | The running clinic needs about 1.2 GB. Builds need more, and that comes from the swapfile below rather than from RAM the Mac gives up for as long as Rancher runs. Windows sizes WSL through `.wslconfig`, so the registry profile does not carry it. |
 
@@ -2045,6 +2048,39 @@ window rather than start another independent backend. The bridge's
 set from that second launch. Detailed window/start behavior belongs to
 [The Wails application](wails-application.md).
 
+## Keep awake while the clinic runs
+
+Sources: [keepawake](../app/internal/sys/keepawake), [app_keep_awake.go](../app/app_keep_awake.go).
+
+The Overview switch **Keep this computer awake while the clinic runs** saves
+`keep_awake` in `config.json`. It is off by default and needs no admin
+password, like the login-startup switch.
+
+`watchKeepAwake` starts with the other startup watchers and checks every 30
+seconds; `SetKeepAwake` also checks once right after saving. The computer is
+held awake only when all of these are true:
+
+- `keep_awake` is on;
+- this is a server whose setup is done and which is not being removed;
+- a job such as a start, update or backup is running, or `https://localhost/ping/` answers healthy.
+
+When any of them stops being true, the hold is released and the computer can
+sleep again. A stopped clinic therefore never keeps the computer awake. A hold
+whose helper process has exited is noticed on the next check and taken again.
+Holding and releasing are logged once per change; a failure to hold is logged
+once until a hold succeeds.
+
+| Platform | Mechanism | What it blocks |
+| --- | --- | --- |
+| macOS | `caffeinate -i -s -w <pid>`. `-w` ends it when CARE Clinic exits, even after a crash. | Idle sleep always; system sleep only on AC power. Closing a laptop lid on battery still sleeps. |
+| Windows | `SetThreadExecutionState` with `ES_CONTINUOUS \| ES_SYSTEM_REQUIRED`, held by a goroutine locked to its OS thread; releasing resets it to `ES_CONTINUOUS`. Windows drops it when the process exits. | Idle sleep. The display may still turn off, and the user can still choose Sleep or close the lid. |
+| Linux | `systemd-inhibit --what=idle:sleep --mode=block` running `tail --pid=<pid> -f /dev/null`, so it ends with CARE Clinic. Without `systemd-inhibit` the hold fails and is logged. | Idle and requested sleep through logind. |
+
+The hold lives only as long as the CARE Clinic process. Closing the window
+with **Keep running in the background** keeps the process, so the hold stays.
+Quitting stops the clinic first; shutdown then releases the hold and stops later
+checks from taking it again.
+
 ### reboot: detect a pending Windows restart, not its exact cause
 
 Source: [reboot.go](../app/internal/sys/reboot/reboot.go).
@@ -2166,6 +2202,7 @@ For the rest of the repository, use [Repository map](repository-map.md).
 | [sys/netfix/netfix.go](../app/internal/sys/netfix/netfix.go) | Windows profile/rule readiness, scoped repair, verified prefix-owned removal, and non-Windows no-op entry points. |
 | [sys/netfix/netfix_test.go](../app/internal/sys/netfix/netfix_test.go) | Profile/rule validation, malformed/failed reads, repair-script scope, residue counts, and verified removal via string assertions and POSIX command fixtures. |
 | [sys/autostart/autostart.go](../app/internal/sys/autostart/autostart.go) | Per-user login registration presence and writes/removal for plist, registry Run value, and desktop entry. |
+| [sys/keepawake](../app/internal/sys/keepawake) | Per-platform sleep hold that ends with the process: `caffeinate`, `SetThreadExecutionState`, or `systemd-inhibit`. |
 | [sys/reboot/reboot.go](../app/internal/sys/reboot/reboot.go) | Windows pending-restart key probes, explanatory plan, and delayed restart command. |
 
 ### Readiness and clinic-side integration

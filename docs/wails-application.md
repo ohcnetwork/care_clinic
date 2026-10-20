@@ -515,6 +515,8 @@ File selection is not restore authorization. Full validation and data replacemen
 | `RemoveApp()` | `void` | Waits for any running job, refuses while the computer is still set up, then quits and removes the app. |
 | `AutostartEnabled()` | `boolean` | Reads the platform's login-startup state. |
 | `SetAutostart(on)` | `void` | Sync. Changes the platform login-startup entry. |
+| `KeepAwakeEnabled()` | `boolean` | Reads `keep_awake` from `config.json`. |
+| `SetKeepAwake(on)` | `void` | Sync. Saves `keep_awake`, then rechecks the sleep hold in the background. See [keep awake](native-integrations.md#keep-awake-while-the-clinic-runs). |
 | `SetQuitDialogReady(ready)` | `QuitRequest` or `null` | Registers/unregisters the running-job quit UI and returns a pending snapshot. Unregistration invalidates its current request. |
 | `RespondToQuit(id, quit)` | `void` | Answers only the current running-job quit request; stale/replayed IDs reject. A positive answer requests application exit, not job rollback. |
 | `SetConfirmationDialogReady(ready)` | `ConfirmationRequest` or `null` | Registers/unregisters the permission UI and returns a pending snapshot. Unregistration declines any waiting request. |

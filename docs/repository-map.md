@@ -80,6 +80,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_status.go`](../app/app_status.go) | State/health/tool/network queries, provisioning controls, name/password/folder validation, pre-setup naming. | [Wails application](wails-application.md), [native integrations](native-integrations.md). |
 | [`app_home_access.go`](../app/app_home_access.go) | Home access bindings: Tailscale status, enable and disable. | [Home access](home-access.md). |
 | [`app_ui.go`](../app/app_ui.go) | Native URL/folder/log actions and login-startup controls. | [Wails application](wails-application.md). |
+| [`app_keep_awake.go`](../app/app_keep_awake.go) | Keep-awake setting and the watcher that holds sleep off while the clinic runs. | [Native integrations](native-integrations.md#keep-awake-while-the-clinic-runs). |
 | [`app_env.go`](../app/app_env.go) | Authorized reads and atomic writes of the two installed environment files. | [Configuration](configuration-and-settings.md). |
 | [`app_plugins.go`](../app/app_plugins.go) | Lifecycle-guarded, password-free plugin access through the domain manager. | [Plugins](plugins.md). |
 | [`app_backup.go`](../app/app_backup.go) | Policy, listing/import inspection, restore dispatch, backup picker, and backup-directory changes. | [Backups](backups-and-restore.md), [Wails application](wails-application.md). |
@@ -197,6 +198,10 @@ app/internal/
     |   `-- atomicfile_test.go
     |-- autostart/
     |   `-- autostart.go
+    |-- keepawake/
+    |   |-- keepawake.go
+    |   |-- keepawake_other.go
+    |   `-- keepawake_windows.go
     |-- diskspace/
     |-- elevate/
     |   |-- elevate.go
@@ -251,6 +256,7 @@ app/internal/
 | [`sys/tailscale`](../app/internal/sys/tailscale) | Tailscale CLI discovery, status, and CARE Clinic's own `tailscale serve` handler. | [Home access](home-access.md). |
 | [`sys/netfix`](../app/internal/sys/netfix) | Windows network profiles and application-owned firewall rules. | [Native integrations](native-integrations.md). |
 | [`sys/autostart`](../app/internal/sys/autostart) | Platform login-startup records. | [Native integrations](native-integrations.md). |
+| [`sys/keepawake`](../app/internal/sys/keepawake) | Platform sleep hold while the clinic runs. | [Native integrations](native-integrations.md#keep-awake-while-the-clinic-runs). |
 | [`sys/reboot`](../app/internal/sys/reboot) | Restart requirement and restart request. | [Native integrations](native-integrations.md). |
 
 ### Smaller domain source files
