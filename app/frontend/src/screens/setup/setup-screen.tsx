@@ -16,7 +16,7 @@ import { RequirementStep, type RequirementAction } from "./requirement-step";
 import { RestartDialog } from "./restart-dialog";
 import { SetupLayout } from "./setup-layout";
 import { backupProblem, EMPTY_RECOVERY, isRequirement, recoveryProblem, SETUP_LABELS, type RequirementPage } from "./setup-model";
-import { useSetupChecks } from "./use-setup-checks";
+import { DOCKER_DOWN, useSetupChecks } from "./use-setup-checks";
 
 const ALL_STEPS: SetupPage[] = ["space", "windows", "software", "cleanup", "network", "address", "backup", "admin", "review", "install"];
 
@@ -254,12 +254,12 @@ function SetupWizard({ form, patch, update, onBusy }: {
     if (target === "review") { await validateReview(); return; }
   };
 
-  const execute = async (name: string, fn: () => Promise<void>, recoveryAction = false) => {
+  const execute = async (name: string, fn: () => Promise<void>, recoveryAction = false, keepProblem = false) => {
     if (workRef.current || addressQueuedRef.current || addressTasks.current.size || restartRef.current || update.isActive() || care.busy) return;
     workRef.current = true;
     onBusy(true);
     setOperation(name);
-    setProblem(null);
+    if (!keepProblem) setProblem(null);
     if (recoveryAction) setRecoveryError("");
     try { await fn(); } catch (e) {
       care.log(`setup ${name}: ${errorText(e)}`);
@@ -289,15 +289,16 @@ function SetupWizard({ form, patch, update, onBusy }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const recheck = () => void execute("checking", async () => {
+  const recheck = (background = false) => void execute("checking", async () => {
     if (isRequirement(pageRef.current)) {
       const target = pageRef.current;
       const ok = await requirements.check(target);
       markDone(target, ok);
+      if (background && !requirements.current.current.cleanup.error.startsWith(DOCKER_DOWN)) setProblem(null);
       if (ok) { setAutoPoll(null); setActionNote(""); }
       else if (target === "windows" && requirements.current.current.windows.value?.restart.needed) setRestart(requirements.current.current.windows.value.restart);
     }
-  });
+  }, false, background);
 
   const perform = (action: RequirementAction) => void execute(action, async () => {
     setAutoPoll(null);
@@ -307,6 +308,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
     if (!isRequirement(target)) return;
     try {
       if (action === "windows") { setTool("windows"); await bridge.InstallWSL(); }
+      else if (action === "engine") { setTool("engine"); await bridge.OpenDocker(); }
       else if (action === "network") { setTool("network"); await bridge.FixNetwork(); }
       else if (action === "cleanup") {
         setTool("cleanup");
@@ -354,24 +356,27 @@ function SetupWizard({ form, patch, update, onBusy }: {
     } catch (e) {
       care.log(`setup ${action}: ${errorText(e)}`);
       const text = errorText(e);
-      setProblem(action === "cleanup"
+      await requirements.check(target);
+      const dockerDown = action === "cleanup" && requirements.current.current.cleanup.error.startsWith(DOCKER_DOWN);
+      if (!dockerDown) setProblem(action === "cleanup"
         ? { message: "Cleanup didn't finish. Check what's still listed and try again. Approve the request if your computer asks for permission." }
+        : action === "engine" ? { message: `${engine} couldn't be brought back: ${text}` }
         : downloadProblem(e) ?? { message: /cancel|denied|permission|-128/i.test(text)
           ? "Your computer didn't approve the change. Try again and approve the request when your computer asks."
           : "The required change couldn't finish. Try again. If it keeps failing, send the log file to your support contact." });
-      await requirements.check(target);
       if (action === "cleanup") await loadRecovery();
     }
   });
 
+  const polling = page === "cleanup" && requirements.checks.cleanup.error.startsWith(DOCKER_DOWN) ? "cleanup" : autoPoll;
   useEffect(() => {
-    if (!autoPoll || page !== autoPoll || update.active) return;
+    if (!polling || page !== polling || update.active) return;
     const timer = window.setInterval(() => {
-      if (!workRef.current) recheck();
+      if (!workRef.current) recheck(true);
     }, 5_000);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPoll, page, update.active]);
+  }, [polling, page, update.active]);
 
   const changeHost = (value: string) => {
     changeForm({ hostInput: value });
@@ -496,7 +501,7 @@ function SetupWizard({ form, patch, update, onBusy }: {
       next={continueSetup} nextDisabled={!ready} editing={editing} update={update}>
       <RestartDialog plan={restart} onDismiss={() => setRestart(null)} />
       {isRequirement(page) ? <RequirementStep page={page} checks={requirements.checks} busy={locked} tool={tool} download={download}
-        actionError={problem} actionNote={actionNote} cleanupBefore={cleanupBefore} onAction={perform} onCheck={recheck}
+        actionError={problem} actionNote={actionNote} cleanupBefore={cleanupBefore} onAction={perform} onCheck={() => recheck()}
         onRestart={() => setRestart(requirements.current.current.windows.value?.restart ?? null)} />
         : page === "address" ? <AddressStep value={form.hostInput} result={address} disabled={operation !== "" || update.active || care.busy} onChange={changeHost} onCheck={() => void checkAddress(formRef.current.hostInput)} />
         : page === "backup" ? <BackupStep form={form} space={space} folderProblem={folderError} recovery={recovery} recoveryError={recoveryError} busy={locked} action={operation}

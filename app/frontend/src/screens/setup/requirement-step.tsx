@@ -11,9 +11,9 @@ import { downloadProblem, type PrerequisiteProblem } from "@/lib/prerequisite-er
 import { useCare } from "@/state/care-store";
 import type { DownloadInfo, PrereqDownloadProgress, ResidueReport } from "@/types";
 import { INSTALL_MIN_FREE, SOFTWARE_DESCRIPTIONS, type RequirementPage } from "./setup-model";
-import type { SetupChecks } from "./use-setup-checks";
+import { DOCKER_DOWN, type SetupChecks } from "./use-setup-checks";
 
-export type RequirementAction = "windows" | "software" | "docker" | "git" | "cleanup" | "network";
+export type RequirementAction = "windows" | "software" | "docker" | "engine" | "git" | "cleanup" | "network";
 
 export function RequirementStep({ page, checks, busy, tool, download, actionError, actionNote, cleanupBefore, onAction, onCheck, onRestart }: {
   page: RequirementPage;
@@ -30,6 +30,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
 }) {
   const { platform, log } = useCare();
   const engine = platform === "linux" ? "Docker" : "Rancher Desktop";
+  const dockerDown = page === "cleanup" && checks.cleanup.error.startsWith(DOCKER_DOWN);
   const [downloadInfo, setDownloadInfo] = useState<DownloadInfo | null>(null);
   const [sizeError, setSizeError] = useState<PrerequisiteProblem | null>(null);
   const [sizeAttempt, setSizeAttempt] = useState(0);
@@ -130,12 +131,15 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
         </>
       ) : page === "cleanup" ? (
         <div className="on-card on-pad">
-          <div className="on-card-head"><span className="on-tile on-large"><Trash2 aria-hidden="true" /></span><div className="on-grow"><h2>{ready ? "Nothing from the earlier setup is left" : tool ? "Removing the earlier setup" : "Still on this computer"}</h2></div>{tool ? <Spinner /> : null}</div>
+          <div className="on-card-head"><span className="on-tile on-large"><Trash2 aria-hidden="true" /></span><div className="on-grow"><h2>{ready ? "Nothing from the earlier setup is left" : tool === "cleanup" ? "Removing the earlier setup" : dockerDown ? `Waiting for ${engine}` : "Still on this computer"}</h2></div>{tool ? <Spinner /> : null}</div>
           <ul className="on-leftovers">{(cleanupBefore?.traces ?? checks.cleanup.value?.traces ?? []).map((trace) => {
             const removed = cleanupBefore && checks.cleanup.state !== "failed" && checks.cleanup.value && !(checks.cleanup.value.traces ?? []).some((item) => item.id === trace.id);
             return <li key={trace.id}>{trace.label}{removed ? <span className="on-success"> — Removed</span> : cleanupBefore && !tool ? " — Still here" : ""}</li>;
           })}</ul>
-          {!ready ? <><p>This deletes the earlier clinic's database and files from this computer and can't be undone. Backups that clinic made are kept.</p>
+          {dockerDown ? <><p>Docker has to answer before CARE can check for or remove anything from the earlier setup.</p>
+            <div className="on-actions"><Button variant="primary" disabled={busy} onClick={() => onAction("engine")}>{tool === "engine" ? <Spinner /> : <RefreshCw aria-hidden="true" />}{tool === "engine" ? "Restarting…" : platform === "linux" ? "Start Docker" : "Restart Rancher Desktop"}</Button></div>
+            {tool === "engine" ? <p className="on-small" role="status" style={{ marginTop: 8 }}>This can take a few minutes.</p> : null}
+          </> : !ready ? <><p>This deletes the earlier clinic's database and files from this computer and can't be undone. Backups that clinic made are kept.</p>
             <p className="on-small" style={{ marginTop: 8 }}>Any recovery materials saved during this setup will need to be saved again after removal. Your computer may ask for a password, fingerprint or PIN.</p>
             <div className="on-actions"><Button variant="destructive" disabled={busy} onClick={() => onAction("cleanup")}>{tool ? <Spinner /> : <Trash2 aria-hidden="true" />}{tool ? "Removing…" : cleanupBefore ? "Try again" : "Remove it all"}</Button></div>
             {tool ? <p className="on-small" role="status" style={{ marginTop: 8 }}>This usually takes 1 to 3 minutes.</p> : null}
@@ -150,7 +154,7 @@ export function RequirementStep({ page, checks, busy, tool, download, actionErro
           </Callout></div> : null}
         </div>
       )}
-      {check.error || actionError ? <Callout tone="danger" title={actionError?.title ?? "This step couldn't finish"}>{actionError?.message || check.error}<div className="on-actions"><Button disabled={busy} onClick={() => actionError && page !== "space" ? onAction(page) : onCheck()}>Try again</Button><LogButton /></div></Callout> : null}
+      {check.error || actionError ? <Callout tone="danger" title={actionError?.title ?? "This step couldn't finish"}>{actionError?.message || check.error}<div className="on-actions"><Button disabled={busy} onClick={() => actionError && page !== "space" && page !== "cleanup" ? onAction(page) : onCheck()}>Try again</Button><LogButton /></div></Callout> : null}
       {actionNote && !actionError ? <Callout>{actionNote}{!busy ? <div className="on-actions">{footer()}</div> : null}</Callout> : null}
     </>
   );

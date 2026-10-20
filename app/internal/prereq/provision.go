@@ -374,7 +374,15 @@ func (pr *Provisioner) OpenDocker() error {
 	pr.logln("Starting Docker...")
 	switch runtime.GOOS {
 	case "darwin", "windows":
-		if err := pr.relaunchRancher(); err != nil {
+		if pr.dockerDaemonUp() {
+			pr.logln("Docker is ready.")
+			return nil
+		}
+		start := pr.startRancher
+		if RancherStuck() || rancherReportsStarted() {
+			start = pr.restartRancher
+		}
+		if err := start(); err != nil {
 			return err
 		}
 	case "linux":
@@ -382,7 +390,12 @@ func (pr *Provisioner) OpenDocker() error {
 			return fmt.Errorf("could not start the Docker service: %w", err)
 		}
 	}
-	return pr.waitForDocker(dockerReadyTimeout)
+	err := pr.waitForDocker(dockerReadyTimeout)
+	if err != nil && runtime.GOOS == "windows" {
+		return fmt.Errorf("%w. If Docker still doesn't answer, quit Rancher Desktop, "+
+			"run \"wsl --shutdown\" in PowerShell, then start Rancher Desktop again", err)
+	}
+	return err
 }
 
 // rancherRestartPause gives Rancher Desktop's virtual machine time to go away
@@ -399,7 +412,7 @@ func (pr *Provisioner) relaunchRancher() error {
 }
 
 func (pr *Provisioner) restartRancher() error {
-	pr.logln("Rancher Desktop is open, but its virtual machine has stopped; restarting Rancher Desktop...")
+	pr.logln("Rancher Desktop is open, but Docker inside it is not answering; restarting Rancher Desktop...")
 	if rdctl := rdctlPath(); rdctl != "" {
 		if err := pr.launcher().RunLauncher(rancherCommandTimeout, rdctl, "shutdown"); err != nil {
 			pr.logln("Warning: could not shut down Rancher Desktop before restarting it: " + err.Error())
@@ -412,6 +425,7 @@ func (pr *Provisioner) restartRancher() error {
 func (pr *Provisioner) startRancher() error {
 	// A fresh launch gets the full startup grace before silence counts against it.
 	silentRancher.reset()
+	unansweredDocker.reset()
 	pr.logln("Rancher launcher output is discarded; use Rancher Desktop's Troubleshooting logs for startup diagnostics.")
 	if err := writeRancherProfile(); err != nil {
 		pr.logln("Warning: could not preconfigure Rancher Desktop: " + err.Error())

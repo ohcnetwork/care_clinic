@@ -89,11 +89,9 @@ func (a *App) OpenSetupRecoveryFolder(codes bool) error {
 		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("couldn't find the saved recovery file: %w", err)
 		}
-		cmd := proc.Command("explorer.exe", "/select,"+path)
-		if err := cmd.Start(); err != nil {
+		if err := proc.Reveal(path); err != nil {
 			return fmt.Errorf("couldn't open the recovery folder: %w", err)
 		}
-		go func() { _ = cmd.Wait() }()
 		return nil
 	})
 }
@@ -126,19 +124,12 @@ func (a *App) OpenLogFolder() (err error) {
 	if path == "" {
 		return errors.New("this run isn't writing a log file - the log folder couldn't be opened for writing")
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = proc.Command("open", "-R", path)
-	case "windows":
-		cmd = proc.Command("explorer.exe", "/select,"+path)
-	default:
-		cmd = proc.Command("xdg-open", filepath.Dir(path))
+	if _, err := os.Stat(path); err != nil {
+		path = filepath.Dir(path)
 	}
-	if err := cmd.Start(); err != nil {
+	if err := proc.Reveal(path); err != nil {
 		return fmt.Errorf("couldn't open the log folder: %w", err)
 	}
-	go func() { _ = cmd.Wait() }()
 	return nil
 }
 

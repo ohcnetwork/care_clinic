@@ -17,22 +17,30 @@ func TestVMStuck(t *testing.T) {
 		windows bool
 		distro  func() bool
 		silent  time.Duration
+		docker  time.Duration
 		want    bool
 	}{
-		{"error after a WSL update", "ERROR", true, true, down, 0, true},
-		{"error on macOS", "ERROR", true, false, up, 0, true},
-		{"starting is waited on", "STARTING", true, true, down, 0, false},
-		{"stopping is waited on", "STOPPING", true, true, down, 0, false},
-		{"started with its VM gone", "STARTED", true, true, down, 0, true},
-		{"started and running", "STARTED", true, true, up, 0, false},
-		{"no answer yet while starting", "", false, true, down, 10 * time.Second, false},
-		{"stopped on Windows", "STOPPED", true, true, down, 0, true},
-		{"no answer but VM running", "", false, true, up, time.Hour, false},
-		{"stopped on macOS", "STOPPED", true, false, up, 0, true},
-		{"no answer on macOS", "", false, false, up, time.Hour, false},
-		{"silent past the grace with its VM gone", "", false, true, down, rancherSilenceGrace, true},
+		{"error after a WSL update", "ERROR", true, true, down, 0, 0, true},
+		{"error on macOS", "ERROR", true, false, up, 0, 0, true},
+		{"starting is waited on", "STARTING", true, true, down, 0, 0, false},
+		{"stopping is waited on", "STOPPING", true, true, down, 0, 0, false},
+		{"started with its VM gone", "STARTED", true, true, down, 0, 0, true},
+		{"started and running", "STARTED", true, true, up, 0, 0, false},
+		{"no answer yet while starting", "", false, true, down, 10 * time.Second, 0, false},
+		{"stopped on Windows", "STOPPED", true, true, down, 0, 0, true},
+		{"no answer but VM running", "", false, true, up, time.Hour, 0, false},
+		{"stopped on macOS", "STOPPED", true, false, up, 0, 0, true},
+		{"no answer on macOS", "", false, false, up, time.Hour, 0, false},
+		{"silent past the grace with its VM gone", "", false, true, down, rancherSilenceGrace, 0, true},
+		{"started but Docker briefly silent", "STARTED", true, true, up, 0, time.Minute, false},
+		{"started but Docker silent past the grace", "STARTED", true, true, up, 0, rancherSilenceGrace, true},
+		{"starting with Docker silent", "STARTING", true, true, up, 0, time.Hour, false},
+		{"started on macOS with Docker silent", "STARTED", true, false, up, 0, time.Hour, false},
+		{"disabled Kubernetes with its VM gone", "DISABLED", true, true, down, 0, 0, true},
+		{"disabled Kubernetes and running", "DISABLED", true, true, up, 0, 0, false},
+		{"disabled Kubernetes with Docker silent past the grace", "DISABLED", true, true, up, 0, rancherSilenceGrace, true},
 	} {
-		if got := vmStuck(tc.state, tc.known, tc.windows, tc.distro, tc.silent); got != tc.want {
+		if got := vmStuck(tc.state, tc.known, tc.windows, tc.distro, tc.silent, tc.docker); got != tc.want {
 			t.Errorf("%s: vmStuck = %v, want %v", tc.name, got, tc.want)
 		}
 	}

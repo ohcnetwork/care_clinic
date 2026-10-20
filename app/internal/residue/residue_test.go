@@ -169,6 +169,8 @@ func TestSystemTracesClassifySetupResidue(t *testing.T) {
 	}{
 		{"after cleanup", nil, nil, true},
 		{"after network repair", []Trace{{ID: "firewall", Label: "Firewall rules"}}, nil, true},
+		{"after a prerequisite restart", []Trace{{ID: "autostart", Label: "Start at login"}}, nil, true},
+		{"autostart and old hosts entry", []Trace{{ID: "autostart"}, {ID: "hosts"}}, nil, false},
 		{"unknown system state", nil, inspectionError, false},
 		{"firewall and inspection failure", []Trace{{ID: "firewall"}}, inspectionError, false},
 		{"existing hosts entry", []Trace{{ID: "hosts", Label: "Hosts file entry"}}, nil, false},

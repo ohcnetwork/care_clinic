@@ -97,8 +97,9 @@ func scan(o Options, inspectSystem func(proc.Runner) ([]Trace, error)) (Report, 
 
 	blocking := 0
 	for _, trace := range traces {
-		// Network repair creates firewall rules before setup; they are not an old clinic.
-		if trace.ID != "images" && trace.ID != "firewall" {
+		// Network repair creates firewall rules and a prerequisite restart turns on
+		// start at login before setup; neither is an old clinic.
+		if trace.ID != "images" && trace.ID != "firewall" && trace.ID != "autostart" {
 			blocking++
 		}
 	}

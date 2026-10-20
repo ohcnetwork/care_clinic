@@ -3,6 +3,7 @@ package proc
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -155,7 +156,17 @@ func (r Runner) RunWith(extraEnv []string, name string, args ...string) error {
 // Capture returns trimmed stdout without streaming.
 func (r Runner) Capture(name string, args ...string) (string, error) {
 	out, err := r.cmd(name, args...).Output()
-	return strings.TrimSpace(string(out)), err
+	return strings.TrimSpace(string(out)), withStderr(err)
+}
+
+func withStderr(err error) error {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		if detail := strings.TrimSpace(string(exit.Stderr)); detail != "" {
+			return fmt.Errorf("%w: %s", err, detail)
+		}
+	}
+	return err
 }
 
 func (r Runner) CaptureIn(timeout time.Duration, extraEnv []string, name string, args ...string) (string, error) {
@@ -177,7 +188,7 @@ func (r Runner) CaptureIn(timeout time.Duration, extraEnv []string, name string,
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("%s timed out after %s", name, timeout)
 	}
-	return strings.TrimSpace(string(out)), err
+	return strings.TrimSpace(string(out)), withStderr(err)
 }
 
 // Lines returns Capture's non-empty output lines, trimmed.

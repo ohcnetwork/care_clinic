@@ -269,9 +269,9 @@ Execution abbreviations: **query** means no `run`/`withJob` helper, **read** mea
 | `GitPlan()` | `ToolPlan` | Query. Describes the available Git action. |
 | `InstallDocker()` | `string` | Sync. Runs prerequisite provisioning and returns its result or error. |
 | `InstallGit()` | `string` | Sync. Runs Git provisioning. |
-| `OpenDocker()` | `void` | Sync. Attempts to launch the available Docker application: Rancher Desktop on macOS/Windows, the `docker` service on Linux. |
+| `OpenDocker()` | `void` | Sync. Attempts to launch the available Docker application: Rancher Desktop on macOS/Windows, the `docker` service on Linux. Returns at once when Docker already answers. A Rancher Desktop that is stuck, or reports its VM up while Docker is not answering, is fully restarted instead. On Windows, a readiness failure tells the operator to run `wsl --shutdown`. |
 | `RestartPlan()` | `RestartPlan` | Query. Describes a detected prerequisite-related reboot requirement. |
-| `RestartNow()` | `void` | Sync. Attempts to enable login startup, then requests an OS restart; autostart failure is logged. |
+| `RestartNow()` | `void` | Sync. Attempts to enable login startup, then requests an OS restart; autostart failure is logged. The residue scan does not count that login entry as an earlier clinic. |
 | `ClinicHealth()` | `Health` | Query. HTTP health probe, separate from name and certificate-trust checks. |
 | `ClinicStatus()` | `string` | Query. Engine's formatted Compose service status. |
 | `DiskStatus()` | `DiskStatus` | Query. Installation/running free-space assessment. Measurement problems are described in the result, not necessarily a rejected promise; do not infer measured free bytes from `ok` alone. |
@@ -398,7 +398,7 @@ to warn that the computer will ask for permission.
 | `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. Refused before the job starts while app update checks are off. |
 | `GetUpdateChecks()` | `UpdateChecks` | Query, no password. `{app, care}`: whether CARE Clinic app and CARE software update checks are on. Missing settings read as on. See [update checks](#turning-update-checks-off). |
 | `SetUpdateChecks(app, care, adminPassword)` | `void` | Sync, under the exclusive job gate. Requires the CARE Clinic admin password (`requireAdmin`), saves both flags to `config.json` and logs the new values. |
-| `ScanResidue()` | `ResidueReport` | Query. Role-independent. Inspects owned files, Docker resources, saved-password presence and native traces. No Docker executable means no Docker-side traces; an installed engine that cannot be inspected is an error. |
+| `ScanResidue()` | `ResidueReport` | Query. Role-independent. Inspects owned files, Docker resources, saved-password presence and native traces. No Docker executable means no Docker-side traces; an installed engine that cannot be inspected is an error, and the setup Cleanup page then shows Docker's status and waits for it. A start-at-login entry is reported but does not block setup. |
 | `PurgeResidue(confirmed)` | `ResidueReport` | Sync. Server only. Requires explicit destructive confirmation, refuses a normal installed clinic, preserves backups and returns the post-cleanup report. |
 
 `InstallAppUpdate` cannot call `wruntime.Quit` directly. `beforeClose` takes the job lock before it checks the closing flag, so quitting from inside a running job would ask the user whether to quit during the update. `quitAfterJob` waits for the job lock to be released and quits then.
@@ -511,7 +511,7 @@ File selection is not restore authorization. Full validation and data replacemen
 | `OpenURL(url)` | `void` | Opens the URL through the native browser integration. |
 | `ChooseFolder(title)` | `string` | Native directory dialog; empty string means cancellation. Starts at Windows' Desktop known folder on Windows and the user home elsewhere. Windows known-folder lookup failures and dialog errors reject and are logged. |
 | `LogPath()` | `string` | Current diagnostic log path; may be empty if file logging is unavailable. |
-| `OpenLogFolder()` | `void` | Opens/reveals the log with the OS file browser; errors if no log file is available. |
+| `OpenLogFolder()` | `void` | Reveals the log with the OS file browser through `proc.Reveal`, or opens its folder when the file does not exist yet; errors if no log path is available. |
 | `WasAutostartLaunched()` | `boolean` | Whether process arguments contain `--autostart`. |
 | `UninstallRequested()` | `boolean` | Whether the Windows uninstaller started this process with `--uninstall`. |
 | `ExitUninstall()` | `void` | Waits for any running job, then quits. The process exit code tells the uninstaller whether the setup is gone. |

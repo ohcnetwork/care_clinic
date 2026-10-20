@@ -831,7 +831,7 @@ not complete.
 Conceptually:
 
 ```text
-Clean = no traces except possibly "images" and "firewall"
+Clean = no traces except possibly "images", "firewall", and "autostart"
         AND no inspection errors
 ```
 
@@ -840,9 +840,28 @@ other: network repair creates them before setup. The separate network check
 still validates their configuration. Uninstall and an actual residue purge
 still remove and verify owned firewall rules; only the first-run blocker changes.
 
+Start at login follows the same rule. On Windows, `RestartNow` turns it on so
+the app reopens after a prerequisite restart, so the first launch after that
+restart always finds it. Treating it as an old clinic sent first-run setup into
+a purge that needs a running Docker engine before one exists. Setup turns start
+at login on again when it finishes, and Uninstall and Purge still remove it.
+
 A failed Docker query, inaccessible install/config path, or failed native
 inspection makes `Clean=false` even when no positive trace could be produced.
 An empty list plus an error is **unknown**, not clean.
+
+The setup Cleanup page asks `DockerStatus` whenever its scan fails. If Docker
+is not answering, the check's error names that cause with the Docker status
+message. While that error stands, the page re-checks every five seconds, hides
+the removal button, sends every Try again to a read-only re-check, and offers
+**Restart Rancher Desktop** (`OpenDocker`; **Start Docker** on Linux). Polling
+is derived from the cleanup check's result alone, so it starts and stops the
+same way after a page visit, Continue, Check again, or a purge. A background
+re-check keeps an action error, such as a failed Rancher restart with its
+`wsl --shutdown` advice, while Docker is still down, and clears it once Docker
+answers. On the Cleanup page the error alert's **Try again** only ever
+re-checks; removal runs only from the destructive button. `proc.Runner.Capture` appends a
+failed command's stderr to its error, so the log shows why `docker` refused.
 
 The App decides whether saved
 configuration represents installation state. A config containing only an

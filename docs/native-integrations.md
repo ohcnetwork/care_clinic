@@ -314,8 +314,13 @@ The application boundaries are distinct:
   the separate `care-log` desktop event when a Wails context exists. The file
   logger itself knows nothing about that event.
 - [app_ui.go](../app/app_ui.go) returns an explicit error if `OpenLogFolder`
-  finds no log path. Otherwise it starts `open -R`, `explorer.exe /select,`, or
-  `xdg-open` as appropriate. A launch failure is returned; later opener exit
+  finds no log path. Otherwise it reveals the log file, or its folder when the
+  file does not exist yet, through `proc.Reveal`: `open -R` on macOS, `xdg-open`
+  of the folder on Linux, and `ShellExecute` of `explorer.exe /select,"<path>"`
+  on Windows. Windows does not go through `proc.Command`: its hidden-window
+  flags reach Explorer and keep the window from appearing, and Go's argument
+  quoting wraps the whole `/select,` argument when the path has a space, which
+  Explorer does not parse. A launch failure is returned; later opener exit
   status is ignored.
 
 `Logger.Fatal` is exceptional: it writes a fatal line and invokes `OnFatal` when
@@ -1592,6 +1597,37 @@ Rancher Desktop executable lookup checks `%LOCALAPPDATA%\Programs`,
 `ProgramFiles`, `ProgramW6432`, and `C:\Program Files`, each with
 `Rancher Desktop\Rancher Desktop.exe`.
 
+### When Rancher Desktop counts as stuck
+
+`prereq.RancherStuck` decides whether an open Rancher Desktop needs a full
+restart (`rdctl shutdown`, a pause, then a start) rather than waiting. Callers
+only ask after Docker has just failed to answer. Rancher is stuck when its VM
+reports `ERROR` or `STOPPED`; when it reports the VM up on Windows but the
+`rancher-desktop` WSL distribution is not running; when its API has been silent
+for `rancherSilenceGrace` (2 minutes) on Windows and the distribution is not
+running; or when it reports the VM up on Windows and Docker has not answered for
+`rancherSilenceGrace`. `STARTING` and `STOPPING` are never stuck. Rancher
+reports a VM that is up as `STARTED`, or as `DISABLED` when Kubernetes is off,
+which CARE's deployment profile always sets; both count as up.
+
+The last rule covers Docker failing with "timeout dialing Hyper-V socket": the
+Windows-side proxy has lost its channel to the VM while Rancher and WSL both
+still report it running. `DockerCheck` resets that timer whenever Docker
+answers, and every Rancher launch resets it so a fresh start gets the full
+grace. The engine watch then restarts Rancher on its own after setup.
+
+`OpenDocker` is the explicit action (Start or Restart Rancher Desktop, and the
+engine watch). It first asks Docker directly and returns without touching
+Rancher when Docker already answers, because a button can be pressed on a status
+fetched before Docker finished starting. Otherwise it restarts instead of
+starting whenever Rancher is stuck or reports its VM up, because a plain start
+is ignored while Rancher is running. On Windows, if Docker still does not answer
+by the end of the wait, whichever path started or restarted Rancher, the error
+tells the operator to quit Rancher Desktop, run `wsl --shutdown`, and start it
+again.
+CARE does not run `wsl --shutdown` itself: it also stops every other WSL
+distribution on the computer.
+
 ### The Rancher Desktop deployment profile
 
 Source: [profile.go](../app/internal/prereq/profile.go).
@@ -1796,8 +1832,9 @@ uses `https://git-scm.com/downloads`.
 
 ### Waiting, downloads, and side effects
 
-`OpenDocker` launches Rancher Desktop on macOS/Windows. On Linux it elevates
-`systemctl start docker`. It then uses `dockerReadyTimeout = 8 * time.Minute`,
+`OpenDocker` launches Rancher Desktop on macOS/Windows, or restarts it when it
+is stuck or reports its VM up (see "When Rancher Desktop counts as stuck"). On
+Linux it elevates `systemctl start docker`. It then uses `dockerReadyTimeout = 8 * time.Minute`,
 checking full `DockerCheck` readiness and sleeping three seconds between
 unsuccessful checks. Poll deadlines are checked between probes; they are not
 hard cancellation deadlines for the whole operation.
