@@ -88,6 +88,28 @@ func fakeCLI(t *testing.T, serveStatus string) (string, string) {
 	return script, calls
 }
 
+func TestTheMacAppBinaryIsAlwaysRunAsTheCLI(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Tailscale command is a shell script")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "tailscale")
+	body := "#!/bin/sh\n" +
+		"[ \"$TAILSCALE_BE_CLI\" = 1 ] || { echo 'The Tailscale GUI failed to start' >&2; exit 0; }\n" +
+		"if [ \"$1\" = status ]; then echo '{\"BackendState\":\"Running\",\"CertDomains\":[\"care.tail1234.ts.net\"],\"Self\":{\"DNSName\":\"care.tail1234.ts.net.\"}}'; fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	previous := findCLI
+	findCLI = func() string { return script }
+	t.Cleanup(func() { findCLI = previous })
+	status := Check(proc.Runner{Env: []string{"PATH=/usr/bin:/bin"}}, Target(8480))
+	if !status.Running {
+		t.Fatalf("an app started outside a terminal could not read Tailscale: %+v", status)
+	}
+}
+
 func TestUnreadableServeStatusBlocksEnable(t *testing.T) {
 	_, calls := fakeCLI(t, "echo broken >&2; exit 1")
 	status := Check(proc.Runner{}, Target(8480))

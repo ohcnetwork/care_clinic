@@ -288,6 +288,13 @@ test("catalog choices respect custom plugin identities as well as catalog IDs", 
   await page.keyboard.press("Escape");
 });
 
+test("an expanded catalog plugin shows its whole description, including setup steps", async ({ page }) => {
+  await openPlugins(page, { saved: [catalog[0].plugin] });
+  const onboarding = row(page, "CARE Onboarding");
+  await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
+  await expect(onboarding.locator(".care-plugin-description")).toHaveText(catalog[0].description!);
+});
+
 test("the catalog offers only onboarding alongside custom plugins", async ({ page }) => {
   await openPlugins(page, { saved: [] });
   await addButton(page).click();

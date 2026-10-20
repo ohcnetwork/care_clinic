@@ -396,6 +396,9 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
                 <fieldset id={`plugin-editor-${row.uid}`} disabled={locked}
                   className="care-plugin-editor flex min-w-0 flex-col gap-4 px-3 pb-4">
                   <legend className="sr-only">{name} settings</legend>
+                  {description ? (
+                    <p className="care-plugin-description text-[12.5px] leading-relaxed text-muted-foreground">{description}</p>
+                  ) : null}
                   {!row.catalog ? (
                     <div className="care-plugin-identity flex flex-wrap items-start gap-4">
                       <Field id={field("label")} label="Display name" className="care-plugin-identity-field"
