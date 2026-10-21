@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
-import type { CarePlugin, PluginCatalogEntry } from "../src/types";
+import type { CarePlugin, PluginCatalogEntry, PluginSetting } from "../src/types";
 import {
   describeChanges, hasPluginProblems, pluginChanges, pluginProblems, reconcileCatalog, requiredConfig,
   serializePlugins, settingValue, toPluginRow, withSetting,
@@ -830,6 +830,17 @@ test("described settings edit typed values in place and keep text as text", () =
   let fillyDraft = toPluginRow(filly.plugin, 1);
   fillyDraft = withSetting(fillyDraft, filly.settings![0], "123");
   expect(serializePlugins([fillyDraft])[0].backend!.configs!.MEDISPEAK_API_KEY).toBe("123");
+
+  const limit: PluginSetting = { part: "backend", key: "LIMIT", label: "Limit", type: "number" };
+  for (const value of [null, 1e-7, 42]) {
+    const numbered = withSetting(toPluginRow(filly.plugin, 2), limit, value);
+    expect(settingValue(numbered, limit)).toBe(value);
+    expect(serializePlugins([numbered])[0].backend!.configs!.LIMIT).toBe(value);
+  }
+  const edited = withSetting(toPluginRow(filly.plugin, 3), limit, null);
+  const index = edited.backend!.configs.findIndex((config) => config.key === "LIMIT");
+  edited.backend!.configs[index] = { ...edited.backend!.configs[index], value: "null", typed: undefined };
+  expect(serializePlugins([edited])[0].backend!.configs!.LIMIT).toBe("null");
 });
 
 test("saved removals and edits are summarised and excluded from the saved list", () => {

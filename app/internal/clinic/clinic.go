@@ -3,6 +3,8 @@ package clinic
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,7 +73,17 @@ func (e *Clinic) baseEnv() []string {
 	set("FACILITY_S3_BUCKET", strings.TrimSpace(benv["FACILITY_S3_BUCKET"]))
 	set("BACKUP_DIR", e.backupDir())
 	set("BACKUP_TZ", posixTZ(time.Now()))
+	set("BACKUP_SCRIPT_SHA", e.backupScriptSHA())
 	return env
+}
+
+func (e *Clinic) backupScriptSHA() string {
+	b, err := os.ReadFile(filepath.Join(e.InstallDir, "scripts", "backup.sh"))
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:8])
 }
 
 func posixTZ(now time.Time) string {

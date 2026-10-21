@@ -236,7 +236,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
               ...r,
               backend: {
                 ...r.backend,
-                configs: r.backend.configs.map((c, i) => (i === index ? { ...c, ...values, text: false } : c)),
+                configs: r.backend.configs.map((c, i) => (i === index ? { ...c, ...values, typed: undefined } : c)),
               },
             }
           : r,

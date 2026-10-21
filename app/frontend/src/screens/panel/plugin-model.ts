@@ -4,7 +4,7 @@ export type ConfigRow = {
   key: string;
   value: string;
   original?: { text: string; value: unknown };
-  text?: boolean;
+  typed?: { text: string; value: unknown };
 };
 export type BackendDraft = { name: string; package_name: string; version: string; configs: ConfigRow[] };
 export type FrontendDraft = { slug: string; url: string; metaText: string };
@@ -125,7 +125,7 @@ export function serializePlugins(rows: PluginRow[]): CarePlugin[] {
       const configs = Object.fromEntries(row.backend.configs.map((config) => [
         config.key.trim(),
         config.original && config.value === config.original.text
-          ? config.original.value : config.text ? config.value : parseConfigValue(config.value),
+          ? config.original.value : typedValue(config),
       ]));
       plugin.backend = {
         name: row.backend.name.trim(),
@@ -264,7 +264,7 @@ export function settingValue(row: PluginRow, setting: PluginSetting): unknown {
     const config = row.backend?.configs.find((config) => config.key.trim() === setting.key);
     if (!config) return undefined;
     if (config.original && config.value === config.original.text) return config.original.value;
-    return config.text ? config.value : parseConfigValue(config.value);
+    return typedValue(config);
   }
   let node: unknown = readMeta(row);
   for (const part of setting.key.split(".")) {
@@ -274,9 +274,13 @@ export function settingValue(row: PluginRow, setting: PluginSetting): unknown {
   return node;
 }
 
-function settingText(value: unknown): { value: string; text: boolean } {
-  if (typeof value === "string") return { value, text: true };
-  return { value: JSON.stringify(value ?? null), text: false };
+function typedValue(config: ConfigRow): unknown {
+  return config.typed && config.value === config.typed.text ? config.typed.value : parseConfigValue(config.value);
+}
+
+function settingText(value: unknown): { value: string; typed: { text: string; value: unknown } } {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  return { value: text, typed: { text, value: value ?? null } };
 }
 
 export function withSetting(row: PluginRow, setting: PluginSetting, value: unknown): PluginRow {

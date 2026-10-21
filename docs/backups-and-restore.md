@@ -458,6 +458,12 @@ daylight-saving change is picked up at the next start; until then midnight can
 be an hour off. The due time is saved in `backup-state/next-backup`, so restarting the
 container does not take an extra backup or reset the schedule.
 
+The sidecar's shell loads `backup.sh` once, so replacing the bind-mounted file
+does not change a running container. The app therefore also passes a short
+SHA-256 of the installed script as `BACKUP_SCRIPT_SHA`. When an upgrade changes
+the script, the hash changes, and the next start recreates only the backup
+container with the new script, including its retention rules.
+
 The schedule is not a single `sleep 86400`. The sidecar runs inside the Docker
 virtual machine on macOS and Windows, and that machine is paused while the
 computer sleeps; a sleep timer does not count paused time, so a laptop that
