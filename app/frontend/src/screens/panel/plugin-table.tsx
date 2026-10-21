@@ -318,11 +318,11 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
     });
   };
 
-  const save = async () => {
-    if (lockedRef.current || saving.current) return;
+  const save = async (): Promise<boolean> => {
+    if (lockedRef.current || saving.current) return false;
     if (invalid) {
       revealProblems();
-      return;
+      return false;
     }
     saving.current = true;
     setSaveProblem("");
@@ -334,7 +334,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
       persisted = true;
       submittedRows.current = rows;
       setNeedsApply(true);
-      if (!mounted.current) return;
+      if (!mounted.current) return false;
       applying.current = true;
       setPhase("applying");
       const accepted = await runAction("apply-plugins");
@@ -343,6 +343,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
         saving.current = false;
         if (mounted.current) setPhase("apply-error");
       }
+      return accepted;
     } catch (cause) {
       applying.current = false;
       log(persisted ? "plugins: applying the saved settings could not start" : "plugins: the settings could not be saved");
@@ -350,6 +351,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
         setSaveProblem(describeOperationError("apply-plugins", cause).message);
         setPhase(persisted ? "apply-error" : "save-error");
       }
+      return false;
     } finally {
       if (!applying.current) saving.current = false;
     }
@@ -440,7 +442,8 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
           const meta = readMeta(row);
           const extraConfigs = row.backend?.configs
             .map((config, index) => ({ config, index }))
-            .filter(({ config }) => !row.catalog || !isDescribed(row, catalog, config.key)) ?? [];
+            .filter(({ config, index }) => !row.catalog || !isDescribed(row, catalog, config.key) || errors.configs[index])
+            ?? [];
           return (
             <section key={row.uid} aria-labelledby={`plugin-name-${row.uid}`}
               className={cn("care-plugin-row", i > 0 && "border-t border-hair", row.removed && "care-plugin-removed")}>
@@ -881,8 +884,10 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
             }}>Discard changes</Button>
             <Button type="button" variant="primary" disabled={locked || invalid} onClick={() => {
               const next = leaving;
-              void save();
-              if (next) leave(next);
+              setLeaving(null);
+              void save().then((started) => {
+                if (started && next && activeRef.current) leave(next);
+              });
             }}>Save and apply</Button>
           </AlertDialogFooter>
         </AlertDialogContent>

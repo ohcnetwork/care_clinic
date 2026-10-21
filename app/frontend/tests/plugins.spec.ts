@@ -113,7 +113,8 @@ async function addCustom(page: Page): Promise<Locator> {
   await addButton(page).click();
   await page.getByRole("option", { name: "Custom plugin", exact: true }).click();
   const editor = root(page).locator(".care-plugin-row").last();
-  await expect(editor.getByLabel("Display name", { exact: true })).toBeVisible();
+  await expect(page.getByRole("listbox")).toBeHidden();
+  await expect(editor.getByLabel("Display name", { exact: true })).toBeFocused();
   return editor;
 }
 
@@ -764,6 +765,48 @@ test("Filly cannot be saved until its required settings are entered", async ({ p
       configs: { MEDISPEAK_API_KEY: "msk_live_example", MEDISPEAK_BASE_URL: "https://medispeak.example/api/v2", EXTRA: "kept" },
     },
   }]);
+});
+
+test("a raw setting that duplicates a form field stays visible until it is fixed", async ({ page }) => {
+  await openPlugins(page, { saved: [], catalog: [...catalog, filly] });
+  await addButton(page).click();
+  await page.getByRole("option", { name: "Filly", exact: true }).click();
+  const editor = row(page, "Filly");
+  await editor.getByLabel("Medispeak API key (required)", { exact: true }).fill("msk_live_example");
+  await editor.getByLabel("Medispeak address (required)", { exact: true }).fill("https://medispeak.example/api/v2");
+  await editor.getByRole("button", { name: "Technical details", exact: true }).click();
+  await editor.getByRole("button", { name: "Add setting", exact: true }).click();
+  const name = editor.getByLabel("Setting 3 name", { exact: true });
+  await name.fill("MEDISPEAK_API_KEY");
+  await name.blur();
+  await expect(name).toBeVisible();
+  await expect(name).toHaveAttribute("aria-invalid", "true");
+  await expectSaveBlocked(page);
+  await editor.getByRole("button", { name: "Remove setting 3 from Filly", exact: true }).click();
+  await expect(name).toHaveCount(0);
+  await expect(root(page).locator(".care-plugins-savebar")).not.toContainText("before saving");
+  await expect(editor.getByLabel("Medispeak API key (required)", { exact: true })).toHaveValue("msk_live_example");
+});
+
+test("saving from the leave prompt stays on Plugins when the save fails", async ({ page }) => {
+  await openPlugins(page, { saved: [] });
+  await fillCustom(await addCustom(page));
+  await page.evaluate(() => window.careTest.failNext("SavePlugins", "disk full: /private/clinic"));
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await leaveDialog(page).getByRole("button", { name: "Save and apply", exact: true }).click();
+  await expect(root(page).getByRole("alert")).toContainText("Plugin settings couldn't be saved.");
+  await expect(root(page)).toBeVisible();
+  await expect(root(page)).not.toContainText("/private/clinic");
+  expect(await countApply(page)).toBe(0);
+});
+
+test("saving from the leave prompt opens the chosen tab once the apply starts", async ({ page }) => {
+  await openPlugins(page, { saved: [], finishJobs: false });
+  await fillCustom(await addCustom(page));
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await leaveDialog(page).getByRole("button", { name: "Save and apply", exact: true }).click();
+  await expect(root(page)).toBeHidden();
+  expect(await countApply(page)).toBe(1);
 });
 
 test("described settings edit typed values in place and keep text as text", () => {
