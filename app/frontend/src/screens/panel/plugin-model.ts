@@ -1,9 +1,10 @@
-import type { CarePlugin, PluginCatalogEntry } from "@/types";
+import type { CarePlugin, PluginCatalogEntry, PluginSetting } from "@/types";
 
 export type ConfigRow = {
   key: string;
   value: string;
   original?: { text: string; value: unknown };
+  text?: boolean;
 };
 export type BackendDraft = { name: string; package_name: string; version: string; configs: ConfigRow[] };
 export type FrontendDraft = { slug: string; url: string; metaText: string };
@@ -16,6 +17,7 @@ export type PluginRow = {
   frontend: FrontendDraft | null;
   inactiveBackend?: BackendDraft;
   inactiveFrontend?: FrontendDraft;
+  removed?: boolean;
 };
 
 export const emptyBackend = (): BackendDraft => ({ name: "", package_name: "", version: "@main", configs: [] });
@@ -105,7 +107,7 @@ export function reconcileCatalog(row: PluginRow, catalog: PluginCatalogEntry[]):
 }
 
 export function pluginSnapshot(rows: PluginRow[]): string {
-  return JSON.stringify(rows.map((row) => ({
+  return JSON.stringify(rows.filter((row) => !row.removed).map((row) => ({
     id: row.id, label: row.label, catalog: row.catalog,
     backend: row.backend ? {
       ...row.backend, configs: row.backend.configs.map(({ key, value }) => ({ key, value })),
@@ -115,7 +117,7 @@ export function pluginSnapshot(rows: PluginRow[]): string {
 }
 
 export function serializePlugins(rows: PluginRow[]): CarePlugin[] {
-  return rows.map((row) => {
+  return rows.filter((row) => !row.removed).map((row) => {
     const plugin: CarePlugin = { id: row.id.trim() };
     if (row.label.trim()) plugin.label = row.label.trim();
     if (row.catalog) plugin.catalog = true;
@@ -123,7 +125,7 @@ export function serializePlugins(rows: PluginRow[]): CarePlugin[] {
       const configs = Object.fromEntries(row.backend.configs.map((config) => [
         config.key.trim(),
         config.original && config.value === config.original.text
-          ? config.original.value : parseConfigValue(config.value),
+          ? config.original.value : config.text ? config.value : parseConfigValue(config.value),
       ]));
       plugin.backend = {
         name: row.backend.name.trim(),
@@ -185,7 +187,7 @@ export function pluginProblems(row: PluginRow, rows: PluginRow[], catalog: Plugi
   const id = row.id.trim();
   const module = row.backend?.name.trim() ?? "";
   const slug = row.frontend?.slug.trim() ?? "";
-  const others = rows.filter((other) => other.uid !== row.uid);
+  const others = rows.filter((other) => other.uid !== row.uid && !other.removed);
   const configs = row.backend?.configs.map((config, index, all) => {
     const key = config.key.trim();
     if (!key) return "Enter a setting name, or remove this setting.";
@@ -195,6 +197,13 @@ export function pluginProblems(row: PluginRow, rows: PluginRow[], catalog: Plugi
     return undefined;
   }) ?? [];
   const name = row.label.trim() || id;
+  if (row.removed) {
+    const none = configs.map(() => undefined);
+    return {
+      id: undefined, parts: undefined, module: undefined, package: undefined, version: undefined,
+      slug: undefined, url: undefined, meta: undefined, configs: none, configValues: none,
+    };
+  }
   const configValues = row.backend?.configs.map((config, index) =>
     requiredConfig(row, catalog, index) && !config.value.trim()
       ? `Enter a value; ${name} needs this setting.` : undefined) ?? [];
@@ -226,4 +235,109 @@ export function pluginProblems(row: PluginRow, rows: PluginRow[], catalog: Plugi
 
 export function hasPluginProblems(problems: ReturnType<typeof pluginProblems>): boolean {
   return Object.values(problems).some((problem) => Array.isArray(problem) ? problem.some(Boolean) : Boolean(problem));
+}
+
+export function catalogEntry(row: PluginRow, catalog: PluginCatalogEntry[]): PluginCatalogEntry | undefined {
+  return row.catalog ? catalog.find((entry) => entry.plugin.id === row.id.trim()) : undefined;
+}
+
+export function describedSettings(row: PluginRow, catalog: PluginCatalogEntry[]): PluginSetting[] {
+  return (catalogEntry(row, catalog)?.settings ?? []).filter((setting) =>
+    setting.part === "backend" ? row.backend !== null : row.frontend !== null);
+}
+
+export function isDescribed(row: PluginRow, catalog: PluginCatalogEntry[], key: string): boolean {
+  return describedSettings(row, catalog).some((setting) => setting.part === "backend" && setting.key === key.trim());
+}
+
+export function readMeta(row: PluginRow): Record<string, unknown> | null {
+  if (!row.frontend) return null;
+  try {
+    return parseMeta(row.frontend.metaText);
+  } catch {
+    return null;
+  }
+}
+
+export function settingValue(row: PluginRow, setting: PluginSetting): unknown {
+  if (setting.part === "backend") {
+    const config = row.backend?.configs.find((config) => config.key.trim() === setting.key);
+    if (!config) return undefined;
+    if (config.original && config.value === config.original.text) return config.original.value;
+    return config.text ? config.value : parseConfigValue(config.value);
+  }
+  let node: unknown = readMeta(row);
+  for (const part of setting.key.split(".")) {
+    if (node === null || typeof node !== "object" || Array.isArray(node)) return undefined;
+    node = (node as Record<string, unknown>)[part];
+  }
+  return node;
+}
+
+function settingText(value: unknown): { value: string; text: boolean } {
+  if (typeof value === "string") return { value, text: true };
+  return { value: JSON.stringify(value ?? null), text: false };
+}
+
+export function withSetting(row: PluginRow, setting: PluginSetting, value: unknown): PluginRow {
+  if (setting.part === "backend") {
+    if (!row.backend) return row;
+    const next = settingText(value);
+    const index = row.backend.configs.findIndex((config) => config.key.trim() === setting.key);
+    const configs = index < 0
+      ? [...row.backend.configs, { key: setting.key, ...next }]
+      : row.backend.configs.map((config, i) => i === index ? { ...config, ...next } : config);
+    return { ...row, backend: { ...row.backend, configs } };
+  }
+  const meta = readMeta(row);
+  if (!row.frontend || !meta) return row;
+  const parts = setting.key.split(".");
+  const root: Record<string, unknown> = { ...meta };
+  let node = root;
+  for (const part of parts.slice(0, -1)) {
+    const child = node[part];
+    const copy = child !== null && typeof child === "object" && !Array.isArray(child)
+      ? { ...(child as Record<string, unknown>) } : {};
+    node[part] = copy;
+    node = copy;
+  }
+  node[parts[parts.length - 1]] = value;
+  return { ...row, frontend: { ...row.frontend, metaText: JSON.stringify(root, null, 2) } };
+}
+
+export type PluginChanges = { added: PluginRow[]; removed: PluginRow[]; changed: PluginRow[] };
+
+export function pluginChanges(rows: PluginRow[], applied: PluginRow[]): PluginChanges {
+  const changes: PluginChanges = { added: [], removed: [], changed: [] };
+  for (const row of rows) {
+    const before = applied.find((saved) => saved.uid === row.uid);
+    if (!before) {
+      if (!row.removed) changes.added.push(row);
+    } else if (row.removed) {
+      changes.removed.push(row);
+    } else if (pluginSnapshot([row]) !== pluginSnapshot([before])) {
+      changes.changed.push(row);
+    }
+  }
+  return changes;
+}
+
+export function pluginName(row: PluginRow): string {
+  return row.label.trim() || row.id.trim() || "New plugin";
+}
+
+function names(rows: PluginRow[]): string {
+  const list = rows.map(pluginName);
+  return list.length <= 2 ? list.join(" and ") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+}
+
+export function describeChanges(changes: PluginChanges): string {
+  const parts = [
+    changes.added.length ? `add ${names(changes.added)}` : "",
+    changes.removed.length ? `remove ${names(changes.removed)}` : "",
+    changes.changed.length ? `change ${names(changes.changed)}` : "",
+  ].filter(Boolean);
+  if (!parts.length) return "";
+  const text = parts.length <= 2 ? parts.join(" and ") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return text[0].toUpperCase() + text.slice(1) + ".";
 }

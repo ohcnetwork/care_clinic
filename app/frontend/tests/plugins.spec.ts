@@ -4,7 +4,8 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
 import type { CarePlugin, PluginCatalogEntry } from "../src/types";
 import {
-  hasPluginProblems, pluginProblems, reconcileCatalog, requiredConfig, serializePlugins, toPluginRow,
+  describeChanges, hasPluginProblems, pluginChanges, pluginProblems, reconcileCatalog, requiredConfig,
+  serializePlugins, settingValue, toPluginRow, withSetting,
 } from "../src/screens/panel/plugin-model";
 
 const catalog: PluginCatalogEntry[] = [
@@ -34,6 +35,11 @@ const filly: PluginCatalogEntry = {
   description: "AI scribe: Medispeak dictation that fills CARE forms.",
   default: false,
   required_configs: ["MEDISPEAK_API_KEY", "MEDISPEAK_BASE_URL"],
+  settings: [
+    { part: "backend", key: "MEDISPEAK_API_KEY", label: "Medispeak API key", type: "secret" },
+    { part: "backend", key: "MEDISPEAK_BASE_URL", label: "Medispeak address", type: "url" },
+  ],
+  setup_steps: [{ text: "After applying, turn on Filly's screens from CARE's plugin marketplace.", action: "care" }],
 };
 const custom: CarePlugin = {
   id: "custom_example", label: "Custom example",
@@ -41,7 +47,10 @@ const custom: CarePlugin = {
   frontend: { slug: "care_example_fe", url: "http://localhost:4178/assets/remoteEntry.js", meta: { config: {} } },
 };
 const root = (page: Page) => page.locator(".care-plugins");
-const saveButton = (page: Page) => root(page).getByRole("button", { name: "Save and apply", exact: true });
+const saveButton = (page: Page) => root(page).getByRole("button", { name: /^(Save and apply|Try applying again)$/ });
+const leaveDialog = (page: Page) => page.getByRole("alertdialog", { name: "Your plugin changes aren't saved" });
+const unsaved = /\d+ unsaved changes?/;
+const optionNames = (page: Page) => page.getByRole("option").locator(".care-plugins-picker-name");
 const addButton = (page: Page) => root(page).getByRole("combobox", { name: "Add a plugin", exact: true });
 const row = (page: Page, name: string) => root(page).getByRole("region", { name, exact: true });
 type PluginRead = "ReadPlugins" | "PluginCatalog";
@@ -118,6 +127,20 @@ async function fillCustom(editor: Locator) {
   await editor.getByLabel("remoteEntry.js URL", { exact: true }).fill(custom.frontend!.url);
 }
 
+async function expectSaveBlocked(page: Page) {
+  const before = await countCalls(page, "SavePlugins");
+  await saveButton(page).click();
+  await expect(root(page).locator(".care-plugins-savebar")).toContainText("before saving");
+  expect(await countCalls(page, "SavePlugins")).toBe(before);
+}
+
+async function leaveTo(page: Page, tab: string, choice: "Keep editing" | "Discard changes") {
+  await page.getByRole("button", { name: tab, exact: true }).click();
+  await expect(leaveDialog(page)).toBeVisible();
+  await leaveDialog(page).getByRole("button", { name: choice, exact: true }).click();
+  await expect(leaveDialog(page)).toBeHidden();
+}
+
 async function capture(page: Page, name: string) {
   if (!process.env.CARE_SCREENSHOTS_DIR) return;
   const folder = relative(process.cwd(), resolve(process.env.CARE_SCREENSHOTS_DIR));
@@ -160,25 +183,32 @@ for (const viewport of [{ width: 1100, height: 700 }, { width: 720, height: 560 
     await assertFits(page);
     await capture(page, `plugins-custom-${viewport.width}x${viewport.height}`);
     await root(page).getByRole("button", { name: "Remove CARE Onboarding", exact: true }).click();
-    await expect(page.getByRole("alertdialog")).toBeVisible();
+    await expect(row(page, "CARE Onboarding").getByText("Will be removed", { exact: true })).toBeVisible();
     await assertFits(page);
     await capture(page, `plugins-remove-${viewport.width}x${viewport.height}`);
-    await page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await expect(leaveDialog(page)).toBeVisible();
+    await assertFits(page);
+    await capture(page, `plugins-leave-${viewport.width}x${viewport.height}`);
+    await leaveDialog(page).getByRole("button", { name: "Keep editing", exact: true }).click();
+    await root(page).getByRole("button", { name: "Undo removing CARE Onboarding", exact: true }).click();
     await expect(editor.getByLabel("Setting 1 value", { exact: true })).toHaveValue("A long example configuration value for layout verification.");
   });
 }
 
 test("loading is not an empty list and requests are single-flight", async ({ page }) => {
   await openPlugins(page, { hold: "ReadPlugins", ready: false });
-  await expect(root(page).getByRole("status")).toContainText("Loading plugins");
+  await expect(root(page).locator(".care-plugins-loading")).toContainText("Loading plugins");
   await expect(saveButton(page)).toBeDisabled();
   await expect(addButton(page)).toBeDisabled();
-  await expect(root(page).getByText("No plugins yet", { exact: true })).toHaveCount(0);
+  await expect(root(page).getByText(/^No plugins yet/)).toHaveCount(0);
   expect(await countCalls(page, "ReadPlugins")).toBe(1);
   expect(await countCalls(page, "PluginCatalog")).toBe(1);
   await page.evaluate(() => window.careTest.release("ReadPlugins"));
-  await expect(saveButton(page)).toBeEnabled();
+  await expect(addButton(page)).toBeEnabled();
   await expect(row(page, "CARE Onboarding")).toBeVisible();
+  await expect(saveButton(page)).toBeDisabled();
+  await expect(root(page).locator(".care-plugins-savebar")).toContainText("No unsaved changes");
 });
 
 for (const method of ["ReadPlugins", "PluginCatalog"] as const) {
@@ -187,12 +217,12 @@ for (const method of ["ReadPlugins", "PluginCatalog"] as const) {
     await expect(root(page).getByRole("alert")).toContainText(method === "ReadPlugins"
       ? "Couldn't read the saved plugins" : "Couldn't read the plugin catalog");
     await expect(root(page)).not.toContainText("private config");
-    await expect(root(page).getByText("No plugins yet", { exact: true })).toHaveCount(0);
+    await expect(root(page).getByText(/^No plugins yet/)).toHaveCount(0);
     await expect(saveButton(page)).toBeDisabled();
     await expect(addButton(page)).toBeDisabled();
     if (method === "PluginCatalog") await expect(row(page, "CARE Onboarding")).toBeVisible();
     await root(page).getByRole("button", { name: "Retry", exact: true }).click();
-    await expect(saveButton(page)).toBeEnabled();
+    await expect(addButton(page)).toBeEnabled();
     await expect(row(page, "CARE Onboarding")).toBeVisible();
     expect(await countCalls(page, method)).toBe(2);
     expect(await countCalls(page, method === "ReadPlugins" ? "PluginCatalog" : "ReadPlugins")).toBe(1);
@@ -202,22 +232,23 @@ for (const method of ["ReadPlugins", "PluginCatalog"] as const) {
 
 test("empty saved choices stay empty and unsaved removal needs no confirmation", async ({ page }) => {
   await openPlugins(page, { saved: [] });
-  await expect(root(page).getByText("No plugins yet", { exact: true })).toBeVisible();
+  await expect(root(page).getByText(/^No plugins yet/)).toBeVisible();
   await addCustom(page);
   await root(page).getByRole("button", { name: "Remove New plugin", exact: true }).click();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
-  await expect(root(page).getByText("No plugins yet", { exact: true })).toBeVisible();
-  await saveButton(page).click();
-  await expect(root(page)).toContainText("Plugin task finished.");
-  expect(await page.evaluate(() => window.careTest.calls.find((call) => call.method === "SavePlugins")?.args[0])).toEqual([]);
+  await expect(root(page).getByText(/^No plugins yet/)).toBeVisible();
+  await expect(saveButton(page)).toBeDisabled();
+  expect(await countCalls(page, "SavePlugins")).toBe(0);
 });
 
 test("custom fields mirror native rules and report accessible errors without parser traces", async ({ page }) => {
   await openPlugins(page, { saved: [] });
   const editor = await addCustom(page);
-  await expect(saveButton(page)).toBeDisabled();
+  await expect(editor.getByLabel("Plugin ID", { exact: true })).not.toHaveAttribute("aria-invalid", "true");
+  await expectSaveBlocked(page);
+  await expect(editor.getByLabel("Plugin ID", { exact: true })).toHaveAttribute("aria-invalid", "true");
   await fillCustom(editor);
-  await expect(saveButton(page)).toBeEnabled();
+  await expect(root(page).locator(".care-plugins-savebar")).not.toContainText("before saving");
   const cases = [
     ["Plugin ID", "bad id", custom.id],
     ["Python module", "care-example", custom.backend!.name],
@@ -235,22 +266,24 @@ test("custom fields mirror native rules and report accessible errors without par
   for (const [label, invalid, valid] of cases) {
     const input = editor.getByLabel(label, { exact: true });
     await input.fill(invalid);
+    await input.blur();
     await expect(input).toHaveAttribute("aria-invalid", "true");
     const description = await input.getAttribute("aria-describedby");
     expect(description).toBeTruthy();
     await expect(page.locator(`#${description}`)).toBeVisible();
-    await expect(saveButton(page)).toBeDisabled();
+    await expect(root(page).locator(".care-plugins-savebar")).toContainText("before saving");
     await input.fill(valid);
-    await expect(saveButton(page)).toBeEnabled();
+    await expect(input).not.toHaveAttribute("aria-invalid", "true");
+    await expect(root(page).locator(".care-plugins-savebar")).not.toContainText("before saving");
   }
   await expect(root(page)).not.toContainText("SyntaxError");
   await editor.getByRole("switch", { name: "Backend", exact: true }).uncheck();
   await editor.getByRole("switch", { name: "Frontend", exact: true }).uncheck();
   await expect(editor).toContainText("Choose Backend, Frontend, or both.");
-  await expect(saveButton(page)).toBeDisabled();
+  await expectSaveBlocked(page);
   await editor.getByRole("switch", { name: "Backend", exact: true }).check();
   await expect(editor.getByLabel("Python module", { exact: true })).toHaveValue(custom.backend!.name);
-  await expect(saveButton(page)).toBeEnabled();
+  await expect(root(page).locator(".care-plugins-savebar")).not.toContainText("before saving");
   expect(await countCalls(page, "SavePlugins")).toBe(0);
 });
 
@@ -258,22 +291,23 @@ test("duplicate IDs, modules, frontend names, and setting names cannot overwrite
   await openPlugins(page, { saved: [custom] });
   const editor = await addCustom(page);
   await fillCustom(editor);
+  await expectSaveBlocked(page);
   await expect(editor).toContainText("This plugin ID is already in use.");
   await expect(editor).toContainText("This backend module is already in use.");
   await expect(editor).toContainText("This frontend name is already in use.");
   await editor.getByLabel("Plugin ID", { exact: true }).fill("custom_other");
   await editor.getByLabel("Python module", { exact: true }).fill("care_other");
-  await expect(saveButton(page)).toBeDisabled();
+  await expect(editor).toContainText("This frontend name is already in use.");
   await editor.getByLabel("Frontend name", { exact: true }).fill("care_other_fe");
-  await expect(saveButton(page)).toBeEnabled();
+  await expect(root(page).locator(".care-plugins-savebar")).not.toContainText("before saving");
   await editor.getByRole("button", { name: "Add setting", exact: true }).click();
   await editor.getByRole("button", { name: "Add setting", exact: true }).click();
   await editor.getByLabel("Setting 1 name", { exact: true }).fill("EXAMPLE");
   await editor.getByLabel("Setting 2 name", { exact: true }).fill(" EXAMPLE ");
   await expect(editor.getByText("This setting name is already in use.", { exact: true })).toHaveCount(2);
-  await expect(saveButton(page)).toBeDisabled();
+  await expect(root(page).locator(".care-plugins-savebar")).toContainText("before saving");
   await editor.getByRole("button", { name: /Remove setting 2 from/ }).click();
-  await expect(saveButton(page)).toBeEnabled();
+  await expect(root(page).locator(".care-plugins-savebar")).not.toContainText("before saving");
   expect(await countCalls(page, "SavePlugins")).toBe(0);
 });
 
@@ -284,24 +318,30 @@ test("catalog choices respect custom plugin identities as well as catalog IDs", 
   }] });
   await addButton(page).click();
   await expect(page.getByRole("option", { name: "CARE Onboarding", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("option")).toHaveText(["Custom plugin"]);
+  await expect(optionNames(page)).toHaveText(["Custom plugin"]);
   await page.keyboard.press("Escape");
 });
 
-test("an expanded catalog plugin shows its whole description, including setup steps", async ({ page }) => {
-  await openPlugins(page, { saved: [catalog[0].plugin] });
-  const onboarding = row(page, "CARE Onboarding");
-  await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
-  await expect(onboarding.locator(".care-plugin-description")).toHaveText(catalog[0].description!);
+test("an expanded catalog plugin shows its whole description and its setup steps", async ({ page }) => {
+  await openPlugins(page, { saved: [{ ...filly.plugin, backend: { ...filly.plugin.backend!, configs: {
+    MEDISPEAK_API_KEY: "msk_live_kept", MEDISPEAK_BASE_URL: "https://medispeak.example/api/v2",
+  } } }], catalog: [...catalog, filly] });
+  const editor = row(page, "Filly");
+  await editor.getByRole("button", { name: "Edit Filly", exact: true }).click();
+  await expect(editor.getByText(filly.description!, { exact: true })).not.toHaveClass(/truncate/);
+  const steps = editor.getByRole("note", { name: "Also needed for Filly" });
+  await expect(steps).toContainText(filly.setup_steps![0].text);
+  await steps.getByRole("button", { name: "Open CARE" }).click();
+  expect(await countCalls(page, "OpenURL")).toBe(1);
 });
 
 test("the catalog offers only onboarding alongside custom plugins", async ({ page }) => {
   await openPlugins(page, { saved: [] });
   await addButton(page).click();
-  await expect(page.getByRole("option")).toHaveText(["CARE Onboarding", "Custom plugin"]);
+  await expect(optionNames(page)).toHaveText(["CARE Onboarding", "Custom plugin"]);
 });
 
-test("failed saves keep every edit across tabs and never start an apply", async ({ page }) => {
+test("failed saves keep every edit and leaving asks before discarding them", async ({ page }) => {
   await openPlugins(page, { saved: [] });
   const editor = await addCustom(page);
   await fillCustom(editor);
@@ -318,16 +358,22 @@ test("failed saves keep every edit across tabs and never start an apply", async 
   await expect(root(page).getByRole("alert")).toContainText("Plugin settings couldn't be saved.");
   await expect(root(page)).not.toContainText("secret-from-native");
   expect(await countApply(page)).toBe(0);
-  await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  await leaveTo(page, "Overview", "Keep editing");
+  await expect(root(page)).toBeVisible();
   await expect(editor.getByLabel("Frontend settings (JSON)")).toHaveValue('{"config":{"example":"keep this draft"}}');
-  await expect(root(page)).toContainText("Unsaved changes");
+  await expect(root(page)).toContainText(unsaved);
+  await expect(page.locator(".care-panel-rail-unsaved")).toBeVisible();
+  await leaveTo(page, "Overview", "Discard changes");
+  await expect(root(page)).toBeHidden();
+  await expect(page.locator(".care-panel-rail-unsaved")).toHaveCount(0);
+  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  await expect(root(page).getByText(/^No plugins yet/)).toBeVisible();
   expect(await countCalls(page, "ReadPlugins")).toBe(1);
   expect(await countCalls(page, "PluginCatalog")).toBe(1);
   expect(await page.evaluate(() => window.careTest.logs.join("\n"))).not.toContain("keep this draft");
 });
 
-test("saved removal is cancellable with Escape and restores keyboard focus without discarding edits", async ({ page }) => {
+test("saved removal stays visible, can be undone and keeps earlier edits", async ({ page }) => {
   await openPlugins(page);
   const onboarding = row(page, "CARE Onboarding");
   const toggle = onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true });
@@ -338,21 +384,21 @@ test("saved removal is cancellable with Escape and restores keyboard focus witho
   const remove = onboarding.getByRole("button", { name: "Remove CARE Onboarding", exact: true });
   await remove.focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("alertdialog")).toBeHidden();
-  await expect(remove).toBeFocused();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  const undo = onboarding.getByRole("button", { name: "Undo removing CARE Onboarding", exact: true });
+  await expect(undo).toBeFocused();
+  await expect(onboarding.getByText("Will be removed", { exact: true })).toBeVisible();
+  await expect(root(page).locator(".care-plugins-savebar")).toContainText("Remove CARE Onboarding.");
+  await page.keyboard.press("Enter");
+  await expect(onboarding.getByText("Will be removed", { exact: true })).toHaveCount(0);
+  await toggle.click();
   await expect(onboarding.getByLabel("Frontend settings (JSON)")).toHaveValue('{"config":{"auto_onboarding":false}}');
-  await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await page.getByRole("button", { name: "Plugins", exact: true }).click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(root(page)).toContainText("Unsaved changes");
+  await expect(root(page).locator(".care-plugins-savebar")).toContainText("Change CARE Onboarding.");
   await remove.click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Remove plugin", exact: true }).click();
+  await saveButton(page).click();
+  await expect(root(page)).toContainText("Plugin changes are applied.");
   await expect(onboarding).toHaveCount(0);
-  expect(await countCalls(page, "SavePlugins")).toBe(0);
-  expect(await countApply(page)).toBe(0);
-  await expect(addButton(page)).toBeFocused();
+  expect(await page.evaluate(() => window.careTest.calls.find((call) => call.method === "SavePlugins")?.args[0])).toEqual([]);
 });
 
 test("keyboard catalog selection opens the new editor without stealing focus back", async ({ page }) => {
@@ -369,24 +415,16 @@ test("keyboard catalog selection opens the new editor without stealing focus bac
   await page.keyboard.press("Tab");
   await expect(root(page).getByLabel("Plugin ID", { exact: true })).toBeFocused();
   await expect(name).toHaveValue("Keyboard example");
-  await expect(saveButton(page)).toBeDisabled();
+  await expectSaveBlocked(page);
+  await expect(root(page).getByLabel("Plugin ID", { exact: true })).toBeFocused();
 });
 
-test("tab deactivation closes plugin portals without deleting or resetting the draft", async ({ page }) => {
+test("tab deactivation closes plugin portals and a clean list leaves without asking", async ({ page }) => {
   await openPlugins(page);
   const onboarding = row(page, "CARE Onboarding");
   await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
-  const draft = '{"config":{"auto_onboarding":false}}';
-  await onboarding.getByLabel("Frontend settings (JSON)").fill(draft);
-  await onboarding.getByRole("button", { name: "Remove CARE Onboarding", exact: true }).click();
-  await expect(page.getByRole("alertdialog")).toBeVisible();
-  await page.getByRole("button", { name: "Overview", exact: true, includeHidden: true })
-    .evaluate((button: HTMLButtonElement) => button.click());
-  await expect(root(page)).toBeHidden();
-  await expect(page.getByRole("alertdialog")).toBeHidden();
-  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  const draft = JSON.stringify(catalog[0].plugin.frontend!.meta, null, 2);
   await expect(onboarding.getByLabel("Frontend settings (JSON)")).toHaveValue(draft);
-  await expect(page.getByRole("alertdialog")).toBeHidden();
   await addButton(page).click();
   await expect(page.getByRole("listbox")).toBeVisible();
   await page.getByRole("button", { name: "Overview", exact: true, includeHidden: true })
@@ -394,6 +432,7 @@ test("tab deactivation closes plugin portals without deleting or resetting the d
   await expect(page.getByRole("listbox")).toBeHidden();
   await page.getByRole("button", { name: "Plugins", exact: true }).click();
   await expect(addButton(page)).toHaveAttribute("aria-expanded", "false");
+  await expect(leaveDialog(page)).toHaveCount(0);
   await expect(onboarding.getByLabel("Frontend settings (JSON)")).toHaveValue(draft);
   expect(await countCalls(page, "SavePlugins")).toBe(0);
 });
@@ -405,7 +444,7 @@ test("save persists configuration but only the matching completion event finishe
   await onboarding.getByLabel("Frontend settings (JSON)").fill('{"config":{"auto_onboarding":false}}');
   await saveButton(page).click();
   await expect(root(page)).toContainText("Applying plugin changes…");
-  await expect(root(page)).not.toContainText("Plugin task finished.");
+  await expect(root(page)).not.toContainText("Plugin changes are applied.");
   await expect(onboarding.getByLabel("Frontend settings (JSON)")).toBeDisabled();
   await expect(addButton(page)).toBeDisabled();
   await expect(root(page).getByRole("button", { name: "Remove CARE Onboarding" })).toBeDisabled();
@@ -414,9 +453,10 @@ test("save persists configuration but only the matching completion event finishe
   await page.evaluate(() => window.careTest.emit("care-done", 0, "backup-now"));
   await expect(root(page)).toContainText("Applying plugin changes…");
   await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
-  await expect(root(page)).toContainText("Plugin task finished.");
+  await expect(root(page)).toContainText("Plugin changes are applied.");
   await expect(root(page)).toContainText("CARE is online");
-  await expect(saveButton(page)).toBeEnabled();
+  await expect(saveButton(page)).toBeDisabled();
+  await expect(addButton(page)).toBeEnabled();
   await expect(root(page)).not.toContainText("Plugins applied");
 });
 
@@ -431,7 +471,7 @@ test("fixture persistence saves a copy without treating it as a completed apply"
   const saved = { ...custom, frontend: { ...custom.frontend!, meta: { config: { saved: "fixture" } } } };
   expect(await page.evaluate(() => window.careTest.fixtures.plugins)).toEqual([]);
   await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
-  await expect(root(page)).toContainText("Plugin task finished.");
+  await expect(root(page)).toContainText("Plugin changes are applied.");
   expect(await page.evaluate(() => window.careTest.fixtures.plugins)).toEqual([saved]);
   expect(await page.evaluate(async () => {
     const result = await window.go.main.App.ReadPlugins();
@@ -443,6 +483,8 @@ test("fixture persistence saves a copy without treating it as a completed apply"
 for (const failure of ["rejected", "async"] as const) {
   test(`${failure} apply keeps the draft and retry stages it again`, async ({ page }) => {
     await openPlugins(page, { finishJobs: false });
+    await root(page).getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
+    await root(page).getByLabel("Frontend settings (JSON)").fill('{"config":{"auto_onboarding":false}}');
     if (failure === "rejected") {
       await page.evaluate(() => window.careTest.failNext("ClinicAction", "exited 71: private source and config"));
     }
@@ -454,13 +496,13 @@ for (const failure of ["rejected", "async"] as const) {
     await expect(root(page).getByRole("alert")).toContainText("The plugin changes couldn't be applied.");
     await expect(root(page)).not.toContainText("exited 71");
     await expect(row(page, "CARE Onboarding")).toBeVisible();
-    await expect(root(page).getByRole("button", { name: "Try applying again", exact: true })).toBeEnabled();
-    await root(page).getByRole("button", { name: "Try applying again", exact: true }).click();
+    await expect(saveButton(page)).toBeEnabled();
+    await saveButton(page).click();
     await expect(root(page)).toContainText("Applying plugin changes…");
     expect(await countCalls(page, "SavePlugins")).toBe(2);
     expect(await countApply(page)).toBe(2);
     await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
-    await expect(root(page)).toContainText("Plugin task finished.");
+    await expect(root(page)).toContainText("Plugin changes are applied.");
   });
 }
 
@@ -475,7 +517,7 @@ for (const failure of ["rejected", "async"] as const) {
       await editor.getByLabel("Python module", { exact: true }).fill(`care_${suffix}`);
       await editor.getByLabel("Frontend name", { exact: true }).fill(`care_${suffix}_fe`);
     }
-    await expect(root(page).getByText("Not applied", { exact: true })).toHaveCount(3);
+    await expect(root(page).getByText("New · not applied", { exact: true })).toHaveCount(3);
     if (failure === "rejected") {
       await page.evaluate(() => window.careTest.failNext("ClinicAction", "something else is still running"));
     }
@@ -484,18 +526,18 @@ for (const failure of ["rejected", "async"] as const) {
       await expect(root(page)).toContainText("Applying plugin changes");
       await page.evaluate(() => window.careTest.finishJob("apply-plugins", "plugin loading failed; previous settings were restored and CARE is back online: failed batch"));
     }
-    await expect(root(page).getByRole("alert")).toContainText("Leaving this tab discards the failed changes");
+    await expect(root(page).getByRole("alert")).toContainText("These changes were not applied");
     await expect(root(page).locator(".care-plugin-row")).toHaveCount(4);
-    await page.getByRole("button", { name: "Overview", exact: true }).click();
+    await leaveTo(page, "Overview", "Discard changes");
     await page.getByRole("button", { name: "Plugins", exact: true }).click();
     await expect(root(page).locator(".care-plugin-row")).toHaveCount(1);
     await expect(row(page, "CARE Onboarding")).toBeVisible();
-    await expect(root(page).getByText("Not applied", { exact: true })).toHaveCount(0);
-    await expect(root(page)).not.toContainText("Unsaved changes");
+    await expect(root(page).getByText(/not applied/)).toHaveCount(0);
+    await expect(root(page)).not.toContainText(unsaved);
     expect(await countCalls(page, "SavePlugins")).toBe(1);
     expect(await page.evaluate(() => window.careTest.fixtures.plugins.map((p) => p.id))).toEqual(["care_onboarding_fe"]);
     await addButton(page).click();
-    await expect(page.getByRole("option")).toHaveText(["Custom plugin"]);
+    await expect(optionNames(page)).toHaveText(["Custom plugin"]);
   });
 }
 
@@ -510,8 +552,8 @@ for (const success of [false, true]) {
     await page.evaluate((success) => window.careTest.finishJob("apply-plugins", success ? undefined : "plugin load failed"), success);
     await page.getByRole("button", { name: "Plugins", exact: true }).click();
     await expect(root(page).locator(".care-plugin-row")).toHaveCount(success ? 1 : 0);
-    await expect(root(page).getByText("Not applied", { exact: true })).toHaveCount(0);
-    await expect(root(page)).not.toContainText("Unsaved changes");
+    await expect(root(page).getByText(/not applied/)).toHaveCount(0);
+    await expect(root(page)).not.toContainText(unsaved);
   });
 }
 
@@ -521,25 +563,25 @@ test("discarding a failed batch restores edits and removals to the latest succes
   await saveButton(page).click();
   await expect(root(page)).toContainText("Applying plugin changes");
   await page.evaluate(() => window.careTest.finishJob("apply-plugins"));
-  await expect(root(page)).toContainText("Plugin task finished");
-  await expect(row(page, "Custom example").getByText("Not applied", { exact: true })).toHaveCount(0);
+  await expect(root(page)).toContainText("Plugin changes are applied");
+  await expect(row(page, "Custom example").getByText("Active", { exact: true })).toBeVisible();
 
   const onboarding = row(page, "CARE Onboarding");
   await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
   await onboarding.getByLabel("Frontend settings (JSON)").fill('{"config":{"auto_onboarding":false}}');
   await root(page).getByRole("button", { name: "Remove Custom example", exact: true }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: "Remove plugin", exact: true }).click();
   await saveButton(page).click();
   await expect(root(page)).toContainText("Applying plugin changes");
   await page.evaluate(() => window.careTest.finishJob("apply-plugins", "plugin load failed"));
-  await expect(root(page).getByRole("alert")).toContainText("Leaving this tab discards the failed changes");
-  await page.getByRole("button", { name: "Overview", exact: true }).click();
-  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  await expect(root(page).getByRole("alert")).toContainText("These changes were not applied");
+  await expect(row(page, "Custom example").getByText("Will be removed", { exact: true })).toBeVisible();
+  await root(page).locator(".care-plugins-savebar").getByRole("button", { name: "Discard changes", exact: true }).click();
   await expect(root(page).locator(".care-plugin-row")).toHaveCount(2);
   await expect(row(page, "Custom example")).toBeVisible();
   await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
   await expect(onboarding.getByLabel("Frontend settings (JSON)")).toHaveValue(/"auto_onboarding": true/);
-  await expect(root(page)).not.toContainText("Unsaved changes");
+  await expect(root(page)).not.toContainText(unsaved);
+  await expect(root(page).getByRole("alert")).toHaveCount(0);
   expect(await countCalls(page, "SavePlugins")).toBe(2);
 });
 
@@ -566,7 +608,7 @@ for (const recovered of [true, false]) {
     }, recovered);
     await expect(root(page).getByRole("alert")).toContainText(recovered ? "CARE is back online" : "CARE has not been confirmed online");
     await expect(root(page)).not.toContainText("private-token");
-    await expect(root(page)).toContainText("Unsaved changes");
+    await expect(root(page)).toContainText(unsaved);
     await expect(row(page, "Custom example")).toBeVisible();
     expect(await page.evaluate(() => window.careTest.fixtures.plugins.map((p) => p.id))).toEqual(["care_onboarding_fe"]);
     if (!recovered) {
@@ -579,32 +621,31 @@ for (const recovered of [true, false]) {
   });
 }
 
-test("another clinic job locks the editor and preserves its dirty data", async ({ page }) => {
+test("an outside lock disables the editor and preserves dirty data", async ({ page }) => {
   await openPlugins(page, { saved: [], finishJobs: false });
   const editor = await addCustom(page);
   await fillCustom(editor);
-  await page.getByRole("button", { name: "Backups", exact: true }).click();
-  await page.locator(".care-backups").getByRole("button", { name: "Back up now", exact: true }).click();
-  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  await leaveTo(page, "Backups", "Keep editing");
+  await page.evaluate(() => window.careTest.progress({ phase: "verifying", done: 50_000_000, total: 50_000_000 }));
   await expect(editor.getByLabel("Plugin ID", { exact: true })).toBeDisabled();
   await expect(editor.getByRole("switch", { name: "Backend", exact: true })).toBeDisabled();
   await expect(editor.getByRole("button", { name: "Add setting", exact: true })).toBeDisabled();
   await expect(saveButton(page)).toBeDisabled();
   await expect(addButton(page)).toBeDisabled();
-  await page.evaluate(() => window.careTest.finishJob("backup-now"));
+  await expect(page.locator(".care-panel-rail-unsaved")).toBeVisible();
+  await page.evaluate(() => window.careTest.finishUpdate("preview verification failure"));
   await expect(saveButton(page)).toBeEnabled();
   await expect(editor.getByLabel("Plugin ID", { exact: true })).toHaveValue(custom.id);
-  await expect(root(page)).toContainText("Unsaved changes");
+  await expect(root(page)).toContainText(unsaved);
   expect(await countCalls(page, "SavePlugins")).toBe(0);
 });
 
-test("a running restore locks mounted plugin drafts without losing their settings", async ({ page }) => {
+test("a running restore locks the plugin editor until it finishes", async ({ page }) => {
   await openPlugins(page, { finishJobs: false });
   const onboarding = row(page, "CARE Onboarding");
   await onboarding.getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
   const settings = root(page).getByLabel("Frontend settings (JSON)");
-  const draft = '{"config":{"auto_onboarding":false}}';
-  await settings.fill(draft);
+  const draft = JSON.stringify(catalog[0].plugin.frontend!.meta, null, 2);
   await page.getByRole("button", { name: "Backups", exact: true }).click();
   await page.locator(".care-backups").getByRole("button", { name: "Choose file", exact: true }).click();
   const dialog = page.getByRole("alertdialog");
@@ -689,35 +730,33 @@ test("Filly cannot be saved until its required settings are entered", async ({ p
   await addButton(page).click();
   await page.getByRole("option", { name: "Filly", exact: true }).click();
   const editor = row(page, "Filly");
-  const keyName = editor.getByLabel("Setting 1 name", { exact: true });
-  const key = editor.getByLabel("Setting 1 value", { exact: true });
-  const base = editor.getByLabel("Setting 2 value", { exact: true });
-  await expect(keyName).toHaveValue("MEDISPEAK_API_KEY");
-  await expect(keyName).toHaveAttribute("readonly", "");
-  await expect(editor.getByLabel("Setting 2 name", { exact: true })).toHaveAttribute("readonly", "");
-  await expect(editor.getByRole("button", { name: /^Remove setting/ })).toHaveCount(0);
+  const key = editor.getByLabel("Medispeak API key (required)", { exact: true });
+  const base = editor.getByLabel("Medispeak address (required)", { exact: true });
+  await expect(editor.getByText("Needs setup", { exact: true })).toBeVisible();
   await expect(key).toHaveAttribute("type", "password");
   await expect(base).not.toHaveAttribute("type", "password");
+  await editor.getByRole("button", { name: "Show Medispeak API key", exact: true }).click();
+  await expect(key).toHaveAttribute("type", "text");
+  await expect(key).not.toHaveAttribute("aria-invalid", "true");
+  await expect(editor.getByLabel("Setting 1 name", { exact: true })).toHaveCount(0);
+  await expectSaveBlocked(page);
   await expect(key).toHaveAttribute("aria-invalid", "true");
+  await expect(key).toBeFocused();
   await expect(editor.getByText("Enter a value; Filly needs this setting.")).toHaveCount(2);
-  await expect(editor.getByText("Check fields", { exact: true })).toBeVisible();
-  await expect(saveButton(page)).toBeDisabled();
-  await saveButton(page).evaluate((button: HTMLButtonElement) => button.click());
-  expect(await countCalls(page, "SavePlugins")).toBe(0);
 
   await key.fill("msk_live_example");
-  await expect(saveButton(page)).toBeDisabled();
   await base.fill("   ");
-  await expect(saveButton(page)).toBeDisabled();
+  await expect(editor.getByText("Enter a value; Filly needs this setting.")).toHaveCount(1);
   await base.fill("https://medispeak.example/api/v2");
   await expect(editor.getByText("Enter a value; Filly needs this setting.")).toHaveCount(0);
+  await expect(editor.getByText("New · not applied", { exact: true })).toBeVisible();
+  await editor.getByRole("button", { name: "Technical details", exact: true }).click();
   await editor.getByRole("button", { name: "Add setting", exact: true }).click();
   await editor.getByLabel("Setting 3 name", { exact: true }).fill("EXTRA");
   await editor.getByLabel("Setting 3 value", { exact: true }).fill("kept");
   await expect(editor.getByRole("button", { name: "Remove setting 3 from Filly", exact: true })).toBeVisible();
-  await expect(saveButton(page)).toBeEnabled();
   await saveButton(page).click();
-  await expect(root(page)).toContainText("Plugin task finished.");
+  await expect(root(page)).toContainText("Plugin changes are applied.");
   expect(await page.evaluate(() => window.careTest.calls.find((call) => call.method === "SavePlugins")?.args[0])).toEqual([{
     ...filly.plugin,
     backend: {
@@ -725,6 +764,38 @@ test("Filly cannot be saved until its required settings are entered", async ({ p
       configs: { MEDISPEAK_API_KEY: "msk_live_example", MEDISPEAK_BASE_URL: "https://medispeak.example/api/v2", EXTRA: "kept" },
     },
   }]);
+});
+
+test("described settings edit typed values in place and keep text as text", () => {
+  const faster: PluginCatalogEntry = {
+    plugin: { id: "faster", label: "Faster", catalog: true, frontend: {
+      slug: "faster", url: "https://example.com/remoteEntry.js",
+      meta: { config: { auto: true, methods: ["cash"] } },
+    } },
+    settings: [
+      { part: "frontend", key: "config.auto", label: "Auto", type: "boolean" },
+      { part: "frontend", key: "config.methods", label: "Methods", type: "choices",
+        options: [{ value: "cash", label: "Cash" }, { value: "ddpo", label: "Direct deposit" }] },
+    ],
+  };
+  let draft = toPluginRow(faster.plugin, 0);
+  const [auto, methods] = faster.settings!;
+  expect(settingValue(draft, auto)).toBe(true);
+  draft = withSetting(withSetting(draft, auto, false), methods, ["cash", "ddpo"]);
+  expect(serializePlugins([draft])[0].frontend!.meta).toEqual({ config: { auto: false, methods: ["cash", "ddpo"] } });
+
+  let fillyDraft = toPluginRow(filly.plugin, 1);
+  fillyDraft = withSetting(fillyDraft, filly.settings![0], "123");
+  expect(serializePlugins([fillyDraft])[0].backend!.configs!.MEDISPEAK_API_KEY).toBe("123");
+});
+
+test("saved removals and edits are summarised and excluded from the saved list", () => {
+  const applied = [toPluginRow(catalog[0].plugin, 0), toPluginRow(custom, 1)];
+  const rows = [{ ...applied[0], removed: true }, { ...applied[1], label: "Renamed" }, toPluginRow(filly.plugin, 2)];
+  const changes = pluginChanges(rows, applied);
+  expect(describeChanges(changes)).toBe("Add Filly, remove CARE Onboarding and change Renamed.");
+  expect(serializePlugins(rows).map((plugin) => plugin.id)).toEqual(["custom_example", "care_filly"]);
+  expect(hasPluginProblems(pluginProblems(rows[0], rows))).toBe(false);
 });
 
 test("required catalog settings survive catalog refresh and come back if missing", () => {

@@ -327,6 +327,68 @@ func TestEveryCatalogEntryIsValid(t *testing.T) {
 	}
 }
 
+func TestCatalogSettingsDescribeShippedFields(t *testing.T) {
+	catalog, err := Catalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]bool{"text": true, "secret": true, "url": true, "number": true, "boolean": true, "choice": true, "choices": true, "list": true}
+	actions := map[string]bool{"": true, "advanced": true, "care": true}
+	for _, e := range catalog {
+		p := e.Plugin
+		seen := map[string]bool{}
+		for _, s := range e.Settings {
+			if s.Key == "" || s.Label == "" || !types[s.Type] {
+				t.Fatalf("%s has an incomplete setting: %#v", p.ID, s)
+			}
+			if seen[s.Part+"/"+s.Key] {
+				t.Fatalf("%s describes %s twice", p.ID, s.Key)
+			}
+			seen[s.Part+"/"+s.Key] = true
+			if (s.Type == "choice" || s.Type == "choices") != (len(s.Options) > 0) {
+				t.Fatalf("%s setting %s has options that do not match its type", p.ID, s.Key)
+			}
+			switch s.Part {
+			case "backend":
+				if p.Backend == nil {
+					t.Fatalf("%s describes backend setting %s without a backend", p.ID, s.Key)
+				}
+				if _, ok := p.Backend.Configs[s.Key]; !ok {
+					t.Fatalf("%s describes %s but does not ship it in its configs", p.ID, s.Key)
+				}
+			case "frontend":
+				if p.Frontend == nil {
+					t.Fatalf("%s describes frontend setting %s without a frontend", p.ID, s.Key)
+				}
+				var node any = p.Frontend.Meta
+				for _, part := range strings.Split(s.Key, ".") {
+					m, ok := node.(map[string]any)
+					if !ok {
+						node = nil
+						break
+					}
+					node = m[part]
+				}
+				if node == nil {
+					t.Fatalf("%s describes %s but does not ship it in its meta", p.ID, s.Key)
+				}
+			default:
+				t.Fatalf("%s setting %s has unknown part %q", p.ID, s.Key, s.Part)
+			}
+		}
+		for _, key := range e.RequiredConfigs {
+			if !seen["backend/"+key] {
+				t.Fatalf("%s requires %s but does not describe it", p.ID, key)
+			}
+		}
+		for _, step := range e.SetupSteps {
+			if step.Text == "" || !actions[step.Action] {
+				t.Fatalf("%s has an invalid setup step: %#v", p.ID, step)
+			}
+		}
+	}
+}
+
 func TestFrontendRowsCarryURLAndOwnership(t *testing.T) {
 	m := withEnv(t, "")
 	list := []Plugin{

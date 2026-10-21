@@ -1,5 +1,5 @@
 import {
-  Archive, ChevronDown, ChevronRight, LockKeyhole,
+  Archive, ChevronDown, ChevronRight, LockKeyhole, ShieldCheck,
   Palette, Receipt, Settings2, Trash2, UserPlus,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -25,7 +25,7 @@ import { SettingControl, splitList } from "./env-controls";
 import { fileForKey, GROUPS, isHiddenKey, MANAGED_NOTES, SETTING_BY_KEY, SETTINGS, VISIT_OPTIONS, type Setting } from "./env-schema";
 
 const SECTIONS: Section[] = ["backend", "frontend"];
-const ICONS = [Palette, UserPlus, Receipt, Archive, LockKeyhole];
+const ICONS = [Palette, UserPlus, Receipt, Archive, LockKeyhole, ShieldCheck];
 type Files = Record<Section, { text: string; lines: EnvLine[] }>;
 type CustomRow = { uid: number; key: string; value: string; file: Section; isNew: boolean };
 

@@ -551,7 +551,8 @@ After both members of a scheduled set publish, `prune()`:
    `.files-*.tmp*`.
 2. With retention `0`, keeps published backups and returns.
 3. Otherwise deletes top-level regular files matching `care-*.dump*` or
-   `files-*.tar.gz*` using `find -mtime +<days>`.
+   `files-*.tar.gz*` using `find -mtime +<days>`, skipping `care-manual-*` and
+   `files-manual-*`.
 
 Consequences:
 
@@ -560,8 +561,8 @@ Consequences:
   scheduled set.
 - Age is based on filesystem modification time and `find`'s whole-day
   calculation, not the filename's timestamp or a count of retained sets.
-- Manual dumps and manual files archives match the retention globs too,
-  although manual mode itself never calls `prune()`.
+- Manual dumps and manual files archives are never pruned. Only the operator
+  deletes them, and manual mode itself never calls `prune()`.
 - Directories, nested contents, and symbolic links are not recursively pruned.
 - The recovery key and `.backup.lock` are not retention targets.
 - The shell globs are broader than the Go restore filename expressions. Keep

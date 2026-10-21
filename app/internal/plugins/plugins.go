@@ -55,11 +55,33 @@ type Plugin struct {
 }
 
 type CatalogEntry struct {
-	Plugin          Plugin   `json:"plugin"`
-	Description     string   `json:"description,omitempty"`
-	Default         bool     `json:"default,omitempty"`
-	AddToExisting   bool     `json:"add_to_existing,omitempty"`
-	RequiredConfigs []string `json:"required_configs,omitempty"`
+	Plugin          Plugin      `json:"plugin"`
+	Description     string      `json:"description,omitempty"`
+	Default         bool        `json:"default,omitempty"`
+	AddToExisting   bool        `json:"add_to_existing,omitempty"`
+	RequiredConfigs []string    `json:"required_configs,omitempty"`
+	Settings        []Setting   `json:"settings,omitempty"`
+	SetupSteps      []SetupStep `json:"setup_steps,omitempty"`
+}
+
+type Setting struct {
+	Part        string          `json:"part"`
+	Key         string          `json:"key"`
+	Label       string          `json:"label"`
+	Help        string          `json:"help,omitempty"`
+	Type        string          `json:"type"`
+	Placeholder string          `json:"placeholder,omitempty"`
+	Options     []SettingOption `json:"options,omitempty"`
+}
+
+type SettingOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+type SetupStep struct {
+	Text   string `json:"text"`
+	Action string `json:"action,omitempty"`
 }
 
 //go:embed catalog.yml

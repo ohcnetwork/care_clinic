@@ -310,15 +310,16 @@ assignments are quoted and normalized individually; new values use the file's
 existing line-ending convention. Friendly controls and new custom edits require
 single-line values. This is still not a replacement for the native dotenv parser.
 
-The normal clinic editor exposes ten everyday choices:
+The normal clinic editor exposes eleven everyday choices:
 
 | Group | Settings |
 | --- | --- |
 | Clinic details | Clinic display name and languages for staff. |
 | Patients and visits | Usual visit type and a default patient location. |
 | Billing | Usual payment method, payment instructions, tax-inclusive prices and opening a bill after dispensing. |
-| Backups | Delete backups older than a number of days (shipped as 1; 0 never deletes). |
+| Backups | Delete automatic backups older than a number of days (shipped as 1; 0 never deletes). Manual backups are never deleted. |
 | Staff access | How long inactive staff stay signed in. |
+| Web protection | The Coraza web firewall mode (`CORAZA_MODE`): Off, watch only (`DetectionOnly`) or block (`On`). |
 
 Less-used local options, such as logos, country defaults, enabled visit types,
 form preferences and queue refresh timing, are not part of these groups. They

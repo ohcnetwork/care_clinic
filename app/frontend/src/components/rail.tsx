@@ -150,6 +150,8 @@ function PanelRail({ locked, updateCount }: { locked: boolean; updateCount: numb
         <Icon aria-hidden="true" /><span>{label}</span>
         {id === "updates" && updateCount > 0 ? <span className="care-panel-rail-count"
           aria-label={`${updateCount} ${updateCount === 1 ? "update" : "updates"} available`}>{updateCount}</span> : null}
+        {id === "plugins" && care.unsavedPlugins ? <span className="care-panel-rail-unsaved"
+          role="img" aria-label="Unsaved changes" title="Unsaved changes" /> : null}
       </button>)}
     </nav>
     <div className="care-panel-rail-spacer" />

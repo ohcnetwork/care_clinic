@@ -162,6 +162,25 @@ export type PluginCatalogEntry = {
   description?: string;
   default?: boolean;
   required_configs?: string[];
+  settings?: PluginSetting[];
+  setup_steps?: PluginSetupStep[];
+};
+
+export type PluginSettingType = "text" | "secret" | "url" | "number" | "boolean" | "choice" | "choices" | "list";
+
+export type PluginSetting = {
+  part: "backend" | "frontend";
+  key: string;
+  label: string;
+  help?: string;
+  type: PluginSettingType;
+  placeholder?: string;
+  options?: { value: string; label: string }[];
+};
+
+export type PluginSetupStep = {
+  text: string;
+  action?: "advanced" | "care";
 };
 
 /** Which of the two .env files an editor is pointed at. */
