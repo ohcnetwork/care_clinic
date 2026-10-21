@@ -6,6 +6,7 @@
       label: Open clinic setup after signing in
       help: Takes an administrator straight to setup after signing in, until the clinic has a facility.
       type: boolean
+      default: true
   plugin:
     id: care_onboarding_fe
     label: CARE Onboarding

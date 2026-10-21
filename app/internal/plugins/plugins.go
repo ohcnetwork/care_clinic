@@ -71,6 +71,7 @@ type Setting struct {
 	Help        string          `json:"help,omitempty"`
 	Type        string          `json:"type"`
 	Placeholder string          `json:"placeholder,omitempty"`
+	Default     any             `json:"default,omitempty"`
 	Options     []SettingOption `json:"options,omitempty"`
 }
 

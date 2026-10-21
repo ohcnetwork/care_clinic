@@ -4,7 +4,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import type {} from "./fixtures/host";
 import type { CarePlugin, PluginCatalogEntry, PluginSetting } from "../src/types";
 import {
-  describeChanges, hasPluginProblems, pluginChanges, pluginProblems, reconcileCatalog, requiredConfig,
+  describeChanges, hasPluginProblems, pluginChanges, pluginProblems, pluginSnapshot, reconcileCatalog, requiredConfig,
   serializePlugins, settingValue, toPluginRow, withSetting,
 } from "../src/screens/panel/plugin-model";
 
@@ -827,6 +827,17 @@ test("saving from the leave prompt opens the chosen tab once the apply starts", 
   expect(await countApply(page)).toBe(1);
 });
 
+test("a missing setting shows the default the plugin uses", async ({ page }) => {
+  const onboarding: PluginCatalogEntry = {
+    ...catalog[0],
+    settings: [{ part: "frontend", key: "config.redirect_after_login", label: "Open clinic setup after signing in", type: "boolean", default: true }],
+  };
+  await openPlugins(page, { saved: [{ ...onboarding.plugin, frontend: { ...onboarding.plugin.frontend!, meta: {} } }], catalog: [onboarding] });
+  await row(page, "CARE Onboarding").getByRole("button", { name: "Edit CARE Onboarding", exact: true }).click();
+  await expect(row(page, "CARE Onboarding").getByRole("switch", { name: "Open clinic setup after signing in" })).toBeChecked();
+  await expect(saveButton(page)).toBeDisabled();
+});
+
 test("described settings edit typed values in place and keep text as text", () => {
   const faster: PluginCatalogEntry = {
     plugin: { id: "faster", label: "Faster", catalog: true, frontend: {
@@ -855,6 +866,15 @@ test("described settings edit typed values in place and keep text as text", () =
     expect(settingValue(numbered, limit)).toBe(value);
     expect(serializePlugins([numbered])[0].backend!.configs!.LIMIT).toBe(value);
   }
+  const saved = toPluginRow({ ...filly.plugin, backend: { ...filly.plugin.backend!, configs: { LIMIT: "42" } } }, 4);
+  const retyped = withSetting(withSetting(saved, limit, 43), limit, 42);
+  expect(settingValue(retyped, limit)).toBe(42);
+  expect(serializePlugins([retyped])[0].backend!.configs!.LIMIT).toBe(42);
+  expect(pluginSnapshot([retyped])).not.toBe(pluginSnapshot([saved]));
+  const toggled: PluginSetting = { part: "backend", key: "ON", label: "On", type: "boolean" };
+  const flag = toPluginRow({ ...filly.plugin, backend: { ...filly.plugin.backend!, configs: { ON: true } } }, 5);
+  expect(pluginSnapshot([withSetting(withSetting(flag, toggled, false), toggled, true)])).toBe(pluginSnapshot([flag]));
+
   const edited = withSetting(toPluginRow(filly.plugin, 3), limit, null);
   const index = edited.backend!.configs.findIndex((config) => config.key === "LIMIT");
   edited.backend!.configs[index] = { ...edited.backend!.configs[index], value: "null", typed: undefined };

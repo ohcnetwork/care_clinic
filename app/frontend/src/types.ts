@@ -175,6 +175,7 @@ export type PluginSetting = {
   help?: string;
   type: PluginSettingType;
   placeholder?: string;
+  default?: unknown;
   options?: { value: string; label: string }[];
 };
 

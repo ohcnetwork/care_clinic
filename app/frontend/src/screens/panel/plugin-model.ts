@@ -110,7 +110,9 @@ export function pluginSnapshot(rows: PluginRow[]): string {
   return JSON.stringify(rows.filter((row) => !row.removed).map((row) => ({
     id: row.id, label: row.label, catalog: row.catalog,
     backend: row.backend ? {
-      ...row.backend, configs: row.backend.configs.map(({ key, value }) => ({ key, value })),
+      ...row.backend, configs: row.backend.configs.map((config) => ({
+        key: config.key, value: config.value, effective: knownValue(config),
+      })),
     } : null,
     frontend: row.frontend,
   })));
@@ -124,8 +126,7 @@ export function serializePlugins(rows: PluginRow[]): CarePlugin[] {
     if (row.backend) {
       const configs = Object.fromEntries(row.backend.configs.map((config) => [
         config.key.trim(),
-        config.original && config.value === config.original.text
-          ? config.original.value : typedValue(config),
+        configValue(config),
       ]));
       plugin.backend = {
         name: row.backend.name.trim(),
@@ -263,8 +264,7 @@ export function settingValue(row: PluginRow, setting: PluginSetting): unknown {
   if (setting.part === "backend") {
     const config = row.backend?.configs.find((config) => config.key.trim() === setting.key);
     if (!config) return undefined;
-    if (config.original && config.value === config.original.text) return config.original.value;
-    return typedValue(config);
+    return configValue(config);
   }
   let node: unknown = readMeta(row);
   for (const part of setting.key.split(".")) {
@@ -274,8 +274,15 @@ export function settingValue(row: PluginRow, setting: PluginSetting): unknown {
   return node;
 }
 
-function typedValue(config: ConfigRow): unknown {
-  return config.typed && config.value === config.typed.text ? config.typed.value : parseConfigValue(config.value);
+function knownValue(config: ConfigRow): unknown {
+  if (config.typed && config.value === config.typed.text) return config.typed.value;
+  if (config.original && config.value === config.original.text) return config.original.value;
+  return undefined;
+}
+
+function configValue(config: ConfigRow): unknown {
+  const known = knownValue(config);
+  return known === undefined ? parseConfigValue(config.value) : known;
 }
 
 function settingText(value: unknown): { value: string; typed: { text: string; value: unknown } } {

@@ -345,6 +345,9 @@ func TestCatalogSettingsDescribeShippedFields(t *testing.T) {
 				t.Fatalf("%s describes %s twice", p.ID, s.Key)
 			}
 			seen[s.Part+"/"+s.Key] = true
+			if _, ok := s.Default.(bool); s.Default != nil && s.Type == "boolean" && !ok {
+				t.Fatalf("%s setting %s has a non-boolean default", p.ID, s.Key)
+			}
 			if (s.Type == "choice" || s.Type == "choices") != (len(s.Options) > 0) {
 				t.Fatalf("%s setting %s has options that do not match its type", p.ID, s.Key)
 			}

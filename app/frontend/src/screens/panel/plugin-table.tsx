@@ -550,7 +550,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
                             key={`${setting.part}-${setting.key}`}
                             id={id}
                             setting={setting}
-                            value={settingValue(row, setting)}
+                            value={settingValue(row, setting) ?? setting.default}
                             required={required}
                             disabled={locked || (setting.part === "frontend" && !meta)}
                             error={index >= 0 ? (attempted || touched.has(id) ? errors.configValues[index] : undefined) : undefined}
