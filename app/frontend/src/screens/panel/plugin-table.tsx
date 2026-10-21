@@ -611,7 +611,8 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
                               onChange={(e) => patchRow(row.uid, { id: e.target.value })}
                             />
                           </Field>
-                          <div className="care-plugin-parts" role="group" aria-label="Plugin parts"
+                          <div className="care-plugin-parts" role="group" aria-label="Plugin parts" tabIndex={-1}
+                            aria-invalid={errors.parts ? true : undefined}
                             aria-describedby={errors.parts ? field("parts-help") : undefined}>
                             <PartSwitch label="Backend" checked={row.backend !== null} disabled={locked}
                               onChange={(on) => patchRow(row.uid, {

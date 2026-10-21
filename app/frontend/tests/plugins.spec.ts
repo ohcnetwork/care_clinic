@@ -282,6 +282,7 @@ test("custom fields mirror native rules and report accessible errors without par
   await editor.getByRole("switch", { name: "Frontend", exact: true }).uncheck();
   await expect(editor).toContainText("Choose Backend, Frontend, or both.");
   await expectSaveBlocked(page);
+  await expect(editor.getByRole("group", { name: "Plugin parts" })).toBeFocused();
   await editor.getByRole("switch", { name: "Backend", exact: true }).check();
   await expect(editor.getByLabel("Python module", { exact: true })).toHaveValue(custom.backend!.name);
   await expect(root(page).locator(".care-plugins-savebar")).not.toContainText("before saving");
@@ -874,6 +875,12 @@ test("described settings edit typed values in place and keep text as text", () =
   const toggled: PluginSetting = { part: "backend", key: "ON", label: "On", type: "boolean" };
   const flag = toPluginRow({ ...filly.plugin, backend: { ...filly.plugin.backend!, configs: { ON: true } } }, 5);
   expect(pluginSnapshot([withSetting(withSetting(flag, toggled, false), toggled, true)])).toBe(pluginSnapshot([flag]));
+
+  const key = filly.settings![0];
+  const numericKey = toPluginRow({ ...filly.plugin, backend: { ...filly.plugin.backend!, configs: { MEDISPEAK_API_KEY: 123 } } }, 6);
+  const asText = withSetting(numericKey, key, "123");
+  expect(serializePlugins([asText])[0].backend!.configs!.MEDISPEAK_API_KEY).toBe("123");
+  expect(pluginSnapshot([asText])).not.toBe(pluginSnapshot([numericKey]));
 
   const edited = withSetting(toPluginRow(filly.plugin, 3), limit, null);
   const index = edited.backend!.configs.findIndex((config) => config.key === "LIMIT");
