@@ -74,26 +74,34 @@
       key: config.auto_create_invoice
       label: Create the invoice when an appointment is booked
       type: boolean
+      default: true
     - part: frontend
       key: config.collect_payment_on_appointment_page
       label: Collect payment on the appointment page
       type: boolean
+      default: true
     - part: frontend
       key: config.print_invoice_on_appointment_page
       label: Print the invoice from the appointment page
       type: boolean
+      default: true
     - part: frontend
       key: config.redirect_to_invoice
       label: Open the invoice instead of collecting payment on the appointment page
       type: boolean
+      default: false
     - part: frontend
       key: config.mark_balanced_on_full_payment
       label: Mark invoices as balanced once fully paid
       type: boolean
+      default: true
     - part: frontend
       key: config.payment_methods
       label: Payment methods offered
       type: choices
+      default:
+        - cash
+        - ddpo
       options:
         - value: cash
           label: Cash

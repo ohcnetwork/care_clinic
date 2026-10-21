@@ -348,6 +348,15 @@ func TestCatalogSettingsDescribeShippedFields(t *testing.T) {
 			if _, ok := s.Default.(bool); s.Default != nil && s.Type == "boolean" && !ok {
 				t.Fatalf("%s setting %s has a non-boolean default", p.ID, s.Key)
 			}
+			if s.Default != nil && s.Part == "frontend" && p.Frontend != nil {
+				var shipped any = p.Frontend.Meta
+				for _, part := range strings.Split(s.Key, ".") {
+					shipped = shipped.(map[string]any)[part]
+				}
+				if !reflect.DeepEqual(s.Default, shipped) {
+					t.Fatalf("%s setting %s defaults to %v but ships %v", p.ID, s.Key, s.Default, shipped)
+				}
+			}
 			if (s.Type == "choice" || s.Type == "choices") != (len(s.Options) > 0) {
 				t.Fatalf("%s setting %s has options that do not match its type", p.ID, s.Key)
 			}

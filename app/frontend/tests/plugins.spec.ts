@@ -839,6 +839,32 @@ test("a missing setting shows the default the plugin uses", async ({ page }) => 
   await expect(saveButton(page)).toBeDisabled();
 });
 
+test("sparse saved settings show the plugin's defaults and only change what staff edit", async ({ page }) => {
+  const faster: PluginCatalogEntry = {
+    plugin: { id: "faster", label: "Faster", catalog: true, frontend: {
+      slug: "faster", url: "https://example.com/remoteEntry.js",
+      meta: { config: { auto: true, methods: ["cash", "ddpo"] } },
+    } },
+    settings: [
+      { part: "frontend", key: "config.auto", label: "Auto invoice", type: "boolean", default: true },
+      { part: "frontend", key: "config.methods", label: "Methods", type: "choices", default: ["cash", "ddpo"],
+        options: [{ value: "cash", label: "Cash" }, { value: "ccca", label: "Credit card" }, { value: "ddpo", label: "Direct deposit" }] },
+    ],
+  };
+  await openPlugins(page, { saved: [{ ...faster.plugin, frontend: { ...faster.plugin.frontend!, meta: {} } }], catalog: [faster] });
+  const editor = row(page, "Faster");
+  await editor.getByRole("button", { name: "Edit Faster", exact: true }).click();
+  await expect(editor.getByRole("switch", { name: "Auto invoice" })).toBeChecked();
+  await expect(editor.getByRole("checkbox", { name: "Cash" })).toBeChecked();
+  await expect(editor.getByRole("checkbox", { name: "Direct deposit" })).toBeChecked();
+  await expect(saveButton(page)).toBeDisabled();
+  await editor.getByRole("checkbox", { name: "Credit card" }).click();
+  await saveButton(page).click();
+  await expect(root(page)).toContainText("Plugin changes are applied.");
+  const saved = await page.evaluate(() => window.careTest.calls.find((call) => call.method === "SavePlugins")?.args[0]) as CarePlugin[];
+  expect(saved[0].frontend!.meta).toEqual({ config: { methods: ["cash", "ccca", "ddpo"] } });
+});
+
 test("described settings edit typed values in place and keep text as text", () => {
   const faster: PluginCatalogEntry = {
     plugin: { id: "faster", label: "Faster", catalog: true, frontend: {
