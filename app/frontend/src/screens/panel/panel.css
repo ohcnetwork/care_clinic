@@ -178,6 +178,7 @@
 .care-panel-rail-link:focus-visible { outline: 3px solid #bdf0d9; outline-offset: 3px; }
 .care-panel-rail-spacer { flex: 1; min-height: 22px; }
 .care-panel-rail-count { margin-left: auto; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 50%; background: #fdba8c; color: #7c2d12; font-size: 11px; font-weight: 700; }
+.care-panel-rail-unsaved { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: #fdba8c; box-shadow: 0 0 0 3px rgba(253, 186, 140, .25); }
 .care-panel-rail-docs { margin-bottom: 10px; }
 .care-panel-rail-docs > svg:last-child { width: 13px; height: 13px; }
 .care-panel-rail-status { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 14px; color: #fff; background: #ffffff1a; font-size: 13px; font-weight: 600; }

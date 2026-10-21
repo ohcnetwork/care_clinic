@@ -104,6 +104,9 @@ type CareStore = {
 
   tab: PanelTab;
   setTab: (tab: PanelTab) => void;
+  setTabGuard: (guard: ((next: PanelTab) => boolean) | null) => void;
+  unsavedPlugins: boolean;
+  setUnsavedPlugins: (unsaved: boolean) => void;
   busy: boolean;
   busyLabel: string;
   operationError: OperationError | null;
@@ -175,6 +178,15 @@ export function CareProvider({ children }: { children: ReactNode }) {
   const [run, setRunState] = useState<RunState>(IDLE_RUN);
   const [setupReset, setSetupReset] = useState(0);
   const [tab, setTab] = useState<PanelTab>("overview");
+  const [unsavedPlugins, setUnsavedPlugins] = useState(false);
+  const tabGuard = useRef<((next: PanelTab) => boolean) | null>(null);
+  const navigate = useCallback((next: PanelTab) => {
+    if (tabGuard.current && !tabGuard.current(next)) return;
+    setTab(next);
+  }, []);
+  const setTabGuard = useCallback((guard: ((next: PanelTab) => boolean) | null) => {
+    tabGuard.current = guard;
+  }, []);
   const [busy, setBusyState] = useState(false);
   const [busyLabel, setBusyLabel] = useState("");
   const [operationError, setOperationError] = useState<OperationError | null>(null);
@@ -1092,7 +1104,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
       restartSetup,
       openPanel,
       tab,
-      setTab,
+      setTab: navigate,
+      setTabGuard,
+      unsavedPlugins,
+      setUnsavedPlugins,
       busy,
       busyLabel,
       operationError,
@@ -1140,7 +1155,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
     [
       ready, flow, mdnsName, clientURL, selectRole, clearRole, openStep, stepsDone, setStepDone,
       run, setupReset, startInstall, resumeInstall, retryInstall, restartSetup, openPanel,
-      tab, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
+      tab, navigate, setTabGuard, unsavedPlugins, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
       updateChecks, reloadUpdateChecks, saveUpdateChecks, installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, keepAwake, keepAwakeReady, keepAwakeSaving, keepAwakeError, storage, storageError, recheckStorage,
       refresh, reloadBackups, syncAutostart, syncKeepAwake,
       runAction, setAutostart, setKeepAwake, restore, restoreFile, uninstall, log,

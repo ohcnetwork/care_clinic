@@ -32,6 +32,19 @@ The file is a YAML list. Each item is one catalog entry:
   default: false                 # opt in during new-clinic setup only
   required_configs:               # backend settings that must be filled before saving
     - EXAMPLE_API_KEY
+  settings:                       # form fields shown instead of raw keys and JSON
+    - part: backend               # backend: a key in backend.configs
+      key: EXAMPLE_API_KEY
+      label: Example API key
+      help: Shown under the field.
+      type: secret                # text, secret, url, number, boolean, choice, choices, list
+    - part: frontend              # frontend: a dotted path inside frontend.meta
+      key: config.EXAMPLE_API_URL
+      label: Example address
+      type: url
+  setup_steps:                    # extra steps shown under "Also needed"
+    - text: Add ExampleComponent to REACT_MFE_REGISTERED_COMPONENTS in Advanced settings.
+      action: advanced            # optional: advanced opens Advanced, care opens CARE
   plugin:
     id: care_example              # required, unique across the catalog
     label: Example                # name shown in the panel
@@ -57,6 +70,8 @@ The file is a YAML list. Each item is one catalog entry:
 | `default` | No | Enable during new-clinic setup. Defaults to `false`; never auto-added on an ordinary read. | Boolean. |
 | `add_to_existing` | No | With `default: true`, also add the plugin once to clinics set up before it joined the catalog, the first time they start this CARE Clinic version. See [Defaults for existing clinics](#defaults-for-existing-clinics). | Boolean. |
 | `required_configs` | No | Names of `backend.configs` settings the operator must fill in before the plugin can be saved. See [Required settings](#required-settings). | Each listed setting must be present and not blank. |
+| `settings` | No | Form fields for the plugin's settings. `part` is `backend` (a key in `backend.configs`) or `frontend` (a dotted path inside `frontend.meta`). `type` picks the control: `text`, `secret` (hidden, with show/hide), `url`, `number`, `boolean` (switch), `choice` (dropdown), `choices` (checkboxes saving a list) or `list` (one value per line). `choice` and `choices` need `options` of `value`/`label` pairs. `default` is what the plugin uses when the value is missing, and the form shows it in that case. Settings without an entry here stay editable under **Technical details**. | Presentation only; `TestCatalogSettingsDescribeShippedFields` checks that every described key ships a default and every required setting is described. |
+| `setup_steps` | No | Steps the operator must do elsewhere for the plugin to work, shown under **Also needed**. `action: advanced` adds a button that opens Advanced; `action: care` opens CARE in the browser. | Presentation only. |
 | `plugin.id` | Yes | Identity of the plugin. Also how a saved plugin is matched back to its catalog entry. | Letters, numbers, `.`, `_`, `-`; unique. |
 | `plugin.label` | No | Display name, such as `CARE Onboarding`. Falls back to `id`. | Spaces allowed; surrounding whitespace trimmed. |
 | `plugin.backend` | One of `backend`/`frontend` | Present when the plugin has a Django part. | |
@@ -86,7 +101,7 @@ As a result:
 `required_configs` lists backend settings a catalog plugin cannot run without, such as an account key. It lives on the catalog entry, not on `plugin.backend`, so it never reaches `plugins.json` or `ADDITIONAL_PLUGS` (CARE builds a strict dataclass from each backend entry and would crash on an unknown key).
 
 - **On save:** `Prepare` rejects a catalog plugin when a required setting is missing, `null`, or a string that is empty or only whitespace, with an error such as `Filly needs MEDISPEAK_API_KEY before it can be installed`. Any other value (a number, `false`, a list) counts as filled. The rule applies only to plugins saved with `catalog: true` whose ID is still in the catalog; a custom plugin with the same module is not checked.
-- **In the panel:** `pluginProblems` marks an empty required value with "Enter a value; Filly needs this setting.", and Save and apply stays disabled until it is filled. The name of a required setting is read-only and it has no remove button. `reconcileCatalog` re-adds a required setting that is missing from a saved plugin, with an empty value, so the operator can see what to fill in. A required setting whose name ends in `_API_KEY`, `_SECRET` or `_TOKEN` uses a password field. The value is still stored in plain text in `plugins.json` and `backend.env`, both mode `0600`.
+- **In the panel:** a plugin with an empty required value shows **Needs setup**. `pluginProblems` marks the value with "Enter a value; Filly needs this setting." once the field is touched or Save and apply is pressed, and pressing Save and apply opens the plugin and focuses the first problem instead of saving. The name of a required setting is read-only and it has no remove button. `reconcileCatalog` re-adds a required setting that is missing from a saved plugin, with an empty value, so the operator can see what to fill in. A required setting whose name ends in `_API_KEY`, `_SECRET` or `_TOKEN` uses a password field. The value is still stored in plain text in `plugins.json` and `backend.env`, both mode `0600`.
 - **Defaults:** a `default: true` entry must ship values for all of its required settings, or new-clinic setup and `AddNewDefaults` would fail to save. `TestEveryCatalogEntryIsValid` checks this.
 - **Adding a requirement to an existing entry** makes every clinic that already has the plugin unable to save plugin changes until the setting is filled in, so ship a default value, or add the requirement only to a new entry.
 
@@ -263,15 +278,13 @@ back rather than retried with the bad plugin inputs. Do not delete the journal
 or prune the safety image while recovery is pending.
 
 The editor waits for the matching `care-done` event before treating settings as
-applied. New or changed entries are marked **Not applied** until the job succeeds.
-After failure it shows whether recovery succeeded and keeps the failed batch
-visible for correction only while the operator stays on Plugins. Leaving the
-tab discards that batch and restores the last successfully applied list,
+applied. New or changed entries are marked **New · not applied** or **Changed ·
+not applied** until the job succeeds. After failure it shows whether recovery
+succeeded and keeps the failed batch visible for correction. **Discard changes**,
+or discarding while leaving the tab, restores the last successfully applied list,
 including any existing plugins removed or edited by the failed attempt. A
 failure that arrives while another tab is open discards the batch too. An
-explicit retry on Plugins stages the draft afresh; successful changes remain
-when switching tabs. Ordinary unsaved edits and file-save errors still retain
-their drafts across tabs.
+explicit retry on Plugins stages the draft afresh.
 Private native diagnostics stay in the log rather than the error banner.
 
 **Limits:** this is configuration/image/runtime recovery, not a database
@@ -301,13 +314,16 @@ processes, then use **Save and apply** with a known-bad plugin configuration.
 
 ## The panel
 
-- **Add a plugin** lists catalog entries whose plugin ID, backend module and frontend name are not already in the list, then **Custom plugin**. This includes custom entries using the same identities. A newly added plugin opens expanded.
-- Each plugin shows **Backend**, **Frontend**, and **Custom** badges as they apply, and a remove button. Removing a plugin and saving uninstalls both parts: the backend is rebuilt without it and its `PlugConfig` row is deleted.
-- **Backend settings** are key/value rows. `true`/`false`, integers, decimals, and text starting with `[` or `{` (parsed as JSON) are converted to the matching type; anything else stays a string.
-- **Frontend settings** are the raw `meta` JSON object, the same format as CARE's `/admin/apps` editor. Invalid JSON, or a value that is not an object, disables saving.
-- **Custom plugins** show a **Display name** (spaces allowed) separately from the required **Plugin ID** (letters, numbers, `.`, `_`, `-`; no spaces). Invalid or duplicate IDs have inline errors and block saving. They also show a switch for each part, the backend module, pip source and version, and the frontend name and `remoteEntry.js` URL.
+- **Add a plugin** lists catalog entries whose plugin ID, backend module and frontend name are not already in the list, each with its description, then **Custom plugin**. This includes custom entries using the same identities. A newly added plugin opens expanded.
+- Each plugin shows one status: **Active**, **New · not applied**, **Changed · not applied**, **Needs setup** (a required setting is empty), **Not finished** or **Check fields** (other problems, before and after a save attempt), or **Will be removed**. Custom plugins also show **Custom**.
+- **Remove** on a saved plugin keeps it in the list, crossed out, as **Will be removed** with **Undo**. Saving uninstalls both parts: the backend is rebuilt without it and its `PlugConfig` row is deleted. Removing a plugin that was never saved deletes it from the draft at once.
+- **Catalog plugins** show their `settings` as a form and their `setup_steps` under **Also needed**. Their sources, plugin ID and any settings without a form are under **Technical details**, which starts closed. A catalog plugin with no described settings shows these editors directly.
+- **Backend settings** in Technical details are key/value rows. `true`/`false`, integers, decimals, and text starting with `[` or `{` (parsed as JSON) are converted to the matching type; anything else stays a string. Text, secret and URL form fields always save strings.
+- **Frontend settings** in Technical details are the raw `meta` JSON object, the same format as CARE's `/admin/apps` editor, including the values the form edits. Invalid JSON, or a value that is not an object, blocks saving and the frontend form.
+- **Custom plugins** show a **Display name** (spaces allowed) separately from the required **Plugin ID** (letters, numbers, `.`, `_`, `-`; no spaces). They also show a switch for each part, the backend module, pip source and version, and the frontend name and `remoteEntry.js` URL. Field errors appear once a field loses focus or Save and apply is pressed.
+- **Unsaved changes** are counted and summarised in a save bar that stays at the bottom of the screen, with **Discard changes** and **Save and apply**. The Plugins entry in the sidebar shows a dot while changes are unsaved. Leaving Plugins with unsaved changes asks whether to keep editing, discard them, or save and apply. When the editor is locked by another operation, leaving does not ask and the draft is kept.
 
-The catalog/table layout is retained. Unchanged backend settings preserve their
+Unchanged backend settings preserve their
 original JSON types, including strings that look numeric or boolean, nulls and
 structured values. Parsing applies to edited values; the frontend metadata must
 be an object. A custom plugin may have either part or both, the backend version

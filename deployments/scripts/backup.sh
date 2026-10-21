@@ -249,8 +249,9 @@ prune() {
 		echo "[backup] $RET_DESC"
 		return 0
 	fi
-	echo "[backup] retention: deleting sets older than ${RET} days"
-	if ! find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'care-*.dump*' -o -name 'files-*.tar.gz*' \) -mtime +"$RET" -delete; then
+	echo "[backup] retention: deleting automatic backups older than ${RET} days"
+	if ! find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'care-*.dump*' -o -name 'files-*.tar.gz*' \) \
+		! -name 'care-manual-*' ! -name 'files-manual-*' -mtime +"$RET" -delete; then
 		echo "[backup] ERROR: pruning old backups failed"
 		return 1
 	fi

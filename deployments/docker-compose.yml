@@ -118,6 +118,7 @@ services:
     env_file: ./backend.env
     environment:
       TZ: ${BACKUP_TZ:-UTC0}
+      BACKUP_SCRIPT_SHA: ${BACKUP_SCRIPT_SHA:-}
     volumes:
       - ./scripts/backup.sh:/backup.sh:ro
       - ${BACKUP_DIR:-./db-backups}:/backups

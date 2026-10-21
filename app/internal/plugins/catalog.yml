@@ -1,5 +1,12 @@
 - description: Set up a new clinic's geography, facility, departments, staff, numbering, questionnaires and report templates. Requires internet access.
   default: true
+  settings:
+    - part: frontend
+      key: config.redirect_after_login
+      label: Open clinic setup after signing in
+      help: Takes an administrator straight to setup after signing in, until the clinic has a facility.
+      type: boolean
+      default: true
   plugin:
     id: care_onboarding_fe
     label: CARE Onboarding
@@ -12,6 +19,12 @@
 - description: Lets files open and upload when CARE is reached from more than one address, such as the clinic network and home access.
   default: true
   add_to_existing: true
+  settings:
+    - part: backend
+      key: ALLOWED_HOSTS
+      label: Addresses that can open files
+      help: One address per line. A leading * matches any name, so *.local covers care.local.
+      type: list
   plugin:
     id: care_multihost_files_be
     label: Files on every address
@@ -23,11 +36,27 @@
         ALLOWED_HOSTS:
           - "*.local"
           - "*.ts.net"
-- description: "AI scribe: Medispeak dictation that fills CARE forms. Needs a Medispeak API key and internet access; enable its frontend from CARE's plugin marketplace."
+- description: "AI scribe: Medispeak dictation that fills CARE forms. Needs a Medispeak account and internet access."
   default: false
   required_configs:
     - MEDISPEAK_API_KEY
     - MEDISPEAK_BASE_URL
+  settings:
+    - part: backend
+      key: MEDISPEAK_API_KEY
+      label: Medispeak API key
+      help: Your clinic's Medispeak account key. It starts with msk_live_.
+      type: secret
+      placeholder: msk_live_…
+    - part: backend
+      key: MEDISPEAK_BASE_URL
+      label: Medispeak address
+      help: The Medispeak v2 API address your account uses.
+      type: url
+      placeholder: https://…/api/v2
+  setup_steps:
+    - text: After applying, turn on Filly's screens from CARE's plugin marketplace.
+      action: care
   plugin:
     id: care_filly
     label: Filly
@@ -38,8 +67,51 @@
       configs:
         MEDISPEAK_API_KEY: ""
         MEDISPEAK_BASE_URL: ""
-- description: "Faster front-desk booking. Issues the token and invoice right after an appointment is booked, remembers the last practitioner, location and service, and marks invoices balanced once fully paid. Requires internet access. For it to work, add AppointmentDetail,ScheduleResourceSelector to REACT_MFE_REGISTERED_COMPONENTS in Advanced settings."
+- description: Faster front-desk booking. Issues the token and invoice right after an appointment is booked, remembers the last practitioner, location and service, and marks invoices balanced once fully paid. Requires internet access.
   default: false
+  settings:
+    - part: frontend
+      key: config.auto_create_invoice
+      label: Create the invoice when an appointment is booked
+      type: boolean
+    - part: frontend
+      key: config.collect_payment_on_appointment_page
+      label: Collect payment on the appointment page
+      type: boolean
+    - part: frontend
+      key: config.print_invoice_on_appointment_page
+      label: Print the invoice from the appointment page
+      type: boolean
+    - part: frontend
+      key: config.redirect_to_invoice
+      label: Open the invoice instead of collecting payment on the appointment page
+      type: boolean
+    - part: frontend
+      key: config.mark_balanced_on_full_payment
+      label: Mark invoices as balanced once fully paid
+      type: boolean
+    - part: frontend
+      key: config.payment_methods
+      label: Payment methods offered
+      type: choices
+      options:
+        - value: cash
+          label: Cash
+        - value: ccca
+          label: Credit card
+        - value: debc
+          label: Debit card
+        - value: chck
+          label: Cheque
+        - value: cchk
+          label: Cashier's cheque
+        - value: cdac
+          label: Credit or debit account
+        - value: ddpo
+          label: Direct deposit
+  setup_steps:
+    - text: In Advanced settings, add AppointmentDetail and ScheduleResourceSelector to REACT_MFE_REGISTERED_COMPONENTS, then rebuild CARE.
+      action: advanced
   plugin:
     id: care_fasterappointments_fe
     label: Faster appointments
