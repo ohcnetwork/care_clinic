@@ -828,6 +828,21 @@ test("saving from the leave prompt opens the chosen tab once the apply starts", 
   expect(await countApply(page)).toBe(1);
 });
 
+test("a cleared number keeps showing empty instead of its default", async ({ page }) => {
+  const entry: PluginCatalogEntry = {
+    ...filly,
+    plugin: { ...filly.plugin, backend: { ...filly.plugin.backend!, configs: { ...filly.plugin.backend!.configs, LIMIT: 7 } } },
+    settings: [...filly.settings!, { part: "backend", key: "LIMIT", label: "Limit", type: "number", default: 42 }],
+  };
+  await openPlugins(page, { saved: [], catalog: [...catalog, entry] });
+  await addButton(page).click();
+  await page.getByRole("option", { name: "Filly", exact: true }).click();
+  const limit = row(page, "Filly").getByLabel("Limit", { exact: true });
+  await expect(limit).toHaveValue("7");
+  await limit.fill("");
+  await expect(limit).toHaveValue("");
+});
+
 test("a missing setting shows the default the plugin uses", async ({ page }) => {
   const onboarding: PluginCatalogEntry = {
     ...catalog[0],

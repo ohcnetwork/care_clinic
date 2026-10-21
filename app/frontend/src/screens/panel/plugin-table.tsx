@@ -541,6 +541,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
                         </Alert>
                       ) : null}
                       {settings.map((setting) => {
+                        const current = settingValue(row, setting);
                         const index = setting.part === "backend"
                           ? row.backend?.configs.findIndex((config) => config.key.trim() === setting.key) ?? -1 : -1;
                         const required = index >= 0 && requiredConfig(row, catalog, index);
@@ -550,7 +551,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
                             key={`${setting.part}-${setting.key}`}
                             id={id}
                             setting={setting}
-                            value={settingValue(row, setting) ?? setting.default}
+                            value={current === undefined ? setting.default : current}
                             required={required}
                             disabled={locked || (setting.part === "frontend" && !meta)}
                             error={index >= 0 ? (attempted || touched.has(id) ? errors.configValues[index] : undefined) : undefined}
