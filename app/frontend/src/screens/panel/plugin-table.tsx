@@ -77,6 +77,8 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
   const saving = useRef(false);
   const applying = useRef(false);
   const allowLeave = useRef(false);
+  const leaveOpener = useRef<HTMLElement | null>(null);
+  const leaveSaving = useRef(false);
   const submittedRows = useRef<PluginRow[]>([]);
   const appliedRows = useRef<PluginRow[]>([]);
   const initialRows = useRef<PluginRow[]>([]);
@@ -111,6 +113,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
   useEffect(() => {
     setTabGuard((next) => {
       if (allowLeave.current || next === "plugins" || !activeRef.current || !dirtyRef.current || lockedRef.current) return true;
+      leaveOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setLeaving(next);
       return false;
     });
@@ -399,7 +402,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
         Wait for the current operation to finish before changing plugins. Your edits stay here.
       </Alert> : null}
       {phase === "save-error" || phase === "apply-error" ? (
-        <Alert variant="danger" role="alert" className="care-plugins-message">
+        <Alert variant="danger" role="alert" tabIndex={-1} className="care-plugins-message care-plugins-save-error">
           <div>
             <strong>{phase === "save-error" ? "Plugin settings couldn't be saved." : "The plugin changes couldn't be applied."}</strong>
             <p>{phase === "save-error" ? "Your edits are still here. " : "These changes were not applied. Fix them and try again, or discard them. "}
@@ -839,7 +842,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
 
       <div className={cn("care-plugins-savebar", pending && "care-plugins-savebar-pending",
         pending && invalid && attempted && "care-plugins-savebar-invalid")}>
-        <div className="care-plugins-edit-status" role="status" aria-live="polite">
+        <div className="care-plugins-edit-status" role="status" aria-live="polite" tabIndex={-1}>
           <strong>{!ready ? "" : working ? (phase === "saving" ? "Saving…" : "Applying…")
             : dirty ? `${changeCount} unsaved ${changeCount === 1 ? "change" : "changes"}`
               : needsApply ? "Plugin changes have not been applied" : "No unsaved changes"}</strong>
@@ -865,7 +868,17 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
       </div>
 
       <AlertDialog open={active && leaving !== null} onOpenChange={(open) => { if (!open) setLeaving(null); }}>
-        <AlertDialogContent className="care-plugins-dialog">
+        <AlertDialogContent className="care-plugins-dialog" onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          if (!activeRef.current) return;
+          if (leaveSaving.current) {
+            root.current?.querySelector<HTMLElement>(".care-plugins-edit-status")?.focus();
+            return;
+          }
+          const opener = leaveOpener.current;
+          if (opener?.isConnected && !opener.matches(":disabled") && opener.getClientRects().length) opener.focus();
+          else addButton.current?.focus();
+        }}>
           <AlertDialogTitle>Your plugin changes aren&apos;t saved</AlertDialogTitle>
           <AlertDialogDescription>
             {summary ? `You chose to ${summary.charAt(0).toLowerCase()}${summary.slice(1)} ` : ""}
@@ -884,9 +897,18 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
             }}>Discard changes</Button>
             <Button type="button" variant="primary" disabled={locked || invalid} onClick={() => {
               const next = leaving;
+              leaveSaving.current = true;
               setLeaving(null);
               void save().then((started) => {
-                if (started && next && activeRef.current) leave(next);
+                leaveSaving.current = false;
+                if (!activeRef.current) return;
+                if (started && next) {
+                  leave(next);
+                  return;
+                }
+                window.requestAnimationFrame(() => {
+                  root.current?.querySelector<HTMLElement>(".care-plugins-save-error, [aria-invalid='true']")?.focus();
+                });
               });
             }}>Save and apply</Button>
           </AlertDialogFooter>

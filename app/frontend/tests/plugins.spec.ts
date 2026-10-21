@@ -788,6 +788,23 @@ test("a raw setting that duplicates a form field stays visible until it is fixed
   await expect(editor.getByLabel("Medispeak API key (required)", { exact: true })).toHaveValue("msk_live_example");
 });
 
+test("closing the leave prompt returns keyboard focus to the sidebar button that opened it", async ({ page }) => {
+  await openPlugins(page, { saved: [] });
+  await fillCustom(await addCustom(page));
+  const overview = page.getByRole("button", { name: "Overview", exact: true });
+  await overview.focus();
+  await page.keyboard.press("Enter");
+  await expect(leaveDialog(page).getByRole("button", { name: "Keep editing", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(overview).toBeFocused();
+  await page.keyboard.press("Enter");
+  await leaveDialog(page).getByRole("button", { name: "Keep editing", exact: true }).press("Enter");
+  await expect(leaveDialog(page)).toBeHidden();
+  await expect(overview).toBeFocused();
+  await expect(root(page)).toBeVisible();
+});
+
 test("saving from the leave prompt stays on Plugins when the save fails", async ({ page }) => {
   await openPlugins(page, { saved: [] });
   await fillCustom(await addCustom(page));
@@ -796,6 +813,7 @@ test("saving from the leave prompt stays on Plugins when the save fails", async 
   await leaveDialog(page).getByRole("button", { name: "Save and apply", exact: true }).click();
   await expect(root(page).getByRole("alert")).toContainText("Plugin settings couldn't be saved.");
   await expect(root(page)).toBeVisible();
+  await expect(root(page).getByRole("alert")).toBeFocused();
   await expect(root(page)).not.toContainText("/private/clinic");
   expect(await countApply(page)).toBe(0);
 });
