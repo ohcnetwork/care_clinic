@@ -20,10 +20,13 @@ func (e *Clinic) RebuildAll() error {
 }
 
 func (e *Clinic) rebuild(start, done string, jobs ...compose.Job) error {
-	if err := e.Backups().RecoverRestore(); err != nil {
+	e.logln(start + " - CARE stops while it builds so the build has the Docker VM's memory (patient data is kept)...")
+	if err := e.StopStack(); err != nil {
 		return err
 	}
-	e.logln(start + " - CARE stops while it builds so the build has the Docker VM's memory (patient data is kept)...")
+	if err := e.recoverStopped(e.Refresh); err != nil {
+		return err
+	}
 	if err := e.dc("down"); err != nil {
 		return err
 	}
@@ -37,7 +40,7 @@ func (e *Clinic) rebuild(start, done string, jobs ...compose.Job) error {
 			backendRebuilt = true
 		}
 	}
-	if err := e.Start(); err != nil {
+	if err := e.startStopped(nil); err != nil {
 		return err
 	}
 	e.logln(done)

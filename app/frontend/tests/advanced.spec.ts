@@ -227,7 +227,7 @@ test("email, SMS, patient sign-in and MFA settings cannot reappear in support-on
     await expect(save).toBeDisabled();
   }
   await save.dispatchEvent("click");
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
 });
 
@@ -275,7 +275,7 @@ test("Advanced navigation never starts writes, rebuilds, recovery resets or remo
   await settingsToggle(page).click();
   await openRemoval(page);
   await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
-  for (const method of ["WriteEnv", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes", "ResetWebPassword"]) {
+  for (const method of ["ApplyEnvChanges", "ClinicAction", "RunUninstall", "ResetAdminPassword", "ChangeAdminPassword", "SaveAdminRecoveryCodes", "ResetWebPassword"]) {
     expect(await count(page, method)).toBe(0);
   }
 });
@@ -315,7 +315,7 @@ test("leaving Advanced clears sensitive inputs and requires a new unlock", async
   await unlock(page);
   await group(page, "Extra settings (for support)");
   await expect(root(page).getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveCount(0);
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
 });
 
 test("group validation, discard and collapse confirmation never save implicitly", async ({ page }) => {
@@ -333,7 +333,7 @@ test("group validation, discard and collapse confirmation never save implicitly"
   await expect(minutes).toHaveValue("20");
   await root(page).getByRole("button", { name: "Discard", exact: true }).click();
   await expect(minutes).toHaveValue("30");
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
 });
 
 test("all settings expand in one place, stay keyboard accessible and confirm a dirty collapse", async ({ page }) => {
@@ -373,82 +373,90 @@ test("all settings expand in one place, stay keyboard accessible and confirm a d
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(minutes).toHaveValue("30");
   await expect(title).not.toHaveValue("Moonrise Clinic");
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
 });
 
-test("changes across sections save together and apply with a single action", async ({ page }) => {
+test("changes across sections are sent together and applied with a single action", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Staff access");
   await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" }).fill("20");
   await root(page).getByLabel("Clinic display name", { exact: true }).fill("Moonrise Clinic");
   await root(page).getByRole("button", { name: "Save changes" }).click();
-  await expect.poll(() => count(page, "WriteEnv")).toBe(2);
-  await expect.poll(() => count(page, "ClinicAction")).toBe(1);
+  await expect(root(page)).toContainText("Settings applied.");
   const result = await page.evaluate(() => ({
-    files: window.careTest.calls.filter((call) => call.method === "WriteEnv").map((call) => call.args[0]).sort(),
-    actions: window.careTest.calls.filter((call) => call.method === "ClinicAction").map((call) => call.args[0]),
+    applies: window.careTest.calls.filter((call) => call.method === "ApplyEnvChanges")
+      .map((call) => (call.args[0] as { name: string }[]).map((change) => change.name).sort()),
+    actions: window.careTest.calls.filter((call) => call.method === "ClinicAction").length,
     env: window.careTest.fixtures.env,
   }));
-  expect(result.files).toEqual(["backend", "frontend"]);
-  expect(result.actions).toEqual(["start"]);
+  expect(result.applies).toEqual([["backend", "frontend"]]);
+  expect(result.actions).toBe(0);
   expect(result.env.backend).toContain("JWT_REFRESH_TOKEN_LIFETIME=20");
   expect(result.env.frontend).toContain("Moonrise Clinic");
 });
 
-test("saving merges fresh settings once and waits for the accepted restart", async ({ page }) => {
+test("saving merges fresh settings once and waits for CARE to come back on them", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Staff access");
   await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" }).fill("20");
-  await page.evaluate((fresh) => {
-    window.careTest.fixtures.env.backend = fresh;
+  const fresh = backendEnvironment.replace("preview-plugin-config", "newer-plugin-config");
+  await page.evaluate((text) => {
+    window.careTest.fixtures.env.backend = text;
     window.careTest.fixtures.finishJobs = false;
-    window.careTest.hold("WriteEnv");
-  }, backendEnvironment.replace("preview-plugin-config", "newer-plugin-config"));
+    window.careTest.hold("ApplyEnvChanges");
+  }, fresh);
   await root(page).getByRole("button", { name: "Save changes" }).click();
   await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
   await page.keyboard.press("Enter");
-  await expect.poll(() => count(page, "WriteEnv")).toBe(1);
-  await page.evaluate(() => window.careTest.release("WriteEnv"));
-  await expect.poll(() => count(page, "ClinicAction")).toBe(1);
+  await expect.poll(() => count(page, "ApplyEnvChanges")).toBe(1);
+  await page.evaluate(() => window.careTest.release("ApplyEnvChanges"));
+  await expect(root(page)).toContainText("Applying settings");
   const result = await page.evaluate(() => {
-    const write = window.careTest.calls.find((call) => call.method === "WriteEnv")!;
-    return { file: write.args[0], changed: String(write.args[1]).includes("JWT_REFRESH_TOKEN_LIFETIME=20"),
-      pluginKept: String(write.args[1]).includes("newer-plugin-config"),
-      secretsKept: String(write.args[1]).includes("DJANGO_SECRET_KEY='test-only-secret'"),
-      CRLFKept: String(write.args[1]).includes("\r\n  \r\n"), passwordMatches: write.args[2] === window.careTest.fixtures.adminPassword };
+    const apply = window.careTest.calls.find((call) => call.method === "ApplyEnvChanges")!;
+    const changes = apply.args[0] as { name: string; content: string }[];
+    return { files: changes.map((change) => change.name), changed: changes[0].content.includes("JWT_REFRESH_TOKEN_LIFETIME=20"),
+      pluginKept: changes[0].content.includes("newer-plugin-config"),
+      secretsKept: changes[0].content.includes("DJANGO_SECRET_KEY='test-only-secret'"),
+      CRLFKept: changes[0].content.includes("\r\n  \r\n"), passwordMatches: apply.args[1] === window.careTest.fixtures.adminPassword,
+      actions: window.careTest.calls.filter((call) => call.method === "ClinicAction").length };
   });
-  expect(result).toEqual({ file: "backend", changed: true, pluginKept: true, secretsKept: true, CRLFKept: true, passwordMatches: true });
+  expect(result).toEqual({ files: ["backend"], changed: true, pluginKept: true, secretsKept: true, CRLFKept: true, passwordMatches: true, actions: 0 });
+  // Nothing is written until the host has stopped CARE, applied the files and started it again.
+  expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({ backend: fresh, frontend: frontendEnvironment });
+  await expect(root(page)).not.toContainText("Settings applied.");
+  await page.evaluate(() => window.careTest.finishJob("apply-settings"));
+  await expect(root(page)).toContainText("Settings applied.");
   expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({
-    backend: backendEnvironment.replace("preview-plugin-config", "newer-plugin-config")
-      .replace("JWT_REFRESH_TOKEN_LIFETIME=30", "JWT_REFRESH_TOKEN_LIFETIME=20"),
+    backend: fresh.replace("JWT_REFRESH_TOKEN_LIFETIME=30", "JWT_REFRESH_TOKEN_LIFETIME=20"),
     frontend: frontendEnvironment,
   });
-  await expect(root(page)).toContainText("Applying settings");
-  await page.evaluate(() => window.careTest.finishJob("start"));
-  await expect(root(page)).toContainText("Settings applied.");
+  expect(await count(page, "ApplyEnvChanges")).toBe(1);
 });
 
-test("a saved setting isn't presented as applied when restart acceptance fails", async ({ page }) => {
+test("settings aren't presented as applied when the request is rejected, and the edit can be retried", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Staff access");
-  await root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" }).fill("20");
-  await page.evaluate(() => window.careTest.failNext("ClinicAction", "something else is still running"));
+  const minutes = root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" });
+  await minutes.fill("20");
+  await page.evaluate(() => window.careTest.failNext("ApplyEnvChanges", "something else is still running"));
   await root(page).getByRole("button", { name: "Save changes" }).click();
-  await expect(root(page)).toContainText("Settings were saved, but applying them didn't start");
-  await expect(root(page).getByRole("button", { name: "Apply saved changes" })).toBeEnabled();
+  await expect(root(page)).toContainText("The settings weren't applied");
   await expect(root(page)).not.toContainText("Settings applied.");
-  await root(page).getByRole("button", { name: "Lock Advanced settings" }).click();
-  await unlock(page);
-  await expect(root(page).getByRole("button", { name: "Apply saved changes" })).toBeEnabled();
-  await root(page).getByRole("button", { name: "Apply saved changes" }).click();
+  await expect(page.locator(".panel-banner[role=alert]")).toContainText("Another operation is still running");
+  expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({ backend: backendEnvironment, frontend: frontendEnvironment });
+  await expect(minutes).toHaveValue("20");
+  await expect(root(page).getByRole("button", { name: "Save changes" })).toBeEnabled();
+  await root(page).getByRole("button", { name: "Save changes" }).click();
   await expect(root(page)).toContainText("Settings applied.");
+  expect(await count(page, "ApplyEnvChanges")).toBe(2);
+  expect(await count(page, "ClinicAction")).toBe(0);
 });
 
-test("the usual visit has no preset until an admin chooses one, then applies with a frontend rebuild", async ({ page }) => {
+test("the usual visit has no preset until an admin chooses one, then applies only the frontend settings", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Patients and visits");
@@ -462,8 +470,9 @@ test("the usual visit has no preset until an admin chooses one, then applies wit
     backend: backendEnvironment,
     frontend: frontendEnvironment.replace("REACT_DEFAULT_ENCOUNTER_TYPE=", "REACT_DEFAULT_ENCOUNTER_TYPE=hh"),
   });
-  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ClinicAction").map((call) => call.args[0])))
-    .toEqual(["rebuild-frontend"]);
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ApplyEnvChanges")
+    .map((call) => (call.args[0] as { name: string }[]).map((change) => change.name)))).toEqual([["frontend"]]);
+  expect(await count(page, "ClinicAction")).toBe(0);
 });
 
 test("usual visit choices respect the enabled visit types set by support", async ({ page }) => {
@@ -475,7 +484,7 @@ test("usual visit choices respect the enabled visit types set by support", async
   await visit.click();
   await expect(page.getByRole("option", { name: "Home Health", exact: true })).toHaveCount(0);
   await expect(page.getByRole("option")).toHaveText(["No preference", "Ambulatory"]);
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
   await page.getByRole("option", { name: "Ambulatory", exact: true }).click();
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
@@ -500,7 +509,7 @@ test("the default patient location rejects malformed IDs and moves out of suppor
   await expect(root(page)).toContainText("Change “Default patient location” in its section above instead.");
   await expect(save).toBeDisabled();
   await save.dispatchEvent("click");
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
 });
 
@@ -532,7 +541,7 @@ test("support can override address defaults, preserve zero and remove the defaul
   await expect(levels).toHaveValue("0");
   await area.fill("");
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect.poll(() => count(page, "WriteEnv")).toBe(2);
+  await expect.poll(() => count(page, "ApplyEnvChanges")).toBe(2);
   await expect(root(page)).toContainText("Settings applied.");
   const cleared = editableEnvLines(await page.evaluate(() => window.careTest.fixtures.env.frontend));
   expect(getValue(cleared, "REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG")).toBeUndefined();
@@ -555,7 +564,7 @@ test("protected and everyday keys cannot be duplicated in support-only extras", 
   await expect(root(page)).toContainText("in its section above instead");
   await name.fill("1INVALID");
   await expect(root(page)).toContainText("Start with a letter");
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
 });
 
 test("password reset validates the pair, handles used codes, and clears all sensitive fields", async ({ page }) => {
@@ -788,37 +797,60 @@ test("unreadable settings never show guessed values or enable saving", async ({ 
   await expect(settingsToggle(page)).toBeEnabled();
   await group(page, "Backups");
   await expect(root(page).getByRole("spinbutton", { name: "Delete automatic backups after", exact: true })).toHaveValue("0");
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
 });
 
-test("partial saves keep the remaining edits and retry only the unwritten file before applying", async ({ page }) => {
+test("settings are applied atomically: a failed apply leaves every file as it was and the retry sends them together", async ({ page }) => {
   await openAdvanced(page);
   await unlock(page);
   await group(page, "Extra settings (for support)");
   await addCustomSetting(page, "TIME_ZONE", "Asia/Kolkata");
   await addCustomSetting(page, "REACT_CARE_ENABLE_DASHBOARD", "false");
-  await page.evaluate(() => {
-    const original = Object.getOwnPropertyDescriptor(window.go.main.App, "WriteEnv")!.value as Window["go"]["main"]["App"]["WriteEnv"];
-    let written = 0;
-    window.go.main.App.WriteEnv = async (...args) => {
-      if (++written === 2) throw new Error("write frontend.env: permission denied");
-      return original(...args);
-    };
-  });
+  await page.evaluate(() => { window.careTest.fixtures.finishJobs = false; });
   await root(page).getByRole("button", { name: "Save changes" }).click();
-  await expect(root(page)).toContainText("Some settings were saved");
-  expect(await count(page, "ClinicAction")).toBe(0);
-  expect(await page.evaluate(() => ({
-    backendChanged: window.careTest.fixtures.env.backend.includes("TIME_ZONE=Asia/Kolkata"),
-    frontend: window.careTest.fixtures.env.frontend,
-  }))).toEqual({ backendChanged: true, frontend: frontendEnvironment });
+  await expect.poll(() => count(page, "ApplyEnvChanges")).toBe(1);
+  await page.evaluate(() => window.careTest.finishJob("apply-settings",
+    "the new settings were not applied and CARE is running on the previous ones: CARE did not become healthy"));
+  await expect(root(page)).toContainText("The settings weren't applied");
+  await expect(page.locator(".panel-banner[role=alert]")).toContainText("CARE is running with your previous settings");
+  expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({ backend: backendEnvironment, frontend: frontendEnvironment });
+  await expect(root(page).getByRole("button", { name: "Save changes" })).toBeEnabled();
   await root(page).getByRole("button", { name: "Save changes" }).click();
+  await expect.poll(() => count(page, "ApplyEnvChanges")).toBe(2);
+  await page.evaluate(() => window.careTest.finishJob("apply-settings"));
   await expect(root(page)).toContainText("Settings applied.");
-  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "WriteEnv").map((call) => call.args[0])))
-    .toEqual(["backend", "frontend", "frontend"]);
-  expect(await page.evaluate(() => window.careTest.fixtures.env.frontend)).toContain("REACT_CARE_ENABLE_DASHBOARD=false");
-  expect(await count(page, "ClinicAction")).toBe(1);
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ApplyEnvChanges")
+    .map((call) => (call.args[0] as { name: string }[]).map((change) => change.name))))
+    .toEqual([["backend", "frontend"], ["backend", "frontend"]]);
+  const env = await page.evaluate(() => window.careTest.fixtures.env);
+  expect(env.backend).toContain("TIME_ZONE=Asia/Kolkata");
+  expect(env.frontend).toContain("REACT_CARE_ENABLE_DASHBOARD=false");
+  expect(await count(page, "ClinicAction")).toBe(0);
 });
+
+for (const failure of [
+  { detail: "the previous settings are back, but CARE could not start on them: CARE did not become healthy",
+    banner: "Your previous settings are back, but CARE isn't running yet" },
+  { detail: "couldn't put back the backend settings: permission denied", banner: "CARE may be stopped" },
+  { detail: "nothing was changed: CARE did not stop completely (backend still running)", banner: "Your settings were not changed" },
+]) {
+  test(`a failed apply keeps the edits and explains the state CARE is left in: ${failure.banner}`, async ({ page }) => {
+    await openAdvanced(page);
+    await unlock(page);
+    await group(page, "Staff access");
+    const minutes = root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" });
+    await minutes.fill("20");
+    await page.evaluate(() => { window.careTest.fixtures.finishJobs = false; });
+    await root(page).getByRole("button", { name: "Save changes" }).click();
+    await expect(root(page)).toContainText("Applying settings");
+    await page.evaluate((detail) => window.careTest.finishJob("apply-settings", detail), failure.detail);
+    await expect(page.locator(".panel-banner[role=alert]")).toContainText(failure.banner);
+    await expect(root(page)).toContainText("The settings weren't applied");
+    await expect(root(page)).not.toContainText("Settings applied.");
+    await expect(minutes).toHaveValue("20");
+    expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({ backend: backendEnvironment, frontend: frontendEnvironment });
+  });
+}
 
 test("an unfinished restore disables environment writes, rebuilds and removal", async ({ page }) => {
   await openAdvanced(page);
@@ -833,7 +865,7 @@ test("an unfinished restore disables environment writes, rebuilds and removal", 
   await expect(root(page)).toContainText("Finish the earlier restore first");
   await expect(root(page).getByRole("spinbutton", { name: "Sign out inactive staff after" })).toBeDisabled();
   await expect(root(page).getByRole("button", { name: "Save changes" })).toBeDisabled();
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
   expect(await count(page, "RunUninstall")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
 });
@@ -852,7 +884,7 @@ test("Advanced unlock expires and removes sensitive drafts without starting an o
   await expect(root(page).getByLabel("CARE Clinic admin password", { exact: true })).toHaveValue("");
   await expect(page.getByLabel("Value for CUSTOM_SECRET", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Re-download backup key", exact: true })).toHaveCount(0);
-  expect(await count(page, "WriteEnv")).toBe(0);
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
 });
 
@@ -1047,7 +1079,7 @@ for (const settings of ["Staff access", "Extra settings (for support)"]) {
     }
     await expect(save).toBeDisabled();
     await save.dispatchEvent("click");
-    expect(await count(page, "WriteEnv")).toBe(0);
+    expect(await count(page, "ApplyEnvChanges")).toBe(0);
     expect(await count(page, "ClinicAction")).toBe(0);
     await releaseAdvanced(page);
     await expect(save).toBeEnabled();
@@ -1065,14 +1097,33 @@ test("an external panel blocker arriving during fresh reads prevents subsequent 
   await expect.poll(() => count(page, "ReadEnv")).toBe(before + 2);
   await blockAdvanced(page);
   await page.evaluate(() => window.careTest.release("ReadEnv"));
-  await expect(root(page)).toContainText("The settings couldn't be saved");
-  expect(await count(page, "WriteEnv")).toBe(0);
+  await expect(root(page)).toContainText("The settings couldn't be applied");
+  expect(await count(page, "ApplyEnvChanges")).toBe(0);
   expect(await count(page, "ClinicAction")).toBe(0);
   await releaseAdvanced(page);
   await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(root(page)).toContainText("Settings applied.");
-  expect(await count(page, "WriteEnv")).toBe(1);
-  expect(await count(page, "ClinicAction")).toBe(1);
+  expect(await count(page, "ApplyEnvChanges")).toBe(1);
+  expect(await count(page, "ClinicAction")).toBe(0);
+});
+
+test("settings CARE can't read are rejected before anything stops, with the edits kept", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await group(page, "Staff access");
+  const minutes = root(page).getByRole("spinbutton", { name: "Sign out inactive staff after", exact: true });
+  await minutes.fill("20");
+  await page.evaluate(() => window.careTest.failNext("ApplyEnvChanges", "the backend settings have invalid syntax; use KEY=value assignments and balanced quotes"));
+  await root(page).getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(root(page)).toContainText("The settings weren't applied");
+  await expect(root(page)).not.toContainText("Settings applied.");
+  const banner = page.locator(".panel-banner[role=alert]");
+  await expect(banner).toContainText("The settings couldn't be applied");
+  await expect(banner).toContainText("couldn't be checked, so nothing was changed and CARE kept running");
+  await expect(minutes).toHaveValue("20");
+  await expect(root(page)).not.toContainText("Applying settings");
+  expect(await count(page, "ClinicAction")).toBe(0);
+  expect(await page.evaluate(() => window.careTest.fixtures.env)).toEqual({ backend: backendEnvironment, frontend: frontendEnvironment });
 });
 
 test("visit and payment choices use CARE's own names", async ({ page }) => {

@@ -22,7 +22,6 @@ func (a *App) startup(ctx context.Context) {
 	if a.osUninstall {
 		return
 	}
-	a.refreshInstallDir()
 	a.advStop = make(chan struct{})
 	_ = a.startAdvertise()
 	go a.watchAdvertise()
@@ -81,54 +80,39 @@ func currentScreen(screens []wruntime.Screen) (wruntime.Screen, bool) {
 	return fallback, found
 }
 
-func (a *App) refreshInstallDir() {
-	updated := false
-	if err := a.withJob(func() error {
-		cfg := a.loadConfig()
-		if cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing {
-			return nil
-		}
-		if pending, err := a.engine().PendingPluginRecovery(); err != nil {
-			return err
-		} else if pending {
-			a.logln("An unfinished plugin rollback was found; start CARE to recover it. Installed configuration was left unchanged.")
-			return nil
-		}
-		pending, err := a.engine().Backups().PendingRestore()
-		if err != nil {
-			return err
-		}
-		if pending {
-			a.logln("An unfinished restore was found; its installed configuration was left unchanged for recovery.")
-			return nil
-		}
-		if err := a.syncInstallKit(); err != nil {
-			return err
-		}
-		settings, err := a.engine().AddMissingBackendSettings()
-		if err != nil {
-			return err
-		}
-		for _, key := range settings {
-			a.logln("Added " + key + " to backend.env. It applies the next time CARE starts.")
-		}
-		updated = updated || len(settings) > 0
-		added, err := plugins.New(a.engine().InstallDir).AddNewDefaults()
-		if err != nil {
-			return err
-		}
-		for _, p := range added {
-			a.logln("Added the " + p.Label + " plugin. It is installed the next time CARE starts.")
-		}
-		updated = true
-		return nil
-	}); err != nil {
+// refreshInstallKit brings the installed kit up to date with this version of the
+// app: its bundled files, the clinic address, new backend settings and new
+// default plugins. CARE must already be stopped. It takes no job lock, so a job
+// can run it.
+func (a *App) refreshInstallKit() error {
+	if err := a.syncInstallKit(); err != nil {
+		return err
+	}
+	settings, err := a.engine().AddMissingBackendSettings()
+	if err != nil {
+		return err
+	}
+	for _, key := range settings {
+		a.logln("Added " + key + " to backend.env.")
+	}
+	added, err := plugins.New(a.engine().InstallDir).AddNewDefaults()
+	if err != nil {
+		return err
+	}
+	for _, p := range added {
+		a.logln("Added the " + p.Label + " plugin. It is installed while CARE starts.")
+	}
+	a.logln("Install files are up to date with this version.")
+	return nil
+}
+
+// refreshForStart is the refresh a start has always made: a problem is logged and
+// the clinic starts on the files it has rather than staying down.
+func (a *App) refreshForStart() error {
+	if err := a.refreshInstallKit(); err != nil {
 		a.logln("error: couldn't update the installed configuration (" + err.Error() + ")")
-		return
 	}
-	if updated {
-		a.logln("Install files are up to date with this version.")
-	}
+	return nil
 }
 
 func (a *App) syncInstallKit() error {
@@ -285,8 +269,8 @@ func jobQuitPrompt(label string) quitPrompt {
 				"An installer that already started may keep running in the background for a few minutes."}
 	case "start", "restart":
 		return quitPrompt{"starting CARE", "Quit while CARE is starting?",
-			"CARE is still starting. This can take several minutes while Docker (Rancher Desktop) " +
-				"comes up. Starting stops where it is; open CARE Clinic again to try once more.\n\n" + leftRunning}
+			"CARE is stopping anything still running and starting again. This can take several minutes while " +
+				"Docker (Rancher Desktop) comes up. It stops where it is; open CARE Clinic again to try once more.\n\n" + leftRunning}
 	case "stop":
 		return quitPrompt{"stopping CARE", "Quit while CARE is stopping?",
 			"CARE is still stopping. Open CARE Clinic again to check that it stopped.\n\n" + leftRunning}
@@ -300,11 +284,12 @@ func jobQuitPrompt(label string) quitPrompt {
 				"open CARE Clinic again and remove it once more to finish."}
 	case "app-update":
 		return quitPrompt{"the CARE Clinic update", "Quit during the CARE Clinic update?",
-			"The update stops and the version you have keeps working; you can update again later. " +
+			"CARE is stopped while the update downloads and CARE Clinic starts it again when it reopens. " +
+				"If you quit now, the version you have keeps working and you can update again later. " +
 				"If macOS is already replacing the app, that finishes on its own."}
 	case "update":
 		return quitPrompt{"the CARE update", "Quit during the CARE update?",
-			"CARE is being updated. Quitting can leave it partly updated; open CARE Clinic again " +
+			"CARE is stopped while it is updated. Quitting can leave it partly updated; open CARE Clinic again " +
 				"and run the update once more.\n\n" + leftRunning}
 	case "backup-now":
 		return quitPrompt{"a backup", "Quit during a backup?",
@@ -313,6 +298,10 @@ func jobQuitPrompt(label string) quitPrompt {
 		return quitPrompt{"a plugin change", "Quit while applying plugins?",
 			"Quitting can interrupt plugin loading or recovery. Reopen CARE Clinic and start CARE " +
 				"to recover the previous plugin configuration.\n\n" + leftRunning}
+	case "apply-settings":
+		return quitPrompt{"a settings change", "Quit while settings are being applied?",
+			"CARE is stopped while your settings are saved and applied. Quitting now can leave the clinic stopped " +
+				"with only some of the settings saved; open CARE Clinic again, check the settings and apply them once more.\n\n" + leftRunning}
 	case "rebuild-all", "rebuild-backend", "rebuild-frontend":
 		return quitPrompt{"a rebuild", "Quit during a rebuild?",
 			"CARE is being rebuilt. Quitting can leave the clinic stopped; open CARE Clinic again " +

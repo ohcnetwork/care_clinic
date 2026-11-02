@@ -851,7 +851,7 @@ export function PluginTable({ disabled = false }: { disabled?: boolean }) {
           {!ready ? null : invalid && attempted && !working ? (
             <p>{invalidRows.length === 1 ? `${pluginName(invalidRows[0])} needs attention` : `${invalidRows.length} plugins need attention`} before saving.</p>
           ) : !working ? <span className="care-plugins-savebar-hint">{pending
-            ? "Applying may rebuild CARE and briefly interrupt access."
+            ? "CARE is stopped while the changes are applied, then started again."
             : "Changes here take effect only after you choose Save and apply."}</span> : null}
         </div>
         <div className="care-plugins-actions">

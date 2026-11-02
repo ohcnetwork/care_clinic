@@ -13,12 +13,13 @@ type StatusInput = {
 
 export function panelStatus({ system, systemDetail, trouble, busy, busyLabel }: StatusInput) {
   const operation = busy ? ({
-    Starting: ["Starting", "CARE is starting. Keep this computer on."],
+    Starting: ["Starting", "CARE is stopping anything still running, then starting. Keep this computer on."],
     Stopping: ["Stopping", "Staff won't be able to use CARE until it is started again."],
-    Restarting: ["Restarting", "Staff will be signed out briefly. Keep this computer on."],
-    Rebuilding: ["Updating", "CARE is being rebuilt. Keep this computer on."],
-    "Applying plugins": ["Updating", "Changes are being applied. Staff may be signed out briefly."],
-    "Updating CARE": ["Updating", "The CARE software update is being installed. Keep this computer on."],
+    Restarting: ["Restarting", "CARE is stopped, then started again. Staff will be signed out. Keep this computer on."],
+    Rebuilding: ["Updating", "CARE is stopped while it is rebuilt, then started again. Keep this computer on."],
+    "Applying plugins": ["Updating", "CARE is stopped while the plugins are changed, then started again. Keep this computer on."],
+    "Applying settings": ["Updating", "CARE is stopped, then started again on the new settings. Keep this computer on."],
+    "Updating CARE": ["Updating", "CARE is stopped while the software update is installed, then started again. Keep this computer on."],
     Restoring: ["Restoring", "CARE is paused while the backup is restored. Keep this computer on."],
     Uninstalling: ["Removing", "CARE is being removed from this computer."],
   } as Record<string, [string, string]>)[busyLabel] : undefined;

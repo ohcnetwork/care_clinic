@@ -70,18 +70,25 @@ const backupStateDir = "backup-state"
 func (a *App) engine() *clinic.Clinic {
 	cfg := a.loadConfig()
 	return &clinic.Clinic{
-		InstallDir:  a.installDir(),
-		MDNSName:    strings.TrimSuffix(strings.TrimSpace(cfg.MDNSName), ".local"),
-		BackupDir:   cfg.BackupDir,
-		Pins:        a.pins,
-		Log:         a.logln,
-		Confirm:     a.confirmDialog,
-		HoldUpdates: cfg.CareUpdateChecksOff,
+		InstallDir: a.installDir(),
+		MDNSName:   strings.TrimSuffix(strings.TrimSpace(cfg.MDNSName), ".local"),
+		BackupDir:  cfg.BackupDir,
+		Pins:       a.pins,
+		Log:        a.logln,
+		Confirm:    a.confirmDialog,
 	}
 }
 
 func (a *App) engineForUpdate() *clinic.Clinic {
 	e := a.engine()
 	e.Abandon = func() bool { return !a.updatesAllowed() }
+	return e
+}
+
+// engineForStart is the engine for Start and Restart. Its installed files are
+// brought up to date after CARE has stopped, never under a running clinic.
+func (a *App) engineForStart() *clinic.Clinic {
+	e := a.engine()
+	e.Refresh = a.refreshForStart
 	return e
 }

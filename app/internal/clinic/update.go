@@ -29,83 +29,82 @@ func (e *Clinic) ChannelStatus() ChannelStatus {
 	}
 }
 
+// CheckForUpdate only looks up the newest commits. Nothing is downloaded, built
+// or restarted until the user installs the update.
 func (e *Clinic) CheckForUpdate() (compose.Update, error) {
-	return e.Builder().PrepareUpdate()
+	return e.Builder().DiscoverUpdate()
 }
 
 func (e *Clinic) DeclineUpdate() error { return e.Builder().DeclineUpdate() }
 
+const noEncryptedBackups = "this install cannot write encrypted backups, so the update was not applied - " +
+	"recover the backup encryption certificate first"
+
+// ApplyUpdate installs the update the user accepted. CARE is stopped before
+// anything is downloaded, built or migrated and is started again afterwards.
+// A failure before the new images are promoted starts CARE on its previous
+// version; a later one is reported as is, because a database that has started
+// migrating is never rolled back automatically.
 func (e *Clinic) ApplyUpdate() error {
-	if err := e.Backups().RecoverRestore(); err != nil {
-		return err
-	}
 	b := e.Builder()
 	waiting := b.Waiting()
 	if !waiting.Any() {
-		return errors.New("there is no prepared update to apply")
+		return errors.New("there is no update to install - check for updates first")
+	}
+	if pending, err := e.PendingPluginRecovery(); err != nil {
+		return err
+	} else if pending {
+		return errors.New("a plugin rollback is unfinished; start CARE to recover it before updating")
+	}
+	if waiting.Backend != "" && !e.Backups().BackupEncryptionOn() {
+		return errors.New(noEncryptedBackups)
+	}
+	e.logln("Installing the CARE update - CARE stops while it downloads and builds (patient data is kept)...")
+	if err := e.StopStack(); err != nil {
+		return err
+	}
+	if err := e.Backups().RecoverRestore(); err != nil {
+		return err
+	}
+	var jobs []compose.Job
+	if waiting.Backend != "" {
+		jobs = append(jobs, compose.EnsureBackend)
+	}
+	if waiting.Frontend != "" {
+		jobs = append(jobs, compose.EnsureFrontend)
+	}
+	if err := b.PendingAt(waiting).Sequence(jobs...); err != nil {
+		return e.restartAfterFailedUpdate(err)
 	}
 	if waiting.Backend != "" {
 		if err := e.backupBeforeUpdate(); err != nil {
-			return err
-		}
-		if err := e.stopWorkers(); err != nil {
-			return err
+			return e.restartAfterFailedUpdate(err)
 		}
 	}
-	applied, err := b.ApplyPending()
-	if err != nil {
-		return err
+	if _, err := b.ApplyPending(); err != nil {
+		return e.restartAfterFailedUpdate(err)
 	}
-	if !applied.Any() {
-		return errors.New("the prepared update is no longer available - it will be built again on the next check")
-	}
-	if applied.Backend != "" {
-		if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300", "backend"); err != nil {
-			return fmt.Errorf("the updated backend did not start; workers and the scheduler remain stopped: %w", err)
-		}
-		e.logln("Applying database migrations...")
-		if err := e.migrate(); err != nil {
-			return err
-		}
-	}
-	if err := e.dc("up", "-d", "--wait", "--wait-timeout", "300"); err != nil {
-		return err
+	if err := e.startStopped(nil); err != nil {
+		return fmt.Errorf("the update was installed, but CARE did not come back up: %w", err)
 	}
 	b.PruneDangling()
 	e.logln("CARE is up to date.")
 	return nil
 }
 
-func (e *Clinic) applyStagedUpdate() error {
-	b := e.Builder()
-	waiting := b.Waiting()
-	if !waiting.Any() {
-		return nil
+// restartAfterFailedUpdate starts CARE again on the version it had before,
+// after a step failed while the images of the running version were untouched.
+func (e *Clinic) restartAfterFailedUpdate(cause error) error {
+	e.logln("The update was not installed; starting CARE again on the version it had before...")
+	if err := e.startStopped(nil); err != nil {
+		return errors.Join(cause, fmt.Errorf("CARE could not be started again on its previous version: %w", err))
 	}
-	if e.HoldUpdates {
-		e.logln("A CARE update is ready, but CARE software update checks are turned off, so it was not applied. " +
-			"Turn them back on in Advanced to install it.")
-		return nil
-	}
-	if !e.Backups().BackupEncryptionOn() {
-		e.logln("A CARE update is ready, but this install cannot write encrypted backups, " +
-			"so it was not applied. Recover the backup encryption certificate before applying updates.")
-		return nil
-	}
-	if waiting.Backend != "" {
-		if err := e.backupBeforeUpdate(); err != nil {
-			e.logln("The CARE update was not applied: " + err.Error())
-			return nil
-		}
-	}
-	_, err := b.ApplyPending()
-	return err
+	return fmt.Errorf("the update was not installed and CARE is running as before: %w", cause)
 }
 
 func (e *Clinic) backupBeforeUpdate() error {
 	if !e.Backups().BackupEncryptionOn() {
-		return errors.New("this install cannot write encrypted backups, so the update was not applied - " +
-			"recover the backup encryption certificate first")
+		return errors.New(noEncryptedBackups)
 	}
 	ts := time.Now().Format("20060102-150405")
 	e.logln("Taking a safety backup before the update changes the database...")

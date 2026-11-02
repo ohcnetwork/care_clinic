@@ -19,6 +19,7 @@ import type {
   DiskStatus,
   DockerStatus,
   DownloadInfo,
+  EnvFileChange,
   Health,
   HomeAccess,
   ImportedBackup,
@@ -101,7 +102,7 @@ declare global {
           RetrySetup(): Promise<void>;
           CleanupFailedInstall(): Promise<void>;
           ReadEnv(name: string, adminPassword: string): Promise<string>;
-          WriteEnv(name: string, content: string, adminPassword: string): Promise<void>;
+          ApplyEnvChanges(changes: EnvFileChange[], adminPassword: string): Promise<void>;
           ReadPlugins(): Promise<CarePlugin[]>;
           SavePlugins(plugins: CarePlugin[]): Promise<void>;
           PluginCatalog(): Promise<PluginCatalogEntry[]>;
@@ -121,6 +122,7 @@ declare global {
           LogPath(): Promise<string>;
           OpenLogFolder(): Promise<void>;
           WasAutostartLaunched(): Promise<boolean>;
+          TakeLaunchStart(): Promise<boolean>;
           UninstallRequested(): Promise<boolean>;
           ExitUninstall(): Promise<void>;
           CanRemoveApp(): Promise<boolean>;

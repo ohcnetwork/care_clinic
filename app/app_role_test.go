@@ -217,7 +217,6 @@ func TestClientAndUnchosenStateSkipServerChecks(t *testing.T) {
 			if state.Docker.Message != "" || state.SetupDone || state.RestorePending {
 				t.Fatalf("non-server state included server checks: %+v", state)
 			}
-			a.refreshInstallDir()
 			if err := a.startAdvertise(); err != nil {
 				t.Fatal(err)
 			}

@@ -19,11 +19,42 @@ import (
 
 	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	"github.com/ohcnetwork/care_desktop/app/internal/health"
+	"github.com/ohcnetwork/care_desktop/app/internal/prereq"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 var checking atomic.Bool
+
+var (
+	updateCheckWait = 2 * time.Minute
+	updateCheckPoll = 250 * time.Millisecond
+)
+
+// holdsUpdateChecks reports whether the action changes what CARE is running, and
+// so must not overlap a background update check.
+func holdsUpdateChecks(action string) bool {
+	switch action {
+	case "start", "restart", "update", "apply-plugins":
+		return true
+	}
+	return false
+}
+
+// holdUpdateChecks keeps the background update check from running until the
+// returned function is called. A check that is already running is a few Git
+// lookups, so it is waited for: the clinic is restarted when the app opens, and
+// that must not fail because a check began a moment earlier.
+func holdUpdateChecks() (release func(), err error) {
+	deadline := time.Now().Add(updateCheckWait)
+	for !checking.CompareAndSwap(false, true) {
+		if time.Now().After(deadline) {
+			return nil, errors.New("a CARE update check is still running; wait for it to finish and try again")
+		}
+		time.Sleep(updateCheckPoll)
+	}
+	return func() { checking.Store(false) }, nil
+}
 
 type CareUpdate struct {
 	Backend  string `json:"backend"`
@@ -240,15 +271,75 @@ func (a *App) InstallAppUpdate() error {
 		if err != nil {
 			return err
 		}
-		a.updateProgress(phaseDownloading, 0, asset.Size)
-		progress := func(done int64) { a.updateProgress(phaseDownloading, done, asset.Size) }
-		path, err := downloadVerified(asset, want, version, a.logln, progress)
-		if err != nil {
-			return err
-		}
-		a.logln("Download verified.")
-		return a.handoffAppUpdate(path, version, want)
+		return a.installRelease(asset, want, version)
 	}, false, "app-update")
+}
+
+// installRelease stops CARE, then downloads the installer and hands over to the
+// helper that replaces this app. When the update does not go ahead after CARE
+// was stopped, CARE is started again.
+func (a *App) installRelease(asset ghAsset, want, version string) error {
+	release, stopped, err := a.stopClinicForAppUpdate()
+	if err != nil {
+		return err
+	}
+	defer release()
+	err = a.downloadAndHandOff(asset, want, version)
+	if err != nil && stopped {
+		return a.restartAfterFailedAppUpdate(err)
+	}
+	return err
+}
+
+// stopClinicForAppUpdate stops CARE before anything is downloaded, so the
+// running clinic is never left up while its desktop app is replaced. It reports
+// whether it stopped one, and returns the function that lets update checks run
+// again. A computer that is not the installed clinic server has nothing to
+// stop, and neither has one whose container engine is off, where CARE cannot
+// be running. If CARE cannot be stopped, the update does not go ahead.
+func (a *App) stopClinicForAppUpdate() (release func(), stopped bool, err error) {
+	cfg := a.loadConfig()
+	if cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing {
+		return func() {}, false, nil
+	}
+	release, err = holdUpdateChecks()
+	if err != nil {
+		return nil, false, err
+	}
+	if a.provisioner().DockerPlan().Action == prereq.ActionOpen {
+		a.logln("The container engine is not running, so CARE is not running either.")
+		return release, false, nil
+	}
+	a.logln("Updating CARE Clinic - CARE stops while the update downloads and starts again when CARE Clinic reopens (patient data is kept)...")
+	if err := a.engine().Stop(); err != nil {
+		release()
+		return nil, false, err
+	}
+	return release, true, nil
+}
+
+// downloadAndHandOff fetches and verifies the installer, then hands over to the
+// helper that replaces this app. On success the app is already closing.
+func (a *App) downloadAndHandOff(asset ghAsset, want, version string) error {
+	a.updateProgress(phaseDownloading, 0, asset.Size)
+	progress := func(done int64) { a.updateProgress(phaseDownloading, done, asset.Size) }
+	path, err := downloadVerified(asset, want, version, a.logln, progress)
+	if err != nil {
+		return err
+	}
+	a.logln("Download verified.")
+	return a.handoffAppUpdate(path, version, want)
+}
+
+// restartAfterFailedAppUpdate starts CARE again after an update that had
+// stopped it did not finish, so a failed download does not leave the clinic
+// down. The update's own error stays the one that is reported.
+func (a *App) restartAfterFailedAppUpdate(cause error) error {
+	a.logln("The CARE Clinic update did not finish; starting CARE again...")
+	if err := a.engine().Start(); err != nil {
+		return errors.Join(cause, fmt.Errorf("CARE could not be started again: %w", err))
+	}
+	return cause
 }
 
 func (a *App) quitAfterJob() {

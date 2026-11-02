@@ -51,23 +51,22 @@ flowchart TD
     Config --> Journal["Inspect pending restore metadata"]
     Journal --> Wails["wails.Run with bound App"]
     Wails --> Startup["startup: store Wails context"]
-    Startup --> Refresh["Refresh installed kit when setup is complete and stable"]
-    Refresh --> Advertise["Start mDNS advertiser and watcher"]
+    Startup --> Advertise["Start mDNS advertiser and watcher"]
     Advertise --> Probe["Run initial Docker probe in a goroutine"]
     Probe --> UI["Desktop requests GetState"]
     UI --> First{"Setup complete and not removing?"}
     First -->|No| Wizard["Setup and residue flow"]
     First -->|Yes| Panel["Control panel"]
-    Panel --> Start{"Unhealthy, restore pending, or plugin recovery pending?"}
-    Start -->|Yes| Run["Request ClinicAction start"]
+    Panel --> Start{"First load of this run, unhealthy, restore pending, or plugin recovery pending?"}
+    Start -->|Yes| Run["Request ClinicAction start: stop CARE, then start it"]
     Start -->|No| Observe["Observe running clinic"]
 ```
 
 `NewApp` does not treat a missing embedded release file, malformed saved configuration, or invalid restore journal as an ordinary first run. It returns an error rather than allowing initialization against uncertain state.
 
-[`refreshInstallDir()`](../app/app_lifecycle.go) runs under the mutation gate. It does nothing for an unconfigured or removing installation. It also leaves the installed kit untouched when a restore or plugin rollback is pending. Otherwise it refreshes kit files and reapplies the saved clinic domain. A refresh error is logged; the callback does not silently rewrite the configuration as uninstalled.
+Launching the app does not rewrite the installed kit. That refresh used to run in `startup`, which meant rewriting files under a clinic that was still running. It now runs inside Start, Restart and Rebuild everything, after CARE has been stopped and verified stopped, through `Clinic.Refresh` (wired by [`engineFor`](../app/app_actions.go)). Start and Restart use [`refreshInstallKit()`](../app/app_lifecycle.go): it refreshes the kit files, reapplies the saved clinic domain, adds backend settings and default plugins that this version introduced, and logs what it added. Rebuild everything uses the smaller `syncInstallKit()` (kit files and domain). The engine skips the refresh while a restore is pending, so its files stay as the journal expects; a pending plugin rollback ends the start before the refresh is reached. For Start and Restart a refresh error is logged and CARE starts on the files it has; for Rebuild everything it fails the job and CARE stays stopped. The refresh takes no job lock of its own because it always runs inside a job.
 
-The backend starts name advertising, but the desktop state store makes the normal "start CARE on launch" request. In [`care-store.tsx`](../app/frontend/src/state/care-store.tsx), `bootPanel()` requests Start if health is inactive, `restore_pending` is true, or `plugin_recovery_pending` is true. Overview also offers **Recover clinic** for unfinished plugin recovery.
+The backend starts name advertising, but the desktop state store makes the "start CARE on launch" request. In [`care-store.tsx`](../app/frontend/src/state/care-store.tsx), `bootPanel(launch)` requests Start when [`TakeLaunchStart()`](../app/app_ui.go) answers true, when `restore_pending` or `plugin_recovery_pending` is true, or when health is inactive. `TakeLaunchStart` is true once per run of the app, and only for an installed server (setup complete, not removing, not an operating-system uninstall). So every launch stops whatever is left of the `care-clinic` stack, including a clinic an earlier run left running, and starts it clean. Reloading the panel within the same run does not start it again. The panel does not ask while a job is already running, and `TakeLaunchStart` is not consumed for a computer that is not an installed server, so neither uses up the launch start. Overview also offers **Recover clinic** for unfinished plugin recovery.
 
 ### Advertiser lifetime
 
@@ -85,10 +84,12 @@ distinct from stopping Docker containers.
 | --- | --- |
 | `setup` | Setup stops where it is. `SetupDone` stays false, so the next launch returns to the setup screen, whose residue check blocks Continue and offers **Remove old installation**. |
 | `prereq` | The computer check's fix buttons (installing or starting Rancher Desktop, git, WSL 2, the Windows network profile). The step stops where it is and the next launch runs the computer check again. |
-| `start`, `restart` | Starting can take minutes while Docker comes up; open the app again to try once more. |
-| `restore`, `uninstall`, `update`, rebuilds | Quitting can leave data or the installation half-changed; the message says which action to run again after reopening. |
+| `start`, `restart` | CARE stops anything still running and starts again, which can take minutes while Docker comes up; open the app again to try once more. |
+| `stop` | CARE is still stopping; open the app again to check that it stopped. |
+| `restore`, `uninstall`, `update`, rebuilds | Quitting can leave data or the installation half-changed; `update` and the rebuilds also say CARE is stopped while they run. The message says which action to run again after reopening. |
 | `apply-plugins` | Reopen CARE Clinic and start CARE to recover the previous plugin configuration after an interrupted apply or rollback. |
-| `app-update` | The current version keeps working. A bundle swap already handed to macOS finishes on its own. |
+| `apply-settings` | CARE is stopped while the settings are saved and applied. Quitting can leave the clinic stopped with only some settings saved; reopen, check the settings and apply them again. |
+| `app-update` | CARE is stopped while the update downloads and is started again when the app reopens. The current version keeps working. A bundle swap already handed to macOS finishes on its own. |
 | `backup-now` | The unfinished backup is unusable; earlier backups are unaffected. |
 | Anything else, including unlabeled synchronous jobs | Generic wording pointing at the log. |
 
@@ -233,7 +234,7 @@ A panic inside the job is converted to a logged stack trace and failure notifica
 | `requireStableClinic()` | `requireSetup()` plus no pending restore or plugin-recovery journal. |
 | `clientRoleAvailable()` | The saved role is not `server` and the install directory holds no earlier setup. It is what the client methods use instead of requiring `role == client`, so a computer that has chosen nothing can still look for a clinic and connect. |
 
-Start and Stop can be requested during a pending restore or plugin rollback; Start performs recovery. Restart, rebuilds, backup-now, settings writes, plugin writes, backup-directory changes, and new restores require a stable clinic. Start and plugin apply also reserve the CARE update-check flag; an already running update check must finish first. Update checks are suppressed while plugin recovery is pending.
+Start and Stop can be requested during a pending restore or plugin rollback; Start performs recovery. Restart, rebuilds, backup-now, settings applies, plugin writes, backup-directory changes, and new restores require a stable clinic. Start, Restart, Install now, plugin apply, a settings apply and the desktop-app update also reserve the CARE update-check flag; an already running update check is waited for (up to two minutes) rather than raced. Update checks are suppressed while plugin recovery is pending.
 
 Environment reads require the admin password and setup; plugin reads require setup but no password. Both allow inspection after an interrupted restore or plugin rollback and respect the shared/exclusive operation gate.
 
@@ -391,11 +392,11 @@ to warn that the computer will ask for permission.
 | `CleanupFailedInstall()` | `void` | Sync. Only for incomplete setup. Keeps the clinic address and existing backups, but resets backup-folder/password/recovery configuration. The UI clears those choices only after cleanup succeeds. New setup needs fresh recovery material; old backup keys may still be needed for earlier archives. |
 | `ClinicAction(action, adminPassword)` | `void` | Job. Allow-listed action dispatch; details below. |
 | `RunUninstall(removeImages, removeBackups, removeRancher, adminPassword)` | `void` | Job. Requires local admin authorization; persists removal state before destructive work. The UI waits for both `uninstalled` and successful `care-done` before returning to Start or requesting desktop-app removal. |
-| `CareUpdateStatus()` | `ChannelStatus` | Query. The tracked branch, running commits, and any staged commit, read from `channel.lock`. |
-| `CheckCareUpdate()` | `void` | Returns at once and checks in the background: resolves branch heads and builds a newer commit into `-next` images. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. Returns the "CARE software update checks are turned off" error, without starting anything, while CARE update checks are off. |
-| `DismissCareUpdate()` | `void` | Sync, under the exclusive job gate with a stable-clinic check. Records staged commits as declined so the banner stops. The staged build still applies at the next normal start unless invalidated by changed plugin inputs, or held because CARE update checks are off. |
+| `CareUpdateStatus()` | `ChannelStatus` | Query. The tracked branch, running commits, and any commit that has been offered, read from `channel.lock`. |
+| `CheckCareUpdate()` | `void` | Returns at once and checks in the background: it only resolves branch heads with `git ls-remote`. Nothing is downloaded or built and CARE is not touched; that waits for **Install now**. Failure is logged and reported through `care-check.error`, never as "up to date". A check already in flight is joined rather than refused. Returns the "CARE software update checks are turned off" error, without starting anything, while CARE update checks are off. |
+| `DismissCareUpdate()` | `void` | Sync, under the exclusive job gate with a stable-clinic check. **Later**: records the offered commits as declined so the banner stops. The update stays installable from the Updates tab with **Install now**, and a newer commit offers itself again. Start, Restart and launching the app never install it. |
 | `CheckAppUpdate()` | `AppUpdate` | Query. Newest published GitHub release compared with the running version. Drafts and prereleases are excluded. Returns the "CARE Clinic app update checks are turned off" error, without contacting GitHub, while app update checks are off. |
-| `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. Refused before the job starts while app update checks are off. |
+| `InstallAppUpdate()` | `void` | Role-independent job, available before setup and on clients. Downloads this platform's installer with `app-update-progress` events, verifies it against the release `SHA256SUMS` (retrying once), then on macOS replaces the app bundle in place and restarts, and on Windows launches the installer and quits. Retains the single-job and closing guards. Refused before the job starts while app update checks are off. On an installed server it stops CARE before the download, so nothing is running while the application is replaced; the relaunched app starts CARE again (see the paragraph after the macOS steps below). |
 | `GetUpdateChecks()` | `UpdateChecks` | Query, no password. `{app, care}`: whether CARE Clinic app and CARE software update checks are on. Missing settings read as on. See [update checks](#turning-update-checks-off). |
 | `SetUpdateChecks(app, care, adminPassword)` | `void` | Sync, under the exclusive job gate. Requires the CARE Clinic admin password (`requireAdmin`), saves both flags to `config.json` and logs the new values. |
 | `ScanResidue()` | `ResidueReport` | Query. Role-independent. Inspects owned files, Docker resources, saved-password presence and native traces. No Docker executable means no Docker-side traces; an installed engine that cannot be inspected is an error, and the setup Cleanup page then shows Docker's status and waits for it. A start-at-login entry is reported but does not block setup. |
@@ -435,9 +436,13 @@ macOS replaces the bundle in place (`app_selfupdate.go`), so the operator never 
 1. The disk image is attached read-only and hidden (`-nobrowse`) inside the update's temporary folder, the single `.app` in it is copied out with `ditto`, and the image is detached.
 2. The copy must pass `codesign --verify --deep --strict`, report the release's version as `CFBundleShortVersionString`, and carry the running app's `CFBundleIdentifier`. Anything else is refused and the running app is left untouched.
 3. A shell step moves the installed bundle aside to a hidden `.<name>.previous` next to it, copies the new bundle into its place, restores the old one if the copy fails, keeps the old owner, clears `com.apple.quarantine`, and deletes the old copy. If the app's parent folder isn't writable by this user, the step runs through `elevate.Run` and macOS asks for an administrator password.
-4. A detached `sh` waits for this process to exit, runs `open` on the bundle, and removes the temporary folder. The app then quits through `quitAfterJob` with `closing` set, so no quit prompt appears. The clinic's containers keep running throughout.
+4. A detached `sh` waits for this process to exit, runs `open` on the bundle, and removes the temporary folder. The app then quits through `quitAfterJob` with `closing` set, so no quit prompt appears. CARE was stopped before the download and is not running during the swap.
 
 Replacing the bundle while the old binary is still running is safe on macOS: the process keeps its mapped executable, and the frontend is embedded in the binary. When the app runs from a location it can't replace (the mounted disk image or an App Translocation copy), `appremoval.Target` refuses and the update falls back to opening the disk image for a manual drag.
+
+CARE is stopped before the download, not after it. On an installed server, `installRelease` first calls `stopClinicForAppUpdate` ([`app_update.go`](../app/app_update.go)). It holds update checks, then runs the verified stop (`Stop()`, the same [stop gate](clinic-lifecycle.md#the-stop-gate) that Start uses), so no container is running while the desktop app is replaced. A computer that is not the clinic server, one that is not set up or is being removed, and one whose container engine is not running (where CARE cannot be running either) skip the stop. If CARE cannot be stopped, the update does not go ahead and nothing is downloaded.
+
+If the update fails after CARE was stopped (a bad download or checksum, a bundle that does not unpack or verify), `restartAfterFailedAppUpdate` starts CARE again. The update's own error stays the one that is reported, joined with the start error if CARE cannot be started. When the helper takes over, the app quits and CARE stays stopped; the relaunched app starts it with its launch start. If the helper cannot replace the bundle after the app has quit, it still reopens the installed app, which starts CARE the same way. Only when the app cannot be reopened at all does the clinic stay stopped until the operator opens CARE Clinic.
 
 The password policy in [`password.go`](../app/password.go) is 8 through 20 Unicode characters, with at least one uppercase letter, lowercase letter, and digit. Setup, change and recovery enforce it for the CARE Clinic admin password. There is no backup password.
 
@@ -445,16 +450,24 @@ The password policy in [`password.go`](../app/password.go) is 8 through 20 Unico
 
 | Action | Engine call | Additional rule |
 | --- | --- | --- |
-| `start` | `Start()` | Setup required; pending restore allowed for recovery. |
-| `stop` | `Stop()` | Setup required; pending restore allowed. |
-| `restart` | `Restart()` | Stable clinic required. |
-| `rebuild-all` | `RebuildAll()` | Stable clinic and administrator password required. Before the engine call, the app recopies its bundled kit into the install directory and reapplies the domain, the same refresh it does at launch. This is the Advanced tab's **Rebuild everything** button. |
-| `rebuild-backend` | `RebuildBackend()` | Stable clinic and administrator password required. |
-| `rebuild-frontend` | `RebuildFrontend()` | Stable clinic and administrator password required. |
-| `apply-plugins` | `ApplyPlugins()` | Healthy running clinic required; no CARE Clinic admin password. Applies a staged draft with bounded readiness checks and durable configuration/image rollback on failure. |
+| `start` | `Start()` | Setup required; pending restore allowed for recovery. Stops whatever is left of the `care-clinic` stack and proves it stopped, refreshes the installed kit, then starts CARE. It never installs a waiting CARE update. |
+| `stop` | `Stop()` | Setup required; pending restore allowed. The verified stop: it ends only when no `care-clinic` container is left running, and it keeps all data. |
+| `restart` | `Restart()` | Stable clinic required. The same stop-then-start as `start`. |
+| `rebuild-all` | `RebuildAll()` | Stable clinic and administrator password required. CARE is stopped first. Once it is stopped, the engine recopies the app's bundled kit into the install directory and reapplies the domain (`Clinic.Refresh`, wired to `syncInstallKit`), then rebuilds. A refresh error fails the job. This is the Advanced tab's **Rebuild everything** button. |
+| `rebuild-backend` | `RebuildBackend()` | Stable clinic and administrator password required. CARE is stopped while it builds. |
+| `rebuild-frontend` | `RebuildFrontend()` | Stable clinic and administrator password required. CARE is stopped while it builds. |
+| `apply-plugins` | `ApplyPlugins()` | Healthy running clinic required; no CARE Clinic admin password. Applies a staged draft with bounded readiness checks and durable configuration/image rollback on failure. CARE stops after the rollback snapshot and before any plugin file changes; a stop that cannot be proven applies nothing. |
 | `backup-now` | `BackupNow()` | Stable clinic required. |
 | `free-space` | `FreeSpace()` | Stable clinic required. No administrator password: it never touches clinic data. Runs from the separate Storage tab's cleanable drive row. |
-| `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: the update was built from the configured branch, and a second prompt would only encourage postponing it. Refused synchronously, before a job starts, while CARE update checks are off. |
+| `update` | `ApplyUpdate()` | Stable clinic required. No administrator password: it installs only the commits the check offered, from the configured branch, and a second prompt would only encourage postponing it. This is **Install now**: CARE stops, the offered commits are downloaded and built, a backend update takes a pre-update backup, and CARE starts on the new images. Refused synchronously, before a job starts, while CARE update checks are off. |
+
+`start`, `restart`, `update` and `apply-plugins` change what CARE is running, so
+each holds the background update check for the whole job (`holdUpdateChecks`). A check
+that is already running is a few Git lookups, so the job waits up to two minutes for it
+rather than failing a start that began a moment after a check did. If the check does not
+finish, the job stops with "a CARE update check is still running; wait for it to finish
+and try again" and nothing has changed. The `apply-settings` job and the desktop app
+update hold it in the same way.
 
 Every action except `stop` then passes `ensureDockerReady()`. A stopped container
 engine would otherwise surface inside the engine as an unexplained subprocess
@@ -480,7 +493,7 @@ An administrator can turn off either kind of update check from **Advanced → Up
 | Setting off | Stopped | Not stopped |
 | --- | --- | --- |
 | CARE Clinic app updates | `CheckAppUpdate` and `InstallAppUpdate` return an error before any request to GitHub. The shared update controller does not check on entry, hides any "available" result and the panel banner, and Updates hides its Check now and Update controls. | An `app-update` job that was already running finishes; its progress and handoff stay visible. |
-| CARE software updates | The watcher skips the check (`careCheckDue`) and keeps waking every thirty seconds, so after checks are turned back on the next check runs within thirty seconds, or at the end of the hourly wait if a check had just run. `CheckCareUpdate` returns an error. `checkCareUpdate` returns before resolving branch heads, so no `git ls-remote` reaches the CARE repositories, and it does not emit `care-update` if checks were turned off mid-check. `ClinicAction("update")` is refused, and `Start` holds a staged `-next` build instead of applying it (`Clinic.HoldUpdates`) and logs that it did. The store drops `careUpdate` and ignores later `care-update` events, so the banner and the Updates "Ready to install" notice disappear. | A check or build already in progress is not abandoned; it finishes and its result is not announced. A staged build stays in `channel.lock` and appears again once checks are back on. Rebuild, plugin apply and first-time setup still resolve the configured branches, because they are explicit administrator actions, not update checks. |
+| CARE software updates | The watcher skips the check (`careCheckDue`) and keeps waking every thirty seconds, so after checks are turned back on the next check runs within thirty seconds, or at the end of the hourly wait if a check had just run. `CheckCareUpdate` returns an error. `checkCareUpdate` returns before resolving branch heads, so no `git ls-remote` reaches the CARE repositories, and it does not emit `care-update` if checks were turned off mid-check. `ClinicAction("update")` is refused. Start never installs an update, so there is nothing for it to hold back. The store drops `careUpdate` and ignores later `care-update` events, so the banner and the Updates "Ready to install" notice disappear. | A check or an `update` job already in progress is not abandoned; the check finishes and its result is not announced. An offered commit stays in `channel.lock` and appears again once checks are back on. Rebuild, plugin apply and first-time setup still resolve the configured branches, because they are explicit administrator actions, not update checks. |
 
 The Updates tab rereads the flags whenever it is opened, and Advanced writes them through the shared store, so both views agree straight away. Updates always shows a card with the current state and **Open Advanced**: "Automatic update checks are on" while both are on, otherwise which one is off. Uninstall resets `config.json`, and the panel resets its copy of the flags and reads them again when uninstall finishes, so app update checks resume on the Start screen straight away and a later reinstall starts with both checks on. The flags can only be changed on a set-up server, because `requireAdmin` needs the server role and a saved admin password. A client, or a computer that has not been set up, always reads both as on.
 
@@ -490,7 +503,7 @@ The Updates tab rereads the flags whenever it is opened, and Advanced writes the
 | --- | --- | --- |
 | `ReadEnv(name, adminPassword)` | `string` | Read. Admin plus setup required; `name` is only `backend` or `frontend`. Returns installed file contents. |
 | `GetBackupPolicy()` | `BackupPolicy` | Query. Requires an installed server. Reports the 86,400-second interval and actual installed retention days; zero means forever. Missing/unreadable settings or invalid/negative retention reject rather than inventing a policy. |
-| `WriteEnv(name, content, adminPassword)` | `void` | Sync. Admin plus stable clinic required; parse dotenv syntax, then atomically replace the selected file. |
+| `ApplyEnvChanges(changes, adminPassword)` | `void` | Admin plus stable clinic required. The request is checked synchronously before anything runs: the server role, the exclusive job gate, the admin password, a stable clinic, and for every file its name (`backend` or `frontend`, each at most once), its dotenv syntax and that the current file can be read. A rejected request throws and changes nothing. An accepted one starts the `apply-settings` job, which holds update checks, makes sure the container engine is ready, stops CARE (proven stopped), atomically rewrites the changed files (mode 0600), and starts CARE on them. If the stop fails, nothing is changed. If a write or the start fails, the previous settings are put back, and the error says whether CARE is running on the previous settings, is back on them but not running, or could not be put back. A failure emits `care-error` and a non-zero `care-done`. This replaces the earlier `WriteEnv`, which only saved one file and left CARE running on the old values until its next restart. |
 | `ReadPlugins()` | `CarePlugin[]` | Read. Installed server required, no password; read `plugins.json`, or derive the list from `ADDITIONAL_PLUGS` when that file is absent. |
 | `SavePlugins(plugins)` | `void` | Sync. Stable clinic required, no password; validate and stage `plugins-pending.json`, leaving active configuration untouched until apply. |
 | `PluginCatalog()` | `PluginCatalogEntry[]` | Query. The bundled plugin catalog. |
@@ -513,6 +526,7 @@ File selection is not restore authorization. Full validation and data replacemen
 | `LogPath()` | `string` | Current diagnostic log path; may be empty if file logging is unavailable. |
 | `OpenLogFolder()` | `void` | Reveals the log with the OS file browser through `proc.Reveal`, or opens its folder when the file does not exist yet; errors if no log path is available. |
 | `WasAutostartLaunched()` | `boolean` | Whether process arguments contain `--autostart`. |
+| `TakeLaunchStart()` | `boolean` | One-shot per run of the app. True the first time it is asked on a computer that is an installed server (setup complete, not being removed, not an operating-system uninstall run), then false for the rest of that run; any other computer always gets false and keeps the one-shot unused. When true, the panel stops whatever is left of the `care-clinic` stack and starts CARE clean. See [startup](#startup-and-shutdown). |
 | `UninstallRequested()` | `boolean` | Whether the Windows uninstaller started this process with `--uninstall`. |
 | `ExitUninstall()` | `void` | Waits for any running job, then quits. The process exit code tells the uninstaller whether the setup is gone. |
 | `CanRemoveApp()` | `boolean` | Whether this copy can remove itself: a macOS app bundle outside the disk image, or a Windows install with `uninstall.exe`. Always false in `--uninstall` mode. |
@@ -596,9 +610,9 @@ original text.
 | `setup-done` | `true` | Setup callback and persistence of `SetupDone` succeeded. Paired with matching job completion, opens Overview without a ready screen. |
 | `setup-failed` | `SetupFailure` | Sent before failed setup completion. Reports whether the current attempt can be retried without cleanup and whether the failed command reported a recent network/download interruption. Only the active setup consumes it; raw command diagnostics stay in the log. |
 | `uninstalled` | `true` | Normal uninstall completed its cleanup and local state removal. |
-| `care-update` | `{backend, frontend}` | A newer CARE commit has finished building and is staged. Raises the panel banner. |
+| `care-update` | `{backend, frontend}` | A newer CARE commit has been found on the tracked branch. Nothing is downloaded or built until the operator chooses **Install now**. Raises the panel banner. |
 | `app-update-progress` | `{phase, done, total}` | `InstallAppUpdate` progress. `phase` is `downloading` (with bytes `done` of `total`, throttled to every 200 ms), `verifying`, `installing`, `restarting`, or `installer` (the Windows installer or the fallback disk image was opened). Drives the shared CARE Clinic update card; the controller and native job state guard conflicting actions. |
-| `care-check` | `{running, found, error?}` | Check/build activity. Only a completed, error-free check with `found=false` means up to date. |
+| `care-check` | `{running, found, error?}` | Update-check activity (a check only looks up the newest commits). Only a completed, error-free check with `found=false` means up to date. |
 | `client-connect-progress` | `finding`, `connecting`, `checking`, or `opening` | Real boundaries of client connection work. Trust/cleanup is not marked complete before administrator operations finish. |
 | `quit-requested` | `{id, title, message}` | A running-job close request for the registered frontend dialog. Only its current ID can be answered. |
 | `confirmation-requested` | `{id, title, message}` | A CARE-owned permission question for the registered root dialog. Its caller is still waiting and retains its job lock. |

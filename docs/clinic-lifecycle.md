@@ -14,7 +14,8 @@ database, or replace Docker Compose. Its important work is ordering operations,
 carrying consistent configuration into subprocesses, and refusing unsafe
 continuation after a failed check.
 
-This describes the current implementation, including verified worker stops,
+This describes the current implementation, including the verified stop that
+precedes every change to a running clinic, verified worker stops,
 staged-restore and plugin-rollback recovery hooks, atomic domain-file replacement, and the Silo
 storage replacement. Historical design descriptions are not an alternative
 specification.
@@ -103,19 +104,21 @@ remaining teardown files and the residue package.
 | [`secret.go`](../app/internal/clinic/secret.go) | One-time replacement of the Django secret placeholder. |
 | [`domain.go`](../app/internal/clinic/domain.go) | Discover managed hostnames, update selected settings and kit files, and construct the clinic host. |
 | [`domain_test.go`](../app/internal/clinic/domain_test.go) | Unmanaged-setting preservation, multiline dotenv handling, mode preservation, idempotence, incomplete setups, and validation before writes. |
-| [`start.go`](../app/internal/clinic/start.go) | Plugin rollback before normal startup; restore recovery, prerequisites, worker safety, phased Compose startup, migrations, health, and native completion. |
+| [`start.go`](../app/internal/clinic/start.go) | `Start` (the stop gate, then the stopped-state start) and `startStopped`: plugin rollback, restore recovery and the refresh callback, prerequisites, worker safety, phased Compose startup, migrations, health, and native completion. |
 | [`plugin_transaction.go`](../app/internal/clinic/plugin_transaction.go), [`plugin_health.go`](../app/internal/clinic/plugin_health.go) | Durable plugin apply/rollback and sustained container/HTTP readiness; see [Plugins](plugins.md#save-and-apply). |
 | [`migrate.go`](../app/internal/clinic/migrate.go) | Verified worker stopping, live and staged migrations, staged PostgreSQL URL construction, and initial administrator creation. |
 | [`migrate_test.go`](../app/internal/clinic/migrate_test.go) | Fake-command tests for startup/rebuild ordering, migration/admin failures, stopped-worker verification, and credentials passed through environment rather than command arguments. |
 | [`status.go`](../app/internal/clinic/status.go) | Service/state text from Compose, distinct from HTTP health. |
-| [`stop.go`](../app/internal/clinic/stop.go) | Data-preserving stop and restart implemented as Stop followed by Start. |
-| [`rebuild.go`](../app/internal/clinic/rebuild.go) | Explicit backend and frontend rebuild-and-restart paths. |
+| [`stop.go`](../app/internal/clinic/stop.go), [`stopgate.go`](../app/internal/clinic/stopgate.go) | `Stop` and `Restart`, and the [stop gate](#the-stop-gate) (`StopStack`) that stops every container of the CARE project and verifies that none is left. |
+| [`rebuild.go`](../app/internal/clinic/rebuild.go) | Explicit rebuilds: stop CARE, build, start again, and start the previous images when a build fails. |
+| [`env_apply.go`](../app/internal/clinic/env_apply.go) | Applying environment-file changes: check the request, stop CARE, replace the files atomically, start CARE, and put the previous files back if it does not start. See [configuration and settings](configuration-and-settings.md#environment-file-api). |
 | [`compose/build.go`](../app/internal/compose/build.go) | Source checkout cache, image fingerprints, four image builds, local freshness checks, and post-rebuild dangling-image cleanup. |
 | [`compose/jobs.go`](../app/internal/compose/jobs.go) | Build groups that run their jobs one at a time: cancellation, per-job log prefixes, first-error reporting, and deferred prune. |
 | [`compose/channel.go`](../app/internal/compose/channel.go) | Branch resolution through `git ls-remote` without credential prompts, and the `channel.lock` record. |
-| [`compose/update.go`](../app/internal/compose/update.go) | Staging a newer commit into the `-next` images, declining, and applying a staged build by retag. |
-| [`clinic/update.go`](../app/internal/clinic/update.go) | Channel status, the safety backup taken before anything is retagged, live update application, and applying a staged update during startup. |
-| [`compose/channel_test.go`](../app/internal/compose/channel_test.go) | Lock round-tripping, tolerance of a corrupt lock, the refusal to trust a lock whose commit is not a commit, an unresolvable ref never becoming an image key, a dropped staged build being offered again, and the invariant that an image key follows the branch head rather than the branch name. |
+| [`compose/update.go`](../app/internal/compose/update.go) | Discovering a newer commit from the branch heads, declining it, and promoting the `-next` images by retag. |
+| [`clinic/update.go`](../app/internal/clinic/update.go) | Channel status, update discovery, and `ApplyUpdate` (Install now): stop CARE, build the offered commits, take the safety backup, retag, and start. |
+| [`compose/channel_test.go`](../app/internal/compose/channel_test.go) | Lock round-tripping, tolerance of a corrupt lock, the refusal to trust a lock whose commit is not a commit, an unresolvable ref never becoming an image key, discovery that reads only Git metadata and respects declined and vanished offers, a missing `-next` image failing promotion without losing the offer, builds pinned to the offered commit, and the invariant that an image key follows the branch head rather than the branch name. |
+| [`stopgate_test.go`](../app/internal/clinic/stopgate_test.go), [`stack_lifecycle_test.go`](../app/internal/clinic/stack_lifecycle_test.go), [`update_apply_test.go`](../app/internal/clinic/update_apply_test.go), [`env_apply_test.go`](../app/internal/clinic/env_apply_test.go) | The stop gate and every operation that stops CARE first, run against a fake Docker that keeps containers and images as files ([`lifecycle_fake_test.go`](../app/internal/clinic/lifecycle_fake_test.go)): what is stopped, what changes and in which order, and what runs again after each failure. |
 | [`compose/build_test.go`](../app/internal/compose/build_test.go) | Build-input invalidation, local Git fixtures with real branches, source-stamp failures, image inspection failures, consumed build inputs, and empty-context cleanup. |
 | [`compose/deployment_test.go`](../app/internal/compose/deployment_test.go) | Silo bootstrap arguments, configurable Caddy bucket routes, and Compose storage-environment wiring. |
 
@@ -472,7 +475,7 @@ unattended clinic can never stop on a password prompt. Only `refs/heads/` is
 queried: a tag in `CARE_BE_REF`/`CARE_FE_REF` is not a branch of verified
 commits and fails loudly rather than resolving to something unintended. The
 result is recorded in `InstallDir/channel.lock`, which is kept outside `.env`
-because `.env` is rewritten from the embedded copy on every launch.
+because `.env` is rewritten from the embedded copy whenever the clinic starts.
 
 A ref that resolves to nothing is an error, not a fallback. Passing the branch
 name on as if it were a commit would produce a stable `sourceKey`, and a stable
@@ -484,52 +487,74 @@ thing quietly is not.
 | --- | --- |
 | `ref` | The branch `.env` named when `current` was chosen. A release that switches branches invalidates `current`. |
 | `current` | The commit this clinic runs. Also the offline fallback. |
-| `next` | A commit already built into the `-next` image, waiting to be applied. |
+| `next` | A newer commit found by an update check and offered to the operator. Installing it builds the `-next` image from that commit. |
 | `declined` | A commit the operator answered "Later" to; it stops the prompt, not the update. |
 
 Which commit a builder resolves depends on what it is for:
 
 - Starting, setup and manual rebuilds use `current`. Startup never chases the
   branch, so an upstream push cannot turn opening the app into a long build.
-- The background check ([`Builder.Pending()`](../app/internal/compose/build.go))
-  resolves the branch head, and writes to its own `src/<service>-next` checkout
-  and `-next` image tag so it cannot collide with a running clinic.
-- A `ref` that is already a commit is used verbatim, by both.
+- The update check ([`Builder.DiscoverUpdate()`](../app/internal/compose/update.go))
+  only resolves the branch heads and records a newer one as `next`. It
+  downloads and builds nothing.
+- Installing an update ([`Builder.PendingAt()`](../app/internal/compose/build.go))
+  builds exactly the commits that were offered, even if the branch has moved
+  since. It writes to its own `src/<service>-next` checkout and `-next` image
+  tag, so it cannot collide with the images the clinic runs.
+- A `ref` that is already a commit is used verbatim, by all of them.
 
-### Staged updates
+### Updates: found, then installed
 
 [`compose/update.go`](../app/internal/compose/update.go) and
 [`clinic/update.go`](../app/internal/clinic/update.go) carry an update from
-"found" to "running":
+"found" to "running". Finding an update never touches the running clinic, and
+installing one always stops it first:
 
 1. The app checks hourly, starting once the clinic is actually serving. A
-   check is cheap; the build one may start is not, which is why it runs in the
-   background and nothing waits on it. Cadence and the conditions that skip a
-   check are in
+   check is cheap because it is discovery only: `DiscoverUpdate` resolves both
+   branch heads with `git ls-remote`, skips anything equal to `current` or
+   `declined`, and records the rest as `next`. A head equal to `current`
+   clears `next` and `declined`, so an offer that has vanished upstream is
+   forgotten. No network means no heads, no update, and no error. A `ref` that
+   is a pinned commit is never offered another. Cadence and the conditions
+   that skip a check are in
    [configuration and settings](configuration-and-settings.md).
-1. `PrepareUpdate` resolves both branch heads, skips anything equal to
-   `current` or `declined`, and builds what is left into the `-next` images
-   while the clinic keeps serving from the images it started with. No network
-   means no heads, no update, and no error. Each service records its `next`
-   commit as soon as its own image is built, so a check interrupted after the
-   frontend finished does not throw that build away. Between every stage the
-   builder re-checks whether the clinic has been abandoned, so an uninstall
-   started during a long build is not undone by the build finishing after it.
-2. The app emits `care-update`; the panel shows a banner offering to install
-   now or later. Declining records `declined` and leaves the build staged.
-3. When the backend changed, a one-shot encrypted database dump named
-   `care-pre-update-*.dump.enc` is taken **before** anything is retagged, on
-   both the live and the startup path. Migrations from a new backend are not
-   reversible; that dump is. A backup that fails leaves the update staged and
-   the clinic on the images it already runs. At startup that is logged and the
-   clinic opens as usual: an install that cannot write encrypted backups is a
-   reason not to update, not a reason not to start.
-4. `ApplyPending` retags `-next` over the live tag. At startup this happens
-   before any container is up, so it costs a retag; applied live it is the only
-   part of an update that is not a rebuild. If the staged image has gone —
-   pruned, or removed by hand — `next` and `declined` are cleared together, so
-   the commit is offered again by the next check instead of being remembered as
-   something already refused.
+2. The app emits `care-update`; the panel shows a banner offering Install now
+   or Later. Later records `declined`, which silences the banner and the
+   prompt for that commit; `next` stays, so the Updates tab can still install
+   it, and a newer commit prompts again.
+3. Install now runs `ApplyUpdate`, which is the only path that applies an
+   update. Starting, restarting and launching the app never do. It first checks
+   the preconditions: an update is waiting, no plugin rollback is unfinished,
+   and a backend update has encrypted backups switched on, because the safety
+   backup in step 7 needs them. A failed precondition changes nothing.
+4. It [stops CARE](#the-stop-gate). If that fails, nothing is downloaded or
+   built and the update is not applied.
+5. It runs `RecoverRestore`, so a restore left unfinished is completed or
+   rolled back before anything else changes.
+6. It builds the offered commits with `PendingAt` into the `-next` images while
+   CARE is stopped. A build that fails here has not touched the images CARE
+   runs.
+7. When the backend changed, a one-shot encrypted database dump named
+   `care-pre-update-*.dump.enc` is taken **before** anything is retagged.
+   Migrations from a new backend are not reversible; that dump is. Taking it
+   starts the database it depends on, which the stop left stopped. A backup
+   that fails means the update is not applied.
+8. `ApplyPending` retags `-next` over the live tag. It is the only part of an
+   update that is not a rebuild. If a staged image has gone — pruned, or
+   removed by hand — it fails before changing anything, with "the staged CARE
+   backend image … is missing, so the update cannot be applied", and `next`
+   and `declined` stay as they were. Install now can then rebuild it.
+9. It starts CARE through the same stopped-state start as a normal Start (see
+   [section 8](#8-start-recovery-migration-safety-then-readiness)), prunes
+   dangling images, and reports "CARE is up to date.".
+
+A failure in steps 6-8, while the images CARE runs are untouched, starts CARE
+again on the version it had and reports "the update was not installed and CARE
+is running as before", joined with the start error if that start fails too. A
+failure to start after the images were promoted is reported as "the update was
+installed, but CARE did not come back up". A database that has started
+migrating is never rolled back automatically.
 
 CARE updates do not have image-level rollback (plugin application has its own
 [rollback transaction](plugins.md#save-and-apply)). The old image is reproducible from the branch
@@ -825,15 +850,23 @@ The backup Dockerfile and backup script are described in
 ## 8. Start: recovery, migration safety, then readiness
 
 [`Start()`](../app/internal/clinic/start.go) is more than a Compose `up`.
-Its ordering is also used by `Restart`, and it is the entry point for an
-unfinished restore to recover safely.
+It begins with the [stop gate](#the-stop-gate): every container of the CARE
+project is stopped and verified stopped before anything is refreshed, built,
+migrated or started, so a start never works on top of a stack that is still
+running. Everything after the gate (`startStopped`) is also the second half of
+every other operation that stops CARE first: `Restart`, the rebuilds,
+installing an update, applying plugins and applying settings. It is also the
+entry point for an unfinished restore to recover safely.
 
 ```mermaid
 flowchart TD
-    Begin["Start"] --> PluginRecovery{"Plugin recovery journal?"}
+    Begin["Start"] --> Gate["StopStack: stop every CARE container and verify it"]
+    Gate -->|A container is still active| Abort["Return the error; change nothing"]
+    Gate -->|All stopped| PluginRecovery{"Plugin recovery journal?"}
     PluginRecovery -->|Yes| Rollback["Restore previous plugins and image; verify health; return"]
     PluginRecovery -->|No| Recover["Backups.RecoverRestore"]
-    Recover --> Ports["EnsurePortFree for HTTP and HTTPS"]
+    Recover --> Refresh["Clinic.Refresh: bring the installed kit up to date, unless a restore was pending"]
+    Refresh --> Ports["EnsurePortFree for HTTP and HTTPS"]
     Ports --> Images["Ensure backend, frontend, backup, Caddy images, one at a time"]
     Images --> Keys["Ensure keys directory"]
     Keys --> Pause["Stop worker and scheduler; inspect every state"]
@@ -868,12 +901,14 @@ it.
 
 | Phase | Engine behavior | Failure meaning |
 | --- | --- | --- |
-| Plugin recovery | `RecoverPlugins()` runs first; a found journal is recovered and Start returns without normal builds, migrations or queued updates. | Failed recovery retains the journal and reports that CARE could not be recovered. |
+| Stop gate | [`StopStack()`](#the-stop-gate) stops every container of the `care-clinic` project and verifies that none is active. `Start` runs it first; the other operations that use the stopped-state start run it themselves. | Start returns `CARE did not stop completely` and nothing was refreshed, built, migrated or started. |
+| Plugin recovery | `RecoverPlugins()` runs once the stack is stopped; a found journal is recovered and Start returns without normal builds, migrations or queued updates. | Failed recovery retains the journal and reports that CARE could not be recovered. |
 | Restore recovery | `Backups().RecoverRestore()` runs on the normal startup path, after ruling out pending plugin recovery. | An uncertain restore must not be bypassed by an ordinary start. No later startup work runs on error. |
+| Kit refresh | Right after restore recovery, `Clinic.Refresh` runs when the caller supplied one and no restore was pending. For Start and Restart the App supplies `refreshInstallKit`: sync the installed kit files, re-apply the saved clinic address, add backend settings and default plugins that this version introduced. | A pending restore skips it, because its files must stay as the journal expects. For Start and Restart a refresh error is logged and the clinic starts on the files it has; for Rebuild everything it fails the job and CARE stays stopped. |
 | Ports | `health.EnsurePortFree(Runner(), host)` checks for conflicts on 80/443 while recognizing an already-running clinic proxy. | A conflicting listener blocks startup instead of failing later with only a port-bind error. |
-| Images | Ensure backend, frontend, backup, and Caddy in one group, one image at a time. | Input/inspection/build errors propagate. Existing workers have not yet been deliberately stopped by this Start path. |
+| Images | Ensure backend, frontend, backup, and Caddy in one group, one image at a time. | Input/inspection/build errors propagate. CARE is already stopped by the gate, so it stays stopped; nothing is started on top of a failed build. |
 | Keys | Ensure the bind-mount source exists. | Do not allow Compose to create the missing key directory with unintended ownership. |
-| Worker guard | Stop and verify worker/scheduler state. | No migration is attempted without verified quiescence of these processes. |
+| Worker guard | Stop and verify worker/scheduler state. The gate has already stopped them; this check stays because the migration guard must not depend on how the caller got here. | No migration is attempted without verified quiescence of these processes. |
 | Core startup | Compose `up -d --wait --wait-timeout 300 db redis backend`. | Return an explicit backend-startup error; verified-stopped workers remain stopped. |
 | Live migration | Execute `python manage.py migrate --noinput` in the running backend. | Return an actionable migration error; do not resume workers. |
 | Administrator | Create the initial administrator when requested. | Unexpected creation failure also prevents worker resumption. |
@@ -887,6 +922,44 @@ it.
 There is no total five-minute startup deadline. Each Compose wait has its own
 300-second allowance, image builds precede them, and the HTTP wait has a
 separate three-minute allowance.
+
+### The stop gate
+
+[`StopStack`](../app/internal/clinic/stopgate.go) is the first step of every
+operation that changes a clinic that may be running: Start and Restart, the
+explicit rebuilds, installing a CARE update, applying plugins, applying
+environment-file changes, and the desktop app's own update. It trusts neither a
+successful `docker compose stop` nor Compose's own list of services:
+
+1. Log `Stopping CARE (data kept)...` and run `docker compose stop`. A failure
+   is logged rather than returned, because the containers are checked next
+   either way.
+2. List every container labelled with the `care-clinic` Compose project,
+   stopped ones included, with `docker ps -aq --no-trunc`, then read their
+   states with `docker inspect`. This also finds orphans of a service that no
+   longer exists and one-off `compose run` containers. A failed listing or
+   inspection, a malformed row, or fewer states than container IDs counts as an
+   unproven stop, never as a stopped one.
+3. `created`, `exited` and `dead` are stopped. Every other state is live,
+   including `running`, `restarting`, `paused` and `removing`. A container that
+   is being removed has no process left but is still waited for, because
+   starting CARE while Docker deletes it fails.
+4. Live containers that Compose did not stop are resumed if paused and then
+   stopped with `docker stop --time 30`. Failures of those commands are logged,
+   and the next round inspects again and decides from what it finds.
+5. This repeats for up to four rounds, two seconds apart; the last round only
+   verifies. A cancelled context ends it early.
+
+When no container is live it logs `CARE is stopped.` and returns. Otherwise it
+returns `CARE did not stop completely (...)`, naming the containers and their
+states and advising the operator to make sure Docker is running, or to stop the
+`care-clinic` containers in Rancher Desktop, and try again. The caller then does
+nothing further: no refresh, build, file write, migration, retag or start.
+
+It never removes containers, volumes, images, networks, keys or settings, and
+it succeeds when there is nothing to stop, so it is safe on a fresh install and
+when CARE is already stopped. It touches only the `care-clinic` project, never
+other Compose projects or unrelated containers on the same Docker engine.
 
 ### Verified worker stop
 
@@ -956,8 +1029,8 @@ that state machine:
   image pins, host, project, and log. Its `EnsureImage` callback ensures the
   backup image; `EnsureRestoreImages` ensures backend then backup;
   `Migrate(database, restoreID)` points to `migrateStaged`, not live `migrate`.
-- `Start` and every rebuild call `RecoverRestore` before
-  their normal work.
+- `Start`, installing an update and every rebuild call `RecoverRestore` once
+  CARE is stopped and before their normal work.
 - A successful full Start calls `FinishRestore` only after the HTTP health
   wait.
 - Ordinary `Stop` does not finalize a restore.
@@ -1051,28 +1124,37 @@ or prevent a later bind race. Further transport details are in
 
 | Method | Ordered path | Important limitation |
 | --- | --- | --- |
-| `Stop()` | Log `Stopping CARE (data kept)...`, then Compose `stop`. | Does not remove containers, volumes, images, keys, settings, or native trust. A stop error propagates. |
-| `Restart()` | Call `Stop`; if successful, call the full `Start`. | This is not Compose `restart`: it includes recovery, freshness checks, migrations, Caddy recreation, and health. Stop failure prevents Start. |
-| `RebuildBackend()` | Recover pending restore work; Compose `down`; build the backend; then the full `Start()` sequence. | CARE is offline for the whole build. |
-| `RebuildFrontend()` | Recover pending restore work; Compose `down`; build the frontend; then the full `Start()` sequence. | CARE is offline for the whole build. |
-| `RebuildAll()` | Recover pending restore work; Compose `down`; build the backend, then the frontend; then the full `Start()` sequence. | Starting fresh containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`. It does not rebuild the backup or Caddy images unless their inputs changed, and it does not refresh the installed kit itself; the `rebuild-all` action does that first. |
+| `Stop()` | The [stop gate](#the-stop-gate): Compose `stop`, then verify that every `care-clinic` container is stopped. | Does not remove containers, volumes, images, keys, settings, or native trust. An error means a container may still be active, and it propagates. |
+| `Restart()` | Log `Restarting CARE...`, then the full `Start()`, which stops first. | This is not Compose `restart`: it stops and verifies, then includes recovery, the kit refresh, freshness checks, migrations, Caddy recreation, and health. A stop failure prevents everything after it. |
+| `RebuildBackend()` | Stop gate; recover pending restore work and run `Clinic.Refresh` if the caller supplied one; Compose `down`; build the backend; then the stopped-state start. | CARE is offline for the whole build. |
+| `RebuildFrontend()` | The same, building the frontend. | CARE is offline for the whole build. |
+| `RebuildAll()` | The same, building the backend, then the frontend. | Starting fresh containers reruns their entrypoints, so the backup sidecar re-reads `backup.sh`. It does not rebuild the backup or Caddy images unless their inputs changed. The engine does not refresh the installed kit itself; the App passes Rebuild everything a refresh that syncs the kit files and the saved clinic address after the stop. |
 
 All three share one path in [`rebuild.go`](../app/internal/clinic/rebuild.go).
-CARE is taken down before building so the build gets the Docker VM's memory
-instead of competing with the running clinic. `down` removes containers and the
-network, never volumes, so patient data, files and certificates are kept. If
-`down` fails, nothing is built and CARE keeps running.
+CARE is stopped and verified stopped first, then taken down before building, so
+the build gets the Docker VM's memory instead of competing with the running
+clinic. Between the stop and `down` the engine finishes any interrupted restore
+and runs `Clinic.Refresh`; only Rebuild everything supplies one, and a failed
+refresh fails the job. `down` removes containers and the network, never
+volumes, so patient data, files and certificates are kept. If the stop does not
+complete, nothing is built. If restore recovery, the refresh or `down` fails,
+nothing is built and CARE stays stopped.
 
-`Start()` after the build brings everything back the same way a normal start
-does: image freshness (already satisfied), worker stop and verification,
-migrations, administrator creation when a password was supplied, frontend
-plugin sync, the whole stack, the Caddy refresh, the health wait and
-`FinishRestore`. A migration failure leaves workers stopped, as in `Start()`.
+The stopped-state start after the build brings everything back the same way a
+normal start does: the plugin-recovery check, the port check, image freshness
+(already satisfied), worker stop and verification, migrations, administrator
+creation when a password was supplied, frontend plugin sync, the whole stack,
+the Caddy refresh, the health wait and `FinishRestore`. A migration failure
+leaves workers stopped, as in `Start()`.
 
-If the build fails, the old image still holds its tag, because `docker build`
-only retags on success. The rebuild then runs Compose
-`up -d --wait --wait-timeout 300` to bring CARE back on the images it had before
-and returns the build error. It does not go through `Start()` there, because
+If a build fails, the old image still holds its tag, because `docker build`
+only retags on success. If the backend has not been rebuilt yet, the rebuild
+runs Compose `up -d --wait --wait-timeout 300` to bring CARE back on the images
+it had before and returns the build error. If the backend was already rebuilt
+and a later build failed (Rebuild everything with a failing frontend build),
+the new backend holds its tag, so the rebuild first starts `db`, `redis` and
+`backend`, runs the migrations under the usual worker guard, and only then
+starts the whole stack. In neither case does it go through `Start()`, because
 `Start()`'s freshness check would try the same failed build again. If that
 restart also fails, both errors are returned.
 
@@ -1080,6 +1162,22 @@ An explicit frontend build reads the current `frontend.env` and rewrites the
 source checkout's `.env.local`. It may still reuse both the source stamp and
 Docker build layers; explicit rebuild is not an upstream-update or cache-wipe
 operation.
+
+### Other operations that stop CARE first
+
+The same gate protects every other change to a running clinic. Each operation
+runs [`StopStack`](#the-stop-gate) before it touches anything, and none changes
+a file, image or database if the stop does not complete:
+
+| Operation | Around the stop | When a later step fails |
+| --- | --- | --- |
+| Install a CARE update | [Updates: found, then installed](#updates-found-then-installed). | CARE is started again on its previous version, as long as the new images have not been promoted. |
+| Save and apply plugins | The pre-change snapshot is taken from the running clinic. Then the stack is stopped, the plugin files are saved, and the backend is built if its plugin inputs changed, before CARE starts again. A pending restore or an unfinished plugin rollback refuses the apply before anything changes. See [plugins](plugins.md#save-and-apply). | The plugin rollback transaction stops CARE again, restores the saved files and backend image, and starts the previous version. |
+| Apply environment-file changes | The request is validated, then the stack is stopped, the files are replaced atomically, and CARE starts on them. See [configuration and settings](configuration-and-settings.md#environment-file-api). | The previous files are written back and CARE is started on them. |
+| Update the desktop app | The App stops CARE before it downloads the installer, then hands over to the helper and quits. The relaunched app starts the clinic. | If the download or hand-off fails, CARE is started again. If the helper fails after the app has quit, CARE stays stopped until the app is opened again. |
+
+Update checks are different on purpose: they only read branch heads, so they
+never stop CARE, and CARE stays up until the operator chooses to install.
 
 ## 10. Invariants, diagnostic clues, and test boundaries
 
@@ -1101,11 +1199,23 @@ operation.
    health, and volume mounts.
 8. Docker data volumes, exported backups, and source/image caches are different
    resources with different retention rules.
+9. CARE is verified stopped before anything is refreshed, built, rewritten,
+   retagged or migrated. A stop that cannot be verified aborts the operation
+   with nothing changed, and a later failure never leaves a half-applied change
+   running: it is rolled back where that is safe, and otherwise CARE stays
+   stopped with the error shown.
+10. An update check only reads branch heads. Downloading, building and applying
+    an update happens only when the operator chooses Install now, with CARE
+    stopped; Start, Restart and launching the app never apply one.
 
 ### Common failure interpretation
 
 | Symptom | Read it as |
 | --- | --- |
+| `CARE did not stop completely (...)` | The [stop gate](#the-stop-gate) could not prove every `care-clinic` container stopped, or could not ask Docker. Nothing was changed. Make sure Docker is running, or stop those containers in Rancher Desktop, then try again. |
+| `the update was not installed and CARE is running as before` | An Install now step failed before the new images were promoted, and the previous version was started again. The offer is kept. |
+| `the update was installed, but CARE did not come back up` | The new images were promoted and the start failed. Read the start error; the pre-update safety backup is the way back for the database. |
+| `the new settings were not applied and CARE is running on the previous ones` | CARE did not start on the new environment files, so the previous files were put back and it was started on them. The message ends with the cause. |
 | `Setup done.` followed by failure | Preparation finished; Start or final App persistence still failed. Investigate partial setup, not only the last image build. |
 | Backend input or fingerprint error | Installed inputs, source selection, or Docker inspection is unavailable; do not delete a cache just because inspection failed. |
 | Worker still running or state count mismatch | The migration guard intentionally refused to proceed. Fix process/daemon state before retrying. |
@@ -1127,6 +1237,19 @@ Deployment tests distinguish three levels: a fake Silo/`mc` bootstrap,
 a static Caddy matcher assertion, and a Compose-configuration test that needs
 the Docker Compose executable but does not start services. These are not live
 container, migration, Silo-format, TLS, or clinical acceptance tests.
+
+The stop-first behavior is tested against a fake Docker executable that keeps
+containers and images as files, so a test asserts what is running and which
+image carries which build, not only a list of commands. The stop-gate tests
+cover orphans, one-off runs, paused and still-removing containers, a failing
+`compose stop`, and a daemon that cannot be asked. The lifecycle tests then run
+Start, Restart, the rebuilds, Install now, plugin changes and settings changes
+with a failure injected at each step, and check both what changed and what was
+started again. The App tests cover the job and bridge layers: a settings change
+stops CARE before it writes any file, the launch-time start is offered once per
+app run, update checks are held while CARE is being changed, and a desktop-app
+update stops CARE before it downloads and does not go ahead when CARE cannot be
+stopped.
 
 This documentation work does not require running Docker, starting a clinic, or
 running a broad test suite. When changing behavior later, preserve these seams

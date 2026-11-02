@@ -34,6 +34,9 @@ type App struct {
 	activeJob atomic.Value
 	busyShown atomic.Bool
 
+	// launchStarted is spent by the first panel boot of this run, so reloading
+	// the window never stops and starts the clinic again.
+	launchStarted atomic.Bool
 	// Owned by jobMu; retains the original setup password in memory only.
 	setupAttempt *setupAttempt
 

@@ -214,6 +214,8 @@ func failureTitle(label string) string {
 		return "Rebuild didn't finish"
 	case "apply-plugins":
 		return "The plugins couldn't be applied"
+	case "apply-settings":
+		return "The settings couldn't be applied"
 	case "update":
 		return "The CARE update didn't finish"
 	case "free-space":
@@ -240,11 +242,12 @@ func (a *App) ClinicAction(action, adminPassword string) (err error) {
 		if err := a.requireSetup(); err != nil {
 			return err
 		}
-		if action == "apply-plugins" || action == "start" {
-			if !checking.CompareAndSwap(false, true) {
-				return errors.New("a CARE update check is still running; wait for it to finish before starting CARE or applying plugins")
+		if holdsUpdateChecks(action) {
+			release, err := holdUpdateChecks()
+			if err != nil {
+				return err
 			}
-			defer checking.Store(false)
+			defer release()
 		}
 		if action != "start" && action != "stop" {
 			if err := a.requireStableClinic(); err != nil {
@@ -261,13 +264,22 @@ func (a *App) ClinicAction(action, adminPassword string) (err error) {
 				return err
 			}
 		}
-		if action == "rebuild-all" {
-			if err := a.syncInstallKit(); err != nil {
-				return err
-			}
-		}
-		return actionFunc(a.engine(), action)()
+		return actionFunc(a.engineFor(action), action)()
 	}, false, action)
+}
+
+// engineFor gives the job its engine. The jobs that start the clinic bring the
+// installed files up to date themselves, once CARE has stopped.
+func (a *App) engineFor(action string) *clinic.Clinic {
+	switch action {
+	case "start", "restart":
+		return a.engineForStart()
+	case "rebuild-all":
+		e := a.engine()
+		e.Refresh = a.syncInstallKit
+		return e
+	}
+	return a.engine()
 }
 
 // ensureDockerReady stops a stopped container engine from reaching the clinic

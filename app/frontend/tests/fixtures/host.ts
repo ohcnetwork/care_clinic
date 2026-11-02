@@ -1,6 +1,6 @@
 import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
-  ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
+  ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, EnvFileChange, NetworkStatus, ResidueReport,
   CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, CloseChoice, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
   UpdateChecks,
 } from "../../src/types";
@@ -39,7 +39,12 @@ type Fixtures = {
   recoveryFile: string;
   adminPassword: string;
   webUsers: Record<string, string>;
+  // Jobs finish by themselves after a moment. ?finishJobs=0 keeps them running
+  // until a test finishes them, for the ones that start when the page opens.
   finishJobs: boolean;
+  // The desktop launch stops and restarts CARE once per app run. It is opt-in
+  // here (?launchStart=1) so the other scenarios open a running clinic as is.
+  launchStart: boolean;
   quitAccepted: boolean;
   closeChoice: string;
   env: Record<Section, string>;
@@ -164,7 +169,8 @@ export function installTestHost() {
     recoveryFile: "/test-fixtures/recovery/CARE-backup-recovery.pem",
     adminPassword: "ClinicTest123",
     webUsers: { admin: "ClinicTest123", nurse: "NurseTest123" },
-    finishJobs: true,
+    finishJobs: new URLSearchParams(location.search).get("finishJobs") !== "0",
+    launchStart: new URLSearchParams(location.search).get("launchStart") === "1",
     quitAccepted: false,
     closeChoice: "",
     env: {
@@ -256,17 +262,32 @@ export function installTestHost() {
     listeners.get(event)?.forEach((handler) => handler(...data));
   };
   let stagedPlugins: CarePlugin[] | null = null;
+  let stagedEnv: EnvFileChange[] | null = null;
   const finishJob = (action: string, error?: string) => {
     if (action === "apply-plugins") {
       if (!error && stagedPlugins) fixtures.plugins = structuredClone(stagedPlugins);
       stagedPlugins = null;
     }
+    if (action === "apply-settings") {
+      // A failed apply puts the previous settings back, so only success changes the files.
+      if (!error) {
+        for (const change of stagedEnv ?? []) {
+          fixtures.env[change.name] = change.content;
+          if (change.name === "backend") {
+            const retention = /^DB_BACKUP_RETENTION_PERIOD=["']?(\d+)["']?\s*$/m.exec(change.content);
+            if (retention) fixtures.backupPolicy.retention_days = Number(retention[1]);
+          }
+        }
+      }
+      stagedEnv = null;
+    }
     if (error) {
       emit("care-log", `error: ${error}`);
-      const title = action === "restore" ? "Restore didn't finish" : action === "backup-now" ? "Backup didn't finish" : "CARE couldn't finish that";
+      const title = action === "restore" ? "Restore didn't finish" : action === "backup-now" ? "Backup didn't finish"
+        : action === "apply-settings" ? "The settings couldn't be applied" : "CARE couldn't finish that";
       if (action !== "setup") emit("care-error", title, error);
     } else {
-      if (["start", "restart", "update", "restore"].includes(action)) {
+      if (["start", "restart", "update", "restore", "apply-settings"].includes(action)) {
         fixtures.health = { active: true, code: 200, detail: "" };
         fixtures.clinicStatus = "backend\nfrontend\ndb\nbackup";
       }
@@ -462,6 +483,11 @@ export function installTestHost() {
     AutostartEnabled: async () => fixtures.autostart,
     SetAutostart: async (value: boolean) => { fixtures.autostart = value; },
     WasAutostartLaunched: async () => false,
+    TakeLaunchStart: async () => {
+      const take = fixtures.launchStart && state.role === "server" && state.setup_done;
+      if (take) fixtures.launchStart = false;
+      return take;
+    },
     KeepAwakeEnabled: async () => fixtures.keepAwake,
     SetKeepAwake: async (value: boolean) => { fixtures.keepAwake = value; },
     CareUpdateStatus: async () => ({ ...fixtures.channel }),
@@ -518,16 +544,19 @@ export function installTestHost() {
       if (section !== "backend" && section !== "frontend") throw new Error("unknown env file");
       return fixtures.env[section];
     },
-    WriteEnv: async (section: string, content: string, password: string) => {
+    ApplyEnvChanges: async (changes: EnvFileChange[], password: string) => {
       requireServer();
       if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
-      if (section !== "backend" && section !== "frontend") throw new Error("unknown env file");
-      fixtures.env[section] = content;
-      if (section === "backend") {
-        const retention = /^DB_BACKUP_RETENTION_PERIOD=["']?(\d+)["']?\s*$/m.exec(content);
-        if (retention) fixtures.backupPolicy.retention_days = Number(retention[1]);
+      if (!changes.length) throw new Error("there are no settings to apply");
+      const seen = new Set<string>();
+      for (const change of changes) {
+        if (change.name !== "backend" && change.name !== "frontend") throw new Error(`unknown env file: ${change.name}`);
+        if (seen.has(change.name)) throw new Error(`the ${change.name} settings were given twice`);
+        seen.add(change.name);
       }
+      stagedEnv = structuredClone(changes);
+      acceptJob("apply-settings");
     },
     ReadPlugins: async () => structuredClone(fixtures.plugins),
     PluginCatalog: async () => structuredClone(fixtures.catalog),

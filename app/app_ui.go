@@ -116,6 +116,17 @@ func (a *App) WasAutostartLaunched() bool {
 	return slices.Contains(os.Args, "--autostart")
 }
 
+// TakeLaunchStart is true once per run of the app, for the clinic installed on
+// this computer: the panel then stops whatever is left of CARE and starts it
+// clean, whether or not it was already running.
+func (a *App) TakeLaunchStart() bool {
+	cfg := a.loadConfig()
+	if a.osUninstall || cfg.Role != roleServer || !cfg.SetupDone || cfg.Removing {
+		return false
+	}
+	return a.launchStarted.CompareAndSwap(false, true)
+}
+
 func (a *App) LogPath() string { return a.log.Path() }
 
 func (a *App) OpenLogFolder() (err error) {

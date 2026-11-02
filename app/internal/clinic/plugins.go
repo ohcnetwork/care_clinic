@@ -96,26 +96,24 @@ func (e *Clinic) syncFrontendPluginsOrWarn() {
 	}
 }
 
+// applyPluginCandidate runs with every CARE container stopped: it builds the
+// backend when the plugin inputs changed and then brings CARE back up.
 func (e *Clinic) applyPluginCandidate() error {
 	current, err := e.Builder().BackendImageCurrent()
 	if err != nil {
 		return err
 	}
-	if current {
-		if err := e.SyncFrontendPlugins(); err != nil {
+	if !current {
+		if err := e.Builder().BuildBackend(); err != nil {
+			return fmt.Errorf("plugin image build failed: %w", err)
+		}
+		// A queued backend update was built with the previous plugin inputs.
+		if err := compose.ModifyLock(e.InstallDir, func(lock *compose.Lock) error {
+			lock.Backend.Next, lock.Backend.Declined = "", ""
+			return nil
+		}); err != nil {
 			return err
 		}
-		return e.waitPluginRuntime()
-	}
-	if err := e.Builder().BuildBackend(); err != nil {
-		return fmt.Errorf("plugin image build failed: %w", err)
-	}
-	// A queued backend update was built with the previous plugin inputs.
-	if err := compose.ModifyLock(e.InstallDir, func(lock *compose.Lock) error {
-		lock.Backend.Next, lock.Backend.Declined = "", ""
-		return nil
-	}); err != nil {
-		return err
 	}
 	if err := e.stopWorkers(); err != nil {
 		return err
@@ -123,8 +121,10 @@ func (e *Clinic) applyPluginCandidate() error {
 	if err := e.dc("up", "-d", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "180", "db", "redis", "backend"); err != nil {
 		return fmt.Errorf("plugin backend startup failed: %w", err)
 	}
-	if err := e.migrate(); err != nil {
-		return err
+	if !current {
+		if err := e.migrate(); err != nil {
+			return err
+		}
 	}
 	if err := e.SyncFrontendPlugins(); err != nil {
 		return err

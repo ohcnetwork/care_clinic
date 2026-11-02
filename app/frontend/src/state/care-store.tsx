@@ -17,7 +17,7 @@ import { bridge, logToHost, onCareEvent } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { operationError as describeOperationError, type OperationError } from "@/lib/operation-errors";
 import { RUN_STEPS, type RunStep } from "@/lib/run-steps";
-import type { AppUpdateProgress, Backup, CareUpdate, SetupFailure, SetupPage, StorageReport, UpdateChecks } from "@/types";
+import type { AppUpdateProgress, Backup, CareUpdate, EnvFileChange, SetupFailure, SetupPage, StorageReport, UpdateChecks } from "@/types";
 
 export type Flow = "role" | "client" | "setup" | "installing" | "failed" | "panel" | "remove";
 export type SetupStep = "checks" | "backup" | "admin" | "install";
@@ -61,6 +61,7 @@ const ACTION_LABELS: Record<string, string> = {
   "rebuild-frontend": "Rebuilding",
   "rebuild-backend": "Rebuilding",
   "apply-plugins": "Applying plugins",
+  "apply-settings": "Applying settings",
   "backup-now": "Backing up",
   update: "Updating CARE",
   "free-space": "Freeing space",
@@ -146,6 +147,12 @@ type CareStore = {
   reloadBackups: () => Promise<void>;
   /** Resolves true when the native job is accepted; care-done reports completion. */
   runAction: (action: string, adminPassword?: string) => Promise<boolean>;
+  /**
+   * Changes the clinic's settings files and starts CARE on them as one job:
+   * CARE stops first, and the previous settings come back if it won't start on
+   * the new ones. Resolves true when the job is accepted; care-done reports completion.
+   */
+  applySettings: (changes: EnvFileChange[], adminPassword: string) => Promise<boolean>;
   setAutostart: (on: boolean) => Promise<void>;
   setKeepAwake: (on: boolean) => Promise<void>;
   restore: (backup: Backup, recoveryFile: string, adminPassword: string) => Promise<void>;
@@ -400,8 +407,8 @@ export function CareProvider({ children }: { children: ReactNode }) {
     }
   }, [log]);
 
-  const runAction = useCallback(
-    async (action: string, adminPassword = "") => {
+  const runJob = useCallback(
+    async (action: string, launch: () => Promise<void>) => {
       if (busyRef.current) {
         setOperationError(describeOperationError(action, "something else is still running"));
         return false;
@@ -423,7 +430,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       // launch, so the intent dies with the session, same as the state it describes.
       stopIntentBeforeRef.current = stoppedOnPurposeRef.current;
       if (action === "stop") stoppedOnPurposeRef.current = true;
-      if (action === "start" || action === "restart") {
+      if (action === "start" || action === "restart" || action === "apply-settings") {
         stoppedOnPurposeRef.current = false;
         // Down and being fixed is not down and unattended. refresh() skips while
         // busy, so without this the banner would sit there through the restart.
@@ -436,7 +443,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       setOperationError(null);
       log(`\n$ care ${action}`);
       try {
-        await bridge.ClinicAction(action, adminPassword);
+        await launch();
         return true;
       } catch (e) {
         log(`error: ${errorText(e)}`);
@@ -448,6 +455,17 @@ export function CareProvider({ children }: { children: ReactNode }) {
       }
     },
     [log, setBusy],
+  );
+
+  const runAction = useCallback(
+    (action: string, adminPassword = "") => runJob(action, () => bridge.ClinicAction(action, adminPassword)),
+    [runJob],
+  );
+
+  const applySettings = useCallback(
+    (changes: EnvFileChange[], adminPassword: string) =>
+      runJob("apply-settings", () => bridge.ApplyEnvChanges(changes, adminPassword)),
+    [runJob],
   );
 
   const applyCareUpdate = useCallback(async () => {
@@ -676,7 +694,10 @@ export function CareProvider({ children }: { children: ReactNode }) {
     [log, setBusy],
   );
 
-  const bootPanel = useCallback(async () => {
+  // launch is true only for the panel that opens when the app itself starts. That
+  // start stops every CARE service first, so a clinic left running by an earlier
+  // session, or by an app that quit without stopping it, is never mixed with a new one.
+  const bootPanel = useCallback(async (launch: boolean) => {
     panelSinceRef.current = Date.now();
     stoppedOnPurposeRef.current = false;
     downStreakRef.current = 0;
@@ -710,14 +731,19 @@ export function CareProvider({ children }: { children: ReactNode }) {
     await syncAutostart();
     await syncKeepAwake();
     try {
-      const health = await bridge.ClinicHealth();
-      if ((!health.active || restorePending || pluginPending) && !busyRef.current) {
+      const launchStart = launch && !busyRef.current && await bridge.TakeLaunchStart();
+      const mustStart = launchStart || restorePending || pluginPending || !(await bridge.ClinicHealth()).active;
+      if (mustStart && !busyRef.current) {
         log(
           pluginPending ? "\nRecovering an unfinished plugin change..." : restorePending
             ? "\nRecovering an unfinished restore..."
-            : (await bridge.WasAutostartLaunched())
-              ? "\nLaunched at startup — starting CARE..."
-              : "\nCARE isn't running — starting it...",
+            : launchStart
+              ? (await bridge.WasAutostartLaunched())
+                ? "\nLaunched at startup — stopping any running CARE services, then starting CARE..."
+                : "\nOpening CARE Clinic — stopping any running CARE services, then starting CARE..."
+              : (await bridge.WasAutostartLaunched())
+                ? "\nLaunched at startup — starting CARE..."
+                : "\nCARE isn't running — starting it...",
         );
         await runAction("start");
       }
@@ -729,7 +755,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
 
   const openPanel = useCallback(() => {
     setFlow("panel");
-    void bootPanel();
+    void bootPanel(false);
   }, [bootPanel, setFlow]);
 
   // --- setup flow -------------------------------------------------------
@@ -1065,7 +1091,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
           setFlow("client");
         } else if (state.role === "server" && state.setup_done) {
           setFlow("panel");
-          await bootPanel();
+          await bootPanel(true);
         } else if (state.role === "server") {
           setFlow("setup");
         }
@@ -1145,6 +1171,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       refresh,
       reloadBackups,
       runAction,
+      applySettings,
       setAutostart,
       setKeepAwake,
       restore,
@@ -1158,7 +1185,7 @@ export function CareProvider({ children }: { children: ReactNode }) {
       tab, navigate, setTabGuard, unsavedPlugins, busy, busyLabel, operationError, clearOperationError, system, systemDetail, trouble, careUpdate, applyCareUpdate, dismissCareUpdate,
       updateChecks, reloadUpdateChecks, saveUpdateChecks, installAppUpdate, acknowledgeAppUpdate, restorePending, pluginRecoveryPending, version, platform, backups, backupsError, autostart, autostartReady, autostartSaving, autostartError, keepAwake, keepAwakeReady, keepAwakeSaving, keepAwakeError, storage, storageError, recheckStorage,
       refresh, reloadBackups, syncAutostart, syncKeepAwake,
-      runAction, setAutostart, setKeepAwake, restore, restoreFile, uninstall, log,
+      runAction, applySettings, setAutostart, setKeepAwake, restore, restoreFile, uninstall, log,
     ],
   );
 

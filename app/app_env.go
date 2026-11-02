@@ -1,23 +1,14 @@
 package main
 
 import (
-	"errors"
+	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
-	"github.com/compose-spec/compose-go/v2/dotenv"
-	"github.com/ohcnetwork/care_desktop/app/internal/sys/atomicfile"
+	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 )
 
 func (a *App) envPath(name string) (string, error) {
-	switch name {
-	case "backend":
-		return filepath.Join(a.installDir(), "backend.env"), nil
-	case "frontend":
-		return filepath.Join(a.installDir(), "frontend.env"), nil
-	}
-	return "", errors.New("unknown env file: " + name)
+	return clinic.EnvFilePath(a.installDir(), name)
 }
 
 func (a *App) ReadEnv(name, adminPassword string) (string, error) {
@@ -40,21 +31,41 @@ func (a *App) ReadEnv(name, adminPassword string) (string, error) {
 	return content, err
 }
 
-func (a *App) WriteEnv(name, content, adminPassword string) error {
-	return a.withJob(func() error {
-		if err := a.requireAdmin(adminPassword); err != nil {
-			return err
-		}
-		if err := a.requireStableClinic(); err != nil {
-			return err
-		}
-		p, err := a.envPath(name)
+// ApplyEnvChanges changes the clinic settings and starts CARE on them as one
+// job. A request that cannot work is turned away here, before anything runs.
+// Once accepted, CARE stops before any file changes, and the previous settings
+// are put back if CARE does not start on the new ones.
+func (a *App) ApplyEnvChanges(changes []clinic.EnvChange, adminPassword string) (err error) {
+	defer a.logError(&err)
+	if err := a.requireServer(); err != nil {
+		return err
+	}
+	if err := a.lockJob(); err != nil {
+		return err
+	}
+	if err := a.checkEnvChanges(changes, adminPassword); err != nil {
+		a.jobMu.Unlock()
+		return err
+	}
+	return a.runLockedJob(func() error {
+		release, err := holdUpdateChecks()
 		if err != nil {
-			return err
+			return fmt.Errorf("nothing was changed: %w", err)
 		}
-		if _, err := dotenv.Parse(strings.NewReader(content)); err != nil {
-			return errors.New("the environment file has invalid syntax; use KEY=value assignments and balanced quotes")
+		defer release()
+		if err := a.ensureDockerReady(); err != nil {
+			return fmt.Errorf("nothing was changed: %w", err)
 		}
-		return atomicfile.Write(p, []byte(content), 0o600)
-	})
+		return a.engine().ApplyEnvFiles(changes)
+	}, false, "apply-settings")
+}
+
+func (a *App) checkEnvChanges(changes []clinic.EnvChange, adminPassword string) error {
+	if err := a.requireAdmin(adminPassword); err != nil {
+		return err
+	}
+	if err := a.requireStableClinic(); err != nil {
+		return err
+	}
+	return a.engine().CheckEnvFiles(changes)
 }

@@ -8,17 +8,41 @@ import (
 	"github.com/ohcnetwork/care_desktop/app/internal/health"
 )
 
+// Start stops whatever is left of the CARE project, then rebuilds anything out
+// of date and starts the clinic from that clean, stopped state.
 func (e *Clinic) Start() error {
-	if recovered, err := e.RecoverPlugins(); err != nil || recovered {
+	if err := e.StopStack(); err != nil {
+		return err
+	}
+	return e.startStopped(e.Refresh)
+}
+
+// recoverStopped finishes an interrupted restore and then runs refresh, unless a
+// restore was pending: its files must stay exactly as the journal expects.
+// Every CARE container must already be stopped.
+func (e *Clinic) recoverStopped(refresh func() error) error {
+	restoring, err := e.Backups().PendingRestore()
+	if err != nil {
 		return err
 	}
 	if err := e.Backups().RecoverRestore(); err != nil {
 		return err
 	}
-	if err := health.EnsurePortFree(e.Runner(), e.host()); err != nil {
+	if refresh == nil || restoring {
+		return nil
+	}
+	return refresh()
+}
+
+// startStopped brings the clinic up from a fully stopped state.
+func (e *Clinic) startStopped(refresh func() error) error {
+	if recovered, err := e.RecoverPlugins(); err != nil || recovered {
 		return err
 	}
-	if err := e.applyStagedUpdate(); err != nil {
+	if err := e.recoverStopped(refresh); err != nil {
+		return err
+	}
+	if err := health.EnsurePortFree(e.Runner(), e.host()); err != nil {
 		return err
 	}
 	if err := e.Builder().Sequence(compose.EnsureBackend, compose.EnsureFrontend,
@@ -50,7 +74,7 @@ func (e *Clinic) Start() error {
 		return fmt.Errorf("the proxy could not be refreshed with the current configuration: %w", err)
 	}
 	e.logln("Waiting for CARE to become healthy...")
-	if err := health.Wait(e.Log, 3*time.Minute); err != nil {
+	if err := e.waitForCARE(); err != nil {
 		return err
 	}
 	if err := e.Backups().FinishRestore(); err != nil {
@@ -62,4 +86,11 @@ func (e *Clinic) Start() error {
 		e.setUpThisComputer()
 	}
 	return nil
+}
+
+func (e *Clinic) waitForCARE() error {
+	if e.startReady != nil {
+		return e.startReady()
+	}
+	return health.Wait(e.Log, 3*time.Minute)
 }

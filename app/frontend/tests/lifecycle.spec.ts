@@ -525,7 +525,7 @@ test("Desktop installer handoff guards mutations across the entire panel", async
   await expect(page.getByLabel("CARE Clinic admin password", { exact: true })).toBeDisabled();
   await page.evaluate(() => window.careTest.emit("care-done", 0, "status"));
   await expect(page.getByLabel("CARE Clinic admin password", { exact: true })).toBeDisabled();
-  expect(await calls(page, "WriteEnv")).toHaveLength(0);
+  expect(await calls(page, "ApplyEnvChanges")).toHaveLength(0);
   expect(await calls(page, "RunUninstall")).toHaveLength(0);
   expect(await calls(page, "SetBackupDir")).toHaveLength(0);
   expect(await calls(page, "ClinicAction")).toHaveLength(0);

@@ -89,7 +89,8 @@ function PanelContent({ appUpdate }: { appUpdate: AppUpdateController }) {
       </div> : care.careUpdate && care.tab !== "updates" ? <div className="panel-banner" role="status">
         <ArrowDownToLine aria-hidden="true" />
         <div className="panel-grow"><strong>A CARE software update is ready to install. </strong>
-          {care.careUpdate.backend ? "Staff will be signed out briefly." : "CARE will reload when it is applied."}</div>
+          {care.careUpdate.backend ? "CARE is stopped while it installs, which can take several minutes."
+            : "CARE is stopped while it installs, then started again."}</div>
         <div className="panel-actions">
           <Button size="sm" disabled={locked || care.restorePending} onClick={() => mutate(care.dismissCareUpdate,
             "Couldn't save this choice. Try again, or open the log file for support.")}>Later</Button>

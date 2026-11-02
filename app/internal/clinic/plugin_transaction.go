@@ -74,8 +74,10 @@ func (e *Clinic) applyPlugins(candidate func() error) error {
 	} else if pending {
 		return errors.New("a plugin rollback is unfinished; start CARE to recover it before changing plugins")
 	}
-	if err := e.Backups().RecoverRestore(); err != nil {
+	if restoring, err := e.Backups().PendingRestore(); err != nil {
 		return err
+	} else if restoring {
+		return errors.New("a restore is unfinished; start CARE to finish it before changing plugins")
 	}
 	manager := plugins.New(e.InstallDir)
 	list, err := manager.PendingPlugins()
@@ -92,9 +94,14 @@ func (e *Clinic) applyPlugins(candidate func() error) error {
 	e.ctx = ctx
 	defer func() { e.ctx = previousContext }()
 
+	// The snapshot needs the running clinic, and it changes nothing.
 	state, err := e.preparePluginRecovery(list)
 	if err != nil {
 		return fmt.Errorf("plugin changes were not applied: %w", err)
+	}
+	e.logln("Plugins are changing - CARE stops while they are installed (patient data is kept)...")
+	if err := e.StopStack(); err != nil {
+		return errors.Join(fmt.Errorf("plugin changes were not applied: %w", err), e.finishPluginRecovery(state))
 	}
 	applyErr := manager.SavePlugins(list)
 	if applyErr == nil {
@@ -201,6 +208,11 @@ func (e *Clinic) recoverPlugins(state *pluginRecovery) error {
 	e.ctx = ctx
 	defer func() { e.ctx = previousContext }()
 	e.pluginBaseline = state.Containers
+	// Whatever the failed attempt left running must stop before the files and
+	// the image it used are put back.
+	if err := e.StopStack(); err != nil {
+		return err
+	}
 	var restoreErrors []error
 	for _, name := range pluginSnapshotFiles {
 		saved := state.Files[name]
