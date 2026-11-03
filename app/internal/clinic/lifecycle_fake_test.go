@@ -364,15 +364,6 @@ func (c callLog) positions(call string) []int {
 	return at
 }
 
-func (c callLog) after(prefix string, position int) int {
-	for i := position + 1; i < len(c); i++ {
-		if strings.HasPrefix(c[i], prefix) {
-			return i
-		}
-	}
-	return -1
-}
-
 // assertDataKept fails when a command could delete the clinic's data or images.
 func assertDataKept(t *testing.T, calls []string, allowDown bool) {
 	t.Helper()
