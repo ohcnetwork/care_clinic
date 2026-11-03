@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	"github.com/ohcnetwork/care_desktop/app/internal/release"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -88,9 +89,22 @@ func TestSettingsReadsCanRunConcurrently(t *testing.T) {
 			t.Errorf("concurrent settings read failed: %v", err)
 		}
 	}
-	if err := a.WriteEnv("backend", "DB_BACKUP_RETENTION_PERIOD=0\n", settingsPassword); err == nil {
-		t.Fatal("a write bypassed the active readers")
+	err := a.ApplyEnvChanges([]clinic.EnvChange{{Name: "backend", Content: "DB_BACKUP_RETENTION_PERIOD=0\n"}}, settingsPassword)
+	if err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("a settings change bypassed the active readers: %v", err)
 	}
+	if got := backendEnv(t, a); got != "DB_BACKUP_RETENTION_PERIOD=14\nADDITIONAL_PLUGS=[]\n" {
+		t.Fatalf("a rejected settings change edited backend.env: %q", got)
+	}
+}
+
+func backendEnv(t *testing.T, a *App) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(a.installDir(), "backend.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func TestSettingsReadsRespectMutationsAndClosing(t *testing.T) {
@@ -147,7 +161,7 @@ func TestRetentionReadUsesSavedValue(t *testing.T) {
 	a := settingsApp(t)
 	for _, days := range []string{"14", "37", "0"} {
 		want := "DB_BACKUP_RETENTION_PERIOD=" + days + "\n"
-		if err := a.WriteEnv("backend", want, settingsPassword); err != nil {
+		if err := os.WriteFile(filepath.Join(a.installDir(), "backend.env"), []byte(want), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		got, err := a.ReadEnv("backend", settingsPassword)

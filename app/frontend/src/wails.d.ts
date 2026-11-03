@@ -19,6 +19,7 @@ import type {
   DiskStatus,
   DockerStatus,
   DownloadInfo,
+  EnvFileChange,
   Health,
   HomeAccess,
   ImportedBackup,
@@ -27,10 +28,12 @@ import type {
   ResidueReport,
   RestartPlan,
   SetupIssue,
+  SystemReport,
   SetupRecoveryStatus,
   StorageReport,
   ToolPlan,
   UpdateChecks,
+  WebUser,
   WSLStatus,
 } from "./types";
 
@@ -74,6 +77,7 @@ declare global {
           ValidateBackupDir(dir: string): Promise<string>;
           BackupDirSpace(dir: string): Promise<BackupSpace>;
           DiskStatus(): Promise<DiskStatus>;
+          SystemRequirements(): Promise<SystemReport>;
           StorageStatus(): Promise<StorageReport>;
           RecheckStorage(): Promise<StorageReport>;
           SetMDNSName(name: string): Promise<void>;
@@ -91,6 +95,7 @@ declare global {
           ChangeAdminPassword(currentPassword: string, newPassword: string): Promise<void>;
           ResetAdminPassword(code: string, newPassword: string): Promise<void>;
           ResetWebPassword(username: string, newPassword: string, adminPassword: string): Promise<void>;
+          ListWebUsers(adminPassword: string): Promise<WebUser[]>;
           ClinicAction(action: string, adminPassword: string): Promise<void>;
           ClinicStatus(): Promise<string>;
           RunSetup(
@@ -101,7 +106,7 @@ declare global {
           RetrySetup(): Promise<void>;
           CleanupFailedInstall(): Promise<void>;
           ReadEnv(name: string, adminPassword: string): Promise<string>;
-          WriteEnv(name: string, content: string, adminPassword: string): Promise<void>;
+          ApplyEnvChanges(changes: EnvFileChange[], adminPassword: string): Promise<void>;
           ReadPlugins(): Promise<CarePlugin[]>;
           SavePlugins(plugins: CarePlugin[]): Promise<void>;
           PluginCatalog(): Promise<PluginCatalogEntry[]>;
@@ -121,6 +126,7 @@ declare global {
           LogPath(): Promise<string>;
           OpenLogFolder(): Promise<void>;
           WasAutostartLaunched(): Promise<boolean>;
+          TakeLaunchStart(): Promise<boolean>;
           UninstallRequested(): Promise<boolean>;
           ExitUninstall(): Promise<void>;
           CanRemoveApp(): Promise<boolean>;

@@ -197,15 +197,17 @@ Its preservation allow-list contains exactly `backend.env` and `frontend.env`: e
 
 This is why the commit a clinic currently runs is kept in `channel.lock` rather than in `.env`. `channel.lock` is not part of the embedded tree, so the refresh neither creates nor overwrites it; it is removed with the installed kit during uninstall. A corrupt or missing lock is treated as "nothing known yet" rather than an error: the clinic resolves the branch again. So is a lock naming something that is not a commit, which is the one case where "nothing known yet" is a guess worth making rather than a value worth trusting.
 
-Writes go through a process-wide mutex and a temporary file renamed into place, because the background check and an operator pressing "Install now" can reach the lock at the same time, and a half-written lock would lose the record of what the clinic is running.
+Writes go through a process-wide mutex and a temporary file renamed into place, because the background check and an operator pressing "Later" can reach the lock at the same time, and a half-written lock would lose the record of what the clinic is running.
 
 Facility setup lives in the [CARE Onboarding frontend plugin](onboarding.md); its assets are not bundled into the kit. Existing `plugins.json` choices are preserved. Catalog defaults are initialized during new-clinic setup; only entries marked `add_to_existing` are added to existing clinics, once, on start ([details](plugins.md#defaults-for-existing-clinics)).
 
+The refresh never runs under a live clinic. It is the first step after the stop in **Start**, **Restart** and **Rebuild everything** (`Clinic.Refresh`, run by [`recoverStopped`](../app/internal/clinic/start.go) once every CARE container is verified stopped), so opening the app, which starts the clinic, refreshes the kit while nothing is running. All three refresh the bundled kit files and reapply the saved clinic address; Start and Restart also run `AddMissingBackendSettings` and add the `add_to_existing` plugin defaults. For Start and Restart a refresh error is logged and CARE starts on the files it has. Rebuild everything fails on one and leaves CARE stopped.
+
 Refresh copies the current kit but is not a general recursive deletion or a migration framework for all generated files. Similarly, preserving environments means a new template key is not automatically merged into an existing environment.
 
-The one exception is the short list in `addedBackendSettings` (`internal/clinic/backend_settings.go`). After the kit refresh, `AddMissingBackendSettings` appends each listed key to an existing `backend.env` only if the key is absent, and the change applies the next time CARE starts. It appends to the file in place rather than writing a replacement, so the file keeps its permissions and, on Windows, the owner-only access-control list that plugin rollback sets on it. It never changes a value already in the file, so a clinic that wants a setting off writes `KEY=False` rather than deleting the line. The list currently holds `MAINTAIN_PATIENT_NAME_IDENTIFIER=True` and `MAINTAIN_PATIENT_PHONE_NUMBER_IDENTIFIER=True`, which make CARE keep searchable name and phone-number identifiers on every patient (CARE's own default for both is off), and `DJANGO_EMAIL_BACKEND` set to Django's dummy backend. The shipped [`backend.env`](../deployments/backend.env) sets both for new clinics, and a test fails if it is missing a listed key.
+The one exception is the short list in `addedBackendSettings` (`internal/clinic/backend_settings.go`). After the kit refresh, `AddMissingBackendSettings` appends each listed key to an existing `backend.env` only if the key is absent. The refresh runs inside Start while CARE is stopped, so the containers are created afterwards in that same start and the key takes effect in it. It appends to the file in place rather than writing a replacement, so the file keeps its permissions and, on Windows, the owner-only access-control list that plugin rollback sets on it. It never changes a value already in the file, so a clinic that wants a setting off writes `KEY=False` rather than deleting the line. The list currently holds `MAINTAIN_PATIENT_NAME_IDENTIFIER=True` and `MAINTAIN_PATIENT_PHONE_NUMBER_IDENTIFIER=True`, which make CARE keep searchable name and phone-number identifiers on every patient (CARE's own default for both is off), and `DJANGO_EMAIL_BACKEND` set to Django's dummy backend. The shipped [`backend.env`](../deployments/backend.env) sets both for new clinics, and a test fails if it is missing a listed key.
 
-The startup refresh is skipped for incomplete setup, incomplete removal, and pending restore. A pending restore must keep the configuration its recovery metadata expects.
+The refresh is skipped for incomplete setup and incomplete removal, and while a restore or a plugin rollback is pending: recovery runs first, and a pending restore must keep the configuration its recovery metadata expects.
 
 ## Advanced access and authorization
 
@@ -217,11 +219,12 @@ A successful password change starts a fresh unlock with the new password.
 
 Expiry clears the retained password, collapses clinic settings and clears mounted
 sensitive/unsaved form state. The page reports that Advanced has locked.
-Already written files and accepted native jobs are not rolled back; saved
-settings that still need applying remain distinguishable from an unsaved draft.
+Accepted native jobs are not cancelled or rolled back by expiry: a settings
+change that was already submitted finishes, and a draft that was not submitted
+is discarded.
 
 This timer exists in React. Go does not issue a 15-minute session token or
-remember a globally unlocked administrator. `ReadEnv`, `WriteEnv`, protected
+remember a globally unlocked administrator. `ReadEnv`, `ApplyEnvChanges`, protected
 rebuilds, recovery administration and uninstall validate the supplied CARE Clinic
 password through their native guards. Ordinary clinic controls, Updates and
 Plugins have their own lifecycle rules and do not acquire this Advanced unlock.
@@ -236,9 +239,14 @@ privilege prompts and from the CARE web login after initial setup. See
 
 `ReadEnv` checks the CARE Clinic administrator password and setup state under a shared read lock, then reads the entire installed file. File errors are returned; there is no fallback to the repository template or an empty settings object.
 
-`WriteEnv` checks the administrator password and stable-clinic state under the exclusive lock. It validates syntax using `compose-go/dotenv`, then atomically writes the selected file as `0600`.
+`ApplyEnvChanges(changes, adminPassword)` replaces the old per-file write. Each change is the complete new text of one file, and the call carries both files when both changed. Under the exclusive lock the app checks the administrator password, the stable-clinic state and the request itself (`Clinic.CheckEnvFiles`: only `backend` and `frontend`, each at most once, dotenv syntax valid through `compose-go/dotenv`, and the current file readable). A request that cannot work is rejected before a job exists, so nothing has stopped and nothing has changed. An accepted request becomes the `apply-settings` job, which holds update checks, makes sure the container engine is ready, and then runs `Clinic.ApplyEnvFiles`:
 
-This syntax check is not full application-specific validation. The friendly editor adds field-level constraints; a direct caller can submit settings the dotenv parser accepts but CARE later rejects. The backend also uses this same syntax parser for the frontend file, although the CARE frontend ultimately consumes its environment through its own build tooling.
+1. Stop CARE and verify that no container of the project is left running (see [Stopping CARE](clinic-lifecycle.md#the-stop-gate)). If it cannot be stopped, the job ends with `nothing was changed` and no file is touched.
+2. Replace each file atomically as `0600`. A write failure puts back only the files already replaced.
+3. Start CARE on the new settings with the same stopped-state start that Start uses. It rebuilds an image only when its inputs changed: the frontend image reads `frontend.env`, so a changed frontend file rebuilds it, while the backend file is read when the containers are created.
+4. If CARE does not start, stop it again, put every written file back byte for byte, and start CARE on the previous settings. The job still fails, and its error says which of four states the clinic is in: running on the previous settings, previous settings back but CARE not running, CARE could not be stopped to restart it, or a file that could not be put back.
+
+Files are applied even when their text did not change, so a change that was saved earlier by some other route but never applied can be applied again. This syntax check is not full application-specific validation. The friendly editor adds field-level constraints; a direct caller can submit settings the dotenv parser accepts but CARE later rejects. The backend also uses this same syntax parser for the frontend file, although the CARE frontend ultimately consumes its environment through its own build tooling.
 
 ## Applying settings
 
@@ -246,7 +254,7 @@ The desktop's settings integration uses these modules:
 
 | File | Role |
 | --- | --- |
-| [`env-editor.tsx`](../app/frontend/src/screens/panel/env-editor.tsx) | Loads both files, tracks changed fields, validates the draft, writes changes, and requests apply/rebuild. |
+| [`env-editor.tsx`](../app/frontend/src/screens/panel/env-editor.tsx) | Loads both files, tracks changed fields, validates the draft, and submits the changed files together as one `ApplyEnvChanges` job. |
 | [`env-file.ts`](../app/frontend/src/lib/env-file.ts) | Parses line records, reads values, quotes changes, and serializes the result. |
 | [`advanced-env.ts`](../app/frontend/src/screens/panel/advanced-env.ts) | Validates values, summarizes groups, and merges only changed keys into freshly read files while preserving unrelated bytes. |
 | [`env-schema.ts`](../app/frontend/src/screens/panel/env-schema.ts) | Maps user-facing fields to keys, files, control types, defaults, bounds, and managed-key notes. |
@@ -257,6 +265,7 @@ sequenceDiagram
     participant E as Settings editor
     participant A as App
     participant F as Installed environment files
+    participant C as CARE containers
     E->>A: ReadEnv backend and frontend concurrently
     A->>A: Shared locks, admin and setup checks
     A->>F: Read current files
@@ -265,25 +274,27 @@ sequenceDiagram
     E->>A: Re-read both files before saving
     A-->>E: Fresh contents
     E->>E: Apply only edited keys to fresh lines
-    loop Files with changed content, one at a time
-        E->>A: WriteEnv with admin password
-        A->>A: Exclusive lock, stable-clinic check, syntax validation
-        A->>F: Atomic replacement
-        A-->>E: Write completed
+    E->>A: ApplyEnvChanges with the changed files and admin password
+    A->>A: Exclusive lock, admin, stable-clinic and request checks
+    alt The request cannot work
+        A-->>E: Rejected before a job exists, nothing stopped or changed
+    else Accepted as the apply-settings job
+        A->>C: Stop and verify
+        A->>F: Atomic replacement of each file
+        A->>C: Start on the new settings
+        opt CARE does not start
+            A->>C: Stop
+            A->>F: Put the previous bytes back
+            A->>C: Start on the previous settings
+        end
+        A-->>E: care-done, success or failure
     end
-    E->>A: Reload values
-    alt A backend file was written
-        E->>A: ClinicAction start
-    else Only frontend file was written
-        E->>A: ClinicAction rebuild-frontend
-    end
+    E->>A: Reload values when the job succeeded
 ```
 
-A backend change uses Start to reapply configuration; Start also accounts for a changed CARE frontend environment through image freshness. A frontend-only change uses the narrower frontend rebuild action.
+The editor no longer chooses between Start and a frontend rebuild, and it no longer writes files one by one. Both files travel in one request, backend first, and only the files whose text changed are included. The start inside the job is the same stopped-state start that Start uses, so an image is rebuilt only when its inputs changed: the frontend image is fingerprinted with a hash of `frontend.env`, so a frontend change rebuilds it, while the backend file takes effect when the containers are created.
 
-`WriteEnv` alone does not restart a container or rebuild an image. Saving a file and applying it are two operations. The editor only requests the apply action after its write loop and reload.
-
-Re-reading before writing avoids deliberately applying an old full-file snapshot over newer plugin edits. This Advanced environment-editor flow is not a multi-file transaction or compare-and-swap protocol. If a later file write fails, earlier successful writes remain; if an apply action fails, the saved settings are still saved. The separate Plugins editor uses the [rollback transaction](plugins.md#save-and-apply) instead.
+The exclusive job lock is held from the request check until the job ends, so no other operation can change the files in between. The environment-editor flow is still not a compare-and-swap protocol: the editor re-reads both files and merges only its changed keys to avoid applying an old full-file snapshot over newer plugin edits, but the files are replaced with the text it sends. What changed is the failure behaviour. A request that cannot be applied is turned away before CARE stops. If CARE cannot be stopped, no file is touched. If CARE does not start on the new settings, the previous files are put back and CARE is started on them, so an applied setting that breaks CARE does not leave the clinic down with the broken file in place. The editor keeps the operator's edits when the apply fails and reports the failure at the top of the page. The separate Plugins editor uses its own [rollback transaction](plugins.md#save-and-apply).
 
 ### Retention as an example
 
@@ -365,7 +376,7 @@ Protected keys cannot be changed through this editor, including
 `ADDITIONAL_PLUGS`, service credentials and generated connection settings.
 The editor preserves their latest file contents when saving other changes.
 This is an interface policy, not a new native security boundary: authenticated
-`WriteEnv` still validates syntax rather than an application-specific key
+`ApplyEnvChanges` still validates syntax rather than an application-specific key
 allow-list, and engine-owned values may be rewritten by the engine.
 
 ### Defaults and manual overrides
@@ -416,7 +427,7 @@ The **Updates** tab shows both update mechanisms without a CARE Clinic admin pas
 
 | Card | Shows | Actions |
 | --- | --- | --- |
-| CARE | The tracked branch, the commits in use, and checking, up-to-date, staged-update or failed-check state. | Check now; retry a failed check; install a staged update now. |
+| CARE | The tracked branch, the commits in use, and checking, up-to-date, update-available or failed-check state. | Check now; retry a failed check; Install now or Later for an update that was found. |
 | CARE Clinic | The installed version against the newest published GitHub release, with its notes. | Download the verified installer for this platform and launch it. |
 
 CARE Clinic's shared controller remains guarded after native completion while
@@ -427,26 +438,30 @@ update the running version or claim the external installer succeeded.
 Interrupted picker/preflight work is invalidated rather than resumed when the
 guard is released; see [the update protocol](wails-application.md).
 
-The panel also raises a banner when a CARE update finishes building, so operators need not keep the Updates tab open. Declining the banner is not declining the update: it stops the prompt for that commit, and the staged build is applied at the next start, when no clinic is running and applying it costs a retag instead of a restart.
+The panel also raises a banner when a CARE update is found, so operators need not keep the Updates tab open. A check only looks up the newest commit of each tracked branch and records it in the channel lock; it downloads and builds nothing. Nothing is installed until the operator chooses **Install now**, which stops CARE first (see [Updates](clinic-lifecycle.md#updates-found-then-installed)). Choosing **Later**, or dismissing the banner, only stops the banner for that commit: the Updates tab still offers Install now, a newer commit prompts again, and no start, restart or app launch applies it.
 
-The app checks hourly, but only while the clinic is actually serving. Until then it re-examines every thirty seconds and checks nothing, because a check competing with the start it is racing helps nobody. A clinic that later stops serving drops back to that thirty-second wait, so a check is never made against a clinic that is down. The loop ends only when the app closes, the desktop is switched to a client, or the clinic is being removed. These desktops stay on for weeks, so a check that only ran at launch would leave a verified fix unreachable until somebody restarted the app.
+The app checks hourly, but only while the clinic is actually serving. Until then it re-examines every thirty seconds and checks nothing, because a check competing with the start it is racing helps nobody. A clinic that later stops serving drops back to that thirty-second wait, so a check is never made against a clinic that is down. The loop ends only when the app closes, the desktop is switched to a client, or the clinic is being removed. These desktops stay on for weeks, so a check that only ran at launch would leave a newly published fix undiscovered until somebody restarted the app.
 
 "Check now" does not start a second check when one is already running; it joins
 the one in flight. The card follows the `care-check` event, so it reports
-automatic and requested checks. "Checking" lasts until any found commit has
-finished building, not only until the branch head is resolved. Checks are
-skipped without a working network, during setup/removal, and while another job
-holds the clinic. Reported failures carry `care-check.error` and appear with a
-friendly retry action; they never become a false "Up to date" result. An offline
-clinic can continue working without updating.
+automatic and requested checks. "Checking" lasts until the branch heads have been
+looked up; nothing is built during a check. Checks are skipped without a working
+network and during setup/removal. A check also never runs beside a job that
+changes what runs: Start, Restart, Install now, a plugin apply, saving settings
+and a CARE Clinic app update hold checks while they work (`holdUpdateChecks`). Such
+a job waits up to two minutes for a check already in flight, which is only a few
+Git lookups, and otherwise fails with "a CARE update check is still running"
+instead of starting beside it. Reported failures carry `care-check.error` and
+appear with a friendly retry action; they never become a false "Up to date"
+result. An offline clinic can continue working without updating.
 
 ### Turning update checks off
 
 **Advanced → Update checks** has two switches, **Check for CARE Clinic app updates** and **Check for CARE software updates**. Advanced must be unlocked first. Each switch change sends that admin password to `SetUpdateChecks`, which checks it again and saves `app_update_checks_off` / `care_update_checks_off` in `config.json`. Both default to on, including for installs saved before these settings existed.
 
 - **App checks off:** CARE Clinic never contacts GitHub for a release check or an install. The card shows "Checks off" without Check now or Update buttons, and no "available" banner is raised.
-- **CARE checks off:** no automatic, hourly or manual CARE check runs, so nothing reaches the CARE repositories and nothing new is built. A build that was already staged is held: it is not offered, not installed by Install now, and not applied at the next start. It returns when checks are turned back on.
-- **Not stopped:** an update that was already downloading, building or installing finishes. Rebuild, plugin apply and setup still fetch the configured CARE branches.
+- **CARE checks off:** no automatic, hourly or manual CARE check runs, so nothing reaches the CARE repositories to look for a newer commit. An update that was already found is held: it is not offered and not installed by Install now. It returns when checks are turned back on. Start, Restart and app launch never apply one in any case.
+- **Not stopped:** an update that was already installing finishes. Rebuild, plugin apply and setup still fetch the configured CARE branches.
 
 The Updates tab always shows a card with the current state and an **Open Advanced** button: "Automatic update checks are on" while both are on, or which one is off. The [binding reference](wails-application.md#turning-update-checks-off) lists every place a check is refused.
 
@@ -467,12 +482,14 @@ destination from being activated without its matching public certificate.
 
 ## Relevant regression coverage
 
-[`app_env_test.go`](../app/app_env_test.go) covers concurrent environment/plugin reads, mutation exclusion, closing, administrator/lifecycle guards, and retention save/read values including zero. [`plugins_test.go`](../app/internal/plugins/plugins_test.go) covers literal plugin configuration round trips and duplicate removal.
+[`app_env_test.go`](../app/app_env_test.go) covers concurrent environment/plugin reads, mutation exclusion, closing, administrator/lifecycle guards, and retention save/read values including zero. [`app_clinic_stop_test.go`](../app/app_clinic_stop_test.go) covers the `ApplyEnvChanges` request checks, that nothing is written before CARE has stopped, and the update-check hold. [`env_apply_test.go`](../app/internal/clinic/env_apply_test.go) covers the stop-first apply itself: a bad request or a failed stop changes nothing, and each failure after the first write puts the previous settings back. [`plugins_test.go`](../app/internal/plugins/plugins_test.go) covers literal plugin configuration round trips and duplicate removal.
 
 The underlying atomic-file behavior and the clinic's domain rewriting have their own tests, indexed in [the repository map](repository-map.md). Those layers matter independently of how a friendly control is rendered.
 
 [`advanced.spec.ts`](../app/frontend/tests/advanced.spec.ts) covers the exact
 15-minute unlock boundary, tab-leave clearing, recovery/password flows, sensitive
-field handling, latest-file merging and failed apply behavior.
+field handling, latest-file merging, and the atomic apply: a rejected request
+changes nothing, a failed apply keeps the operator's edits, and the message names
+the state CARE is left in.
 [`backups.spec.ts`](../app/frontend/tests/backups.spec.ts) covers destination
 changes, restore consent and stale async work across a Desktop update.

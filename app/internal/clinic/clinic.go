@@ -31,12 +31,16 @@ type Clinic struct {
 	Confirm func(title, message string) bool
 	Abandon func() bool
 
-	HoldUpdates bool
+	// Refresh, when set, runs while every CARE container is stopped and before
+	// Start or a full rebuild builds anything, so installed files are never
+	// rewritten under a live clinic.
+	Refresh func() error
 
 	localSetupOffered bool
 	ctx               context.Context
 	pluginBaseline    []pluginContainer
 	pluginReady       func() error
+	startReady        func() error
 }
 
 func (e *Clinic) logln(s string) {

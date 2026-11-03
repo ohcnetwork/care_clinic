@@ -129,9 +129,6 @@ func TestCareUpdateChecksOffNeverResolvesTheCareRepositories(t *testing.T) {
 	if err := a.ClinicAction("update", ""); !sameError(err, errCareUpdateChecksOff) {
 		t.Fatalf("a staged CARE update was applied while checks were off: %v", err)
 	}
-	if !a.engine().HoldUpdates {
-		t.Fatal("start would still apply a staged CARE update")
-	}
 	if called() {
 		t.Fatal("a CARE repository was contacted while update checks were off")
 	}

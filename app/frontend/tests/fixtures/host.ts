@@ -1,7 +1,7 @@
 import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
-  ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, NetworkStatus, ResidueReport,
-  CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, CloseChoice, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
+  ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, EnvFileChange, NetworkStatus, ResidueReport,
+  CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, CloseChoice, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, SystemReport, ToolPlan,
   UpdateChecks,
 } from "../../src/types";
 
@@ -12,6 +12,7 @@ type Handler = (...data: unknown[]) => void;
 type Results = { [K in Method]: Awaited<ReturnType<Host[K]>> };
 type Fixtures = {
   disk: DiskStatus;
+  system: SystemReport;
   docker: DockerStatus;
   dockerScans: boolean;
   git: DockerStatus;
@@ -39,7 +40,13 @@ type Fixtures = {
   recoveryFile: string;
   adminPassword: string;
   webUsers: Record<string, string>;
+  webUserProfiles: Record<string, { name: string; active: boolean; superuser: boolean }>;
+  // Jobs finish by themselves after a moment. ?finishJobs=0 keeps them running
+  // until a test finishes them, for the ones that start when the page opens.
   finishJobs: boolean;
+  // The desktop launch stops and restarts CARE once per app run. It is opt-in
+  // here (?launchStart=1) so the other scenarios open a running clinic as is.
+  launchStart: boolean;
   quitAccepted: boolean;
   closeChoice: string;
   env: Record<Section, string>;
@@ -126,6 +133,13 @@ export function installTestHost() {
   };
   const fixtures: Fixtures = {
     disk: { ok: true, message: "212 GB free", how: "", free: 212 * 2 ** 30, need: 30 * 2 ** 30 },
+    system: { applicable: true, checks: [
+      { id: "os", label: "Operating system", value: "macOS 15.1 Sequoia", requirement: "macOS 13 Ventura or later", level: "ok", message: "" },
+      { id: "processor", label: "Processor", value: "Apple Silicon · 8 cores", requirement: "4 or more cores", level: "ok", message: "" },
+      { id: "memory", label: "Memory (RAM)", value: "16 GB", requirement: "8 GB or more", level: "ok", message: "" },
+      { id: "storage", label: "Free storage", value: "212 GB free", requirement: "30 GB or more free", level: "ok", message: "" },
+      { id: "virtualization", label: "Virtualization", value: "Turned on", requirement: "Turned on", level: "ok", message: "" },
+    ] },
     docker: { ok: true, message: "" },
     dockerScans: false,
     git: { ok: true, message: "" },
@@ -164,7 +178,12 @@ export function installTestHost() {
     recoveryFile: "/test-fixtures/recovery/CARE-backup-recovery.pem",
     adminPassword: "ClinicTest123",
     webUsers: { admin: "ClinicTest123", nurse: "NurseTest123" },
-    finishJobs: true,
+    webUserProfiles: {
+      admin: { name: "", active: true, superuser: true },
+      nurse: { name: "Asha Rao", active: true, superuser: false },
+    },
+    finishJobs: new URLSearchParams(location.search).get("finishJobs") !== "0",
+    launchStart: new URLSearchParams(location.search).get("launchStart") === "1",
     quitAccepted: false,
     closeChoice: "",
     env: {
@@ -189,6 +208,24 @@ export function installTestHost() {
   const recoveryCodeCount = new URLSearchParams(location.search).get("recoveryCodes");
   if (recoveryCodeCount !== null) {
     fixtures.recoveryCodes = fixtures.recoveryCodes.map((code, index) => index < Number(recoveryCodeCount) ? code : "");
+  }
+  // The system check opens before the start screen once per launch. Most specs
+  // begin on the start screen, so they see it as already reviewed unless they
+  // ask for it with ?systemCheck=1.
+  if (new URLSearchParams(location.search).get("systemCheck") === "1") sessionStorage.removeItem("care.systemCheckReviewed");
+  else sessionStorage.setItem("care.systemCheckReviewed", "1");
+  if (scenario === "system-windows10") {
+    state.platform = "windows";
+    fixtures.system.checks = [
+      { id: "os", label: "Operating system", value: "Windows 10 Pro 22H2 (build 19045)", requirement: "Windows 11", level: "warn",
+        message: "Rancher Desktop, which runs CARE on Windows, doesn't support Windows 10. CARE may install, but it can fail or stop working after an update. Upgrade to Windows 11 if you can." },
+      { id: "processor", label: "Processor", value: "64-bit (x64) · 4 cores", requirement: "64-bit Intel or AMD, 4 or more cores", level: "ok", message: "" },
+      { id: "memory", label: "Memory (RAM)", value: "4.0 GB", requirement: "8 GB or more", level: "warn",
+        message: "CARE needs at least 8 GB of memory to run smoothly. With 4.0 GB it may be slow, or stop when the clinic is busy." },
+      { id: "storage", label: "Free storage", value: "212 GB free", requirement: "30 GB or more free", level: "ok", message: "" },
+      { id: "virtualization", label: "Virtualization", value: "Unknown", requirement: "Turned on", level: "unknown",
+        message: "Couldn't check whether virtualization is turned on. Setup will tell you if it's missing." },
+    ];
   }
   if (scenario.startsWith("setup-")) state.role = "server";
   if (scenario === "setup-space") fixtures.disk = { ...fixtures.disk, ok: false, free: 12 * 2 ** 30 };
@@ -256,17 +293,32 @@ export function installTestHost() {
     listeners.get(event)?.forEach((handler) => handler(...data));
   };
   let stagedPlugins: CarePlugin[] | null = null;
+  let stagedEnv: EnvFileChange[] | null = null;
   const finishJob = (action: string, error?: string) => {
     if (action === "apply-plugins") {
       if (!error && stagedPlugins) fixtures.plugins = structuredClone(stagedPlugins);
       stagedPlugins = null;
     }
+    if (action === "apply-settings") {
+      // A failed apply puts the previous settings back, so only success changes the files.
+      if (!error) {
+        for (const change of stagedEnv ?? []) {
+          fixtures.env[change.name] = change.content;
+          if (change.name === "backend") {
+            const retention = /^DB_BACKUP_RETENTION_PERIOD=["']?(\d+)["']?\s*$/m.exec(change.content);
+            if (retention) fixtures.backupPolicy.retention_days = Number(retention[1]);
+          }
+        }
+      }
+      stagedEnv = null;
+    }
     if (error) {
       emit("care-log", `error: ${error}`);
-      const title = action === "restore" ? "Restore didn't finish" : action === "backup-now" ? "Backup didn't finish" : "CARE couldn't finish that";
+      const title = action === "restore" ? "Restore didn't finish" : action === "backup-now" ? "Backup didn't finish"
+        : action === "apply-settings" ? "The settings couldn't be applied" : "CARE couldn't finish that";
       if (action !== "setup") emit("care-error", title, error);
     } else {
-      if (["start", "restart", "update", "restore"].includes(action)) {
+      if (["start", "restart", "update", "restore", "apply-settings"].includes(action)) {
         fixtures.health = { active: true, code: 200, detail: "" };
         fixtures.clinicStatus = "backend\nfrontend\ndb\nbackup";
       }
@@ -400,6 +452,7 @@ export function installTestHost() {
     },
     DisableHomeAccess: async () => { requireServer(); fixtures.homeAccess.enabled = false; },
     DiskStatus: async () => ({ ...fixtures.disk }),
+    SystemRequirements: async () => structuredClone(fixtures.system),
     MDNSStatus: async () => ({ ok: !fixtures.addressTaken, message: fixtures.addressTaken ? "care.local is already in use on this network (192.0.2.1)" : "" }),
     ScanResidue: async () => {
       if (fixtures.dockerScans && !fixtures.docker.ok) throw new Error("could not locate the earlier installation; start Docker and try again");
@@ -462,6 +515,11 @@ export function installTestHost() {
     AutostartEnabled: async () => fixtures.autostart,
     SetAutostart: async (value: boolean) => { fixtures.autostart = value; },
     WasAutostartLaunched: async () => false,
+    TakeLaunchStart: async () => {
+      const take = fixtures.launchStart && state.role === "server" && state.setup_done;
+      if (take) fixtures.launchStart = false;
+      return take;
+    },
     KeepAwakeEnabled: async () => fixtures.keepAwake,
     SetKeepAwake: async (value: boolean) => { fixtures.keepAwake = value; },
     CareUpdateStatus: async () => ({ ...fixtures.channel }),
@@ -518,16 +576,19 @@ export function installTestHost() {
       if (section !== "backend" && section !== "frontend") throw new Error("unknown env file");
       return fixtures.env[section];
     },
-    WriteEnv: async (section: string, content: string, password: string) => {
+    ApplyEnvChanges: async (changes: EnvFileChange[], password: string) => {
       requireServer();
       if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
       if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
-      if (section !== "backend" && section !== "frontend") throw new Error("unknown env file");
-      fixtures.env[section] = content;
-      if (section === "backend") {
-        const retention = /^DB_BACKUP_RETENTION_PERIOD=["']?(\d+)["']?\s*$/m.exec(content);
-        if (retention) fixtures.backupPolicy.retention_days = Number(retention[1]);
+      if (!changes.length) throw new Error("there are no settings to apply");
+      const seen = new Set<string>();
+      for (const change of changes) {
+        if (change.name !== "backend" && change.name !== "frontend") throw new Error(`unknown env file: ${change.name}`);
+        if (seen.has(change.name)) throw new Error(`the ${change.name} settings were given twice`);
+        seen.add(change.name);
       }
+      stagedEnv = structuredClone(changes);
+      acceptJob("apply-settings");
     },
     ReadPlugins: async () => structuredClone(fixtures.plugins),
     PluginCatalog: async () => structuredClone(fixtures.catalog),
@@ -577,6 +638,14 @@ export function installTestHost() {
       ];
       if (problems.length) throw new Error(`CARE didn't accept that password: ${problems.join(" ")}`);
       fixtures.webUsers[username] = next;
+    },
+    ListWebUsers: async (password: string) => {
+      requireServer();
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
+      if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
+      return Object.keys(fixtures.webUsers).sort().map((username) => ({
+        username, ...(fixtures.webUserProfiles[username] ?? { name: "", active: true, superuser: false }),
+      }));
     },
     RancherDesktopInstalled: async () => fixtures.rancherInstalled,
     RunUninstall: async (_images: boolean, _backups: boolean, _rancher: boolean, password: string) => {

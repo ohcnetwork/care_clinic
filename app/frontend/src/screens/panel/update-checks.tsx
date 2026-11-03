@@ -15,7 +15,7 @@ const ROWS: { key: keyof UpdateChecks; label: string; help: string }[] = [
   {
     key: "care",
     label: "Check for CARE software updates",
-    help: "When off, CARE stays on its current version: nothing is checked, prepared or installed in the background.",
+    help: "When off, CARE stays on its current version: no CARE update is looked for or installed.",
   },
 ];
 

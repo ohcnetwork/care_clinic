@@ -218,12 +218,15 @@ routes, both described in
 [configuration and settings](configuration-and-settings.md):
 
 - **CARE backend and frontend** follow the branch named in the manifest. An
-  installed clinic checks it in the background, builds the newer commit, and
-  applies it when the operator accepts or at the next start. This needs no
-  desktop release at all, which is the point: a verified fix merged to the
-  branch reaches clinics that nobody will manually update.
+  installed clinic checks it in the background, which only looks up the newest
+  commit, and offers it. Nothing is downloaded or built, and CARE is not
+  touched, until the operator chooses Install now; CARE then stops while the
+  commit is built and starts again on it. This needs no desktop release at all,
+  which is the point: a verified fix merged to the branch reaches clinics that
+  nobody will manually update.
 - **CARE Clinic** is offered from this release page under Advanced ->
-  Updates, and is always operator-initiated.
+  Updates, and is always operator-initiated. CARE stops before the new app is
+  downloaded and starts again when the new app opens.
 
 ## Windows signing (SignPath)
 

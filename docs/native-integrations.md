@@ -585,12 +585,19 @@ Sources: [app_update.go](../app/app_update.go),
 [app_update_helpers.go](../app/app_update_helpers.go), and
 [project.nsi](../app/build/windows/installer/project.nsi).
 
-**Update CARE Clinic** updates the installed desktop, not the clinic server.
-It does not run `docker compose stop/down`, remove clinic files, change backup
-keys, reinstall WebView2, or invoke the application uninstaller. Normal shutdown
-does stop this desktop's mDNS advertiser; clinic containers stay running and
-advertising resumes when the app reopens. Clinic-name discovery can therefore
-be briefly unavailable during the restart.
+**Update CARE Clinic** updates the installed desktop, not the clinic's data or
+containers. On an installed server it first stops CARE with the verified stop
+(`docker compose stop` plus a check that no `care-clinic` container is left
+running; see [the stop gate](clinic-lifecycle.md#the-stop-gate)), so the app is
+replaced while the clinic is not serving. If CARE cannot be stopped, nothing is
+downloaded and the update does not go ahead. A computer that is not the clinic
+server, one that is not set up or is being removed, and one whose container
+engine is not running skip the stop. The update never runs `docker compose
+down`, removes clinic files or data, changes backup keys, reinstalls WebView2,
+or invokes the application uninstaller. When the new app opens, its launch start
+brings CARE back up. Normal shutdown also stops this desktop's mDNS advertiser,
+which resumes when the app reopens, so clinic-name discovery is unavailable
+until then.
 
 1. Fetch the release and its checksum, download into a private uniquely named
    `CARE Clinic/updates/update-*` directory in the OS user cache, verify SHA-256,
@@ -631,8 +638,11 @@ be briefly unavailable during the restart.
 Post-exit failures appear in a native alert and in `helper.log` within the
 retained update cache directory; its exact path is also written to the desktop
 log before handoff. The helper attempts to reopen the installed app after a
-failure. A relaunch failure does not claim installation failed or clinic data
-was removed: open the installed app manually and inspect that log. On success
+failure, and the reopened app starts CARE again with its launch start. A
+relaunch failure does not claim installation failed or clinic data was removed,
+but CARE stays stopped until the app is opened: open the installed app manually
+and inspect that log. A failure before handoff (a bad download or checksum, a
+bundle that does not verify) starts CARE again in the running app. On success
 the download/helper workspace is removed. Interrupted transactions can leave
 `.care-update-*` recovery directories beside the macOS app or
 `.care-update-previous.exe`/`.care-update-new` beside the Windows executable.

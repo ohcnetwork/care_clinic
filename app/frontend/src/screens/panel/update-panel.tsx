@@ -146,8 +146,8 @@ function CareSoftwareCard() {
         <h2 className="panel-title">CARE software</h2>
         <p className="panel-card-sub">{off ? "Update checks are turned off in Advanced."
           : checking ? "Checking for updates…"
-            : checkedAt ? `Checked at ${checkedTime(checkedAt)} · Updates are prepared in the background.`
-              : "Updates are prepared in the background."}</p>
+            : checkedAt ? `Checked at ${checkedTime(checkedAt)} · Updates are installed only when you choose Install now.`
+              : "Updates are installed only when you choose Install now."}</p>
       </div>
       {off && !applying ? <PanelBadge>Checks off</PanelBadge>
         : <PanelBadge tone={error ? "warning" : pending || upToDate ? "ok" : "neutral"} working={checking || applying || loading}>
@@ -159,10 +159,11 @@ function CareSoftwareCard() {
     {applying ? <div className="panel-update-progress" role="status">
       <h3>Installing the CARE software update…</h3>
       <Progress aria-label="CARE software update" />
-      <p className="panel-small">Keep this computer on and CARE Clinic open. Staff may be signed out briefly.</p>
+      <p className="panel-small">Keep this computer on and CARE Clinic open. CARE is stopped while the update installs, then started again.</p>
     </div> : pending ? <PanelNotice tone="ok" title="An update is ready">
-      {backendUpdate ? "Staff will be signed out briefly while it installs. " : "CARE will reload when the update is applied. "}
-      If you choose Later, it will be applied the next time the clinic starts.
+      {backendUpdate ? "CARE is stopped while this installs, which can take several minutes, so staff will have to wait. "
+        : "CARE is stopped while this installs, so staff will have to wait. "}
+      If you choose Later, nothing is installed until you choose Install now.
       <div className="panel-actions">
         <Button disabled={locked || checking} onClick={() => void later()}>Later</Button>
         <Button variant="primary" disabled={locked || checking} onClick={apply}>
@@ -170,7 +171,7 @@ function CareSoftwareCard() {
         </Button>
       </div>
     </PanelNotice> : checking && !off ? <p className="panel-small" role="status">
-      Anything found is prepared in the background. You can keep using the clinic while this runs.
+      Looking for a newer version. Nothing is installed and CARE keeps running until you choose Install now.
     </p> : null}
     {failed || action.error ? <PanelNotice title={failed ? "Couldn't check for updates" : "Couldn't finish that"} tone="warning"
       actions={<>{!off ? <Button disabled={checking || locked} onClick={() => void check()}><RefreshCw aria-hidden="true" />Try again</Button> : null}<PanelLogButton /></>}>
@@ -180,7 +181,6 @@ function CareSoftwareCard() {
 }
 
 function ClinicApplicationCard({ controller }: { controller: AppUpdateController }) {
-  const { system } = useCare();
   const { update, version, checking, problem, progress, active, disabled, check, install, off } = controller;
   const action = usePanelTask();
   const [checkedAt, setCheckedAt] = useState(0);
@@ -232,7 +232,7 @@ function ClinicApplicationCard({ controller }: { controller: AppUpdateController
       <p className="panel-small">{phase === "installer" ? "Follow the installer to finish, then reopen CARE Clinic."
         : phase === "restarting" ? "CARE Clinic is reopening."
           : "Keep CARE Clinic open. Your computer may ask for permission to replace the app."}</p>
-      {system === "running" ? <p className="panel-small">The clinic keeps running while CARE Clinic updates.</p> : null}
+      <p className="panel-small">CARE is stopped before the update downloads and starts again when CARE Clinic reopens.</p>
       {phase === "installer" ? <Button disabled={controller.updating} onClick={controller.dismiss}>Done</Button> : null}
     </div> : off ? null : problem ? <PanelNotice title={problemTitle} tone={problem.kind === "download" || problem.kind === "install" ? "danger" : "warning"}
       actions={<>
@@ -242,8 +242,7 @@ function ClinicApplicationCard({ controller }: { controller: AppUpdateController
       </>}>
       {problemDetail}
     </PanelNotice> : update?.available ? <PanelNotice tone="ok" title={`CARE Clinic ${update.version} is available`}>
-      Downloads and installs the new version. Your computer may ask for permission.
-      {system === "running" ? " Your clinic keeps running." : ""}
+      CARE is stopped first, then the new version is downloaded and installed, and CARE starts again when CARE Clinic reopens. Your computer may ask for permission.
       <div className="panel-actions">
         {update.notes_url ? <Button disabled={action.working} onClick={() => void action.run(() => bridge.OpenURL(update.notes_url),
           "Couldn't open what's new. Try again when this computer is connected to the internet.")}>

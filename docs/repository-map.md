@@ -65,7 +65,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | --- | --- | --- |
 | [`main.go`](../app/main.go) | Embedded filesystems, log initialization, `wails.Run`, callbacks/binding, fatal startup handling. | [Wails application](wails-application.md). |
 | [`app.go`](../app/app.go) | `App` state, construction, log/event delivery, mDNS advertiser ownership and watcher. | [Architecture](architecture.md), [Wails application](wails-application.md). |
-| [`app_lifecycle.go`](../app/app_lifecycle.go) | Startup refresh, shutdown, second launch, close confirmation, bounded stop-for-quit. | [Wails application](wails-application.md). |
+| [`app_lifecycle.go`](../app/app_lifecycle.go) | The install-kit refresh that Start, Restart and Rebuild everything run once CARE is stopped, shutdown, second launch, close confirmation, bounded stop-for-quit. | [Wails application](wails-application.md). |
 | [`app_confirmation.go`](../app/app_confirmation.go) | ID-scoped permission requests, independent response channel, native fallback and shutdown cancellation. | [Confirmation protocol](wails-application.md#in-window-permission-confirmations). |
 | [`app_quit.go`](../app/app_quit.go) | Registered running-job and close requests, guarded responses, background or stop-and-quit. | [Closing the application](wails-application.md#closing-the-application). |
 | [`app_config.go`](../app/app_config.go) | `Config`, OS configuration path, strict initial loading, cached/atomic saves and forgetting state. | [Configuration](configuration-and-settings.md). |
@@ -75,13 +75,13 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_setup_check.go`](../app/app_setup_check.go) | Review preflight and the same checks repeated under RunSetup's exclusive lock. | [Setup configuration order](configuration-and-settings.md#setup-configuration-order). |
 | [`app_recovery.go`](../app/app_recovery.go) | Recovery-key/code export and verification, replacement, CARE Clinic password changes and offline reset. | [Recovery materials](backups-and-restore.md#3-backup-recovery-file-and-care-clinic-admin-recovery). |
 | [`app_setup_retry.go`](../app/app_setup_retry.go) | Retained setup attempt, failure metadata, non-destructive retry validation and preparation/startup boundary. | [Installation retries](desktop-workflows.md#during-installation). |
-| [`app_update.go`](../app/app_update.go) | CARE branch-update status/check/dismiss, the background update watcher, and the GitHub-release desktop updater. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
+| [`app_update.go`](../app/app_update.go) | CARE branch-update status/check/dismiss (a check only looks up commits), the background update watcher, and the GitHub-release desktop updater, which stops CARE before it downloads. | [Clinic lifecycle](clinic-lifecycle.md), [releases](releases.md). |
 | [`app_selfupdate.go`](../app/app_selfupdate.go) | macOS bundle verification/replacement and post-exit reopening. | [Wails application](wails-application.md). |
 | [`app_status.go`](../app/app_status.go) | State/health/tool/network queries, provisioning controls, name/password/folder validation, pre-setup naming. | [Wails application](wails-application.md), [native integrations](native-integrations.md). |
 | [`app_home_access.go`](../app/app_home_access.go) | Home access bindings: Tailscale status, enable and disable. | [Home access](home-access.md). |
-| [`app_ui.go`](../app/app_ui.go) | Native URL/folder/log actions and login-startup controls. | [Wails application](wails-application.md). |
+| [`app_ui.go`](../app/app_ui.go) | Native URL/folder/log actions, login-startup controls, and the once-per-run launch-start request. | [Wails application](wails-application.md). |
 | [`app_keep_awake.go`](../app/app_keep_awake.go) | Keep-awake setting and the watcher that holds sleep off while the clinic runs. | [Native integrations](native-integrations.md#keep-awake-while-the-clinic-runs). |
-| [`app_env.go`](../app/app_env.go) | Authorized reads and atomic writes of the two installed environment files. | [Configuration](configuration-and-settings.md). |
+| [`app_env.go`](../app/app_env.go) | Authorized reads of the two installed environment files, and the `ApplyEnvChanges` job that stops CARE, writes them atomically and starts CARE on them. | [Configuration](configuration-and-settings.md). |
 | [`app_plugins.go`](../app/app_plugins.go) | Lifecycle-guarded, password-free plugin access through the domain manager. | [Plugins](plugins.md). |
 | [`app_backup.go`](../app/app_backup.go) | Policy, listing/import inspection, restore dispatch, backup picker, and backup-directory changes. | [Backups](backups-and-restore.md), [Wails application](wails-application.md). |
 | [`app_storage.go`](../app/app_storage.go) | Disk/backup-space assessments, cached reports, background monitoring and storage events. | [Storage monitoring](native-integrations.md#disk-space-and-storage-monitoring). |
@@ -90,6 +90,7 @@ All of these files belong to Go `package main`, even though they are organized b
 | [`app_residue.go`](../app/app_residue.go) | Residue scanning, recovery of old install location, confirmed purge, preserving the selected first-run name. | [Cleanup](cleanup-and-uninstall.md). |
 | [`password.go`](../app/password.go) | Shared setup password policy. | [Wails application](wails-application.md). |
 | [`app_env_test.go`](../app/app_env_test.go) | Synthetic-app regressions for concurrent settings reads, guards, conflicting writes, and saved retention values. | [Configuration](configuration-and-settings.md). |
+| [`app_clinic_stop_test.go`](../app/app_clinic_stop_test.go) | The launch start, the settings-apply job and its request checks, update-check holds, which actions refresh the install kit, and the desktop update's stop, restart and refusal paths. | [Wails application](wails-application.md). |
 
 ### Application-boundary regression groups
 
@@ -126,8 +127,10 @@ app/internal/
 |   |-- setup.go
 |   |-- start.go
 |   |-- stop.go
+|   |-- stopgate.go
 |   |-- status.go
 |   |-- rebuild.go
+|   |-- env_apply.go
 |   |-- plugins.go
 |   |-- plugin_transaction.go
 |   |-- plugin_health.go
@@ -149,10 +152,15 @@ app/internal/
 |   |-- leftovers.go
 |   |-- backup_script_test.go
 |   |-- domain_test.go
+|   |-- env_apply_test.go
 |   |-- freespace_test.go
+|   |-- lifecycle_fake_test.go
 |   |-- migrate_test.go
+|   |-- stack_lifecycle_test.go
+|   |-- stopgate_test.go
 |   |-- teardown_test.go
-|   `-- thiscomputer_test.go
+|   |-- thiscomputer_test.go
+|   `-- update_apply_test.go
 |-- compose/
 |   |-- build.go
 |   |-- build_test.go
@@ -269,6 +277,9 @@ The larger subsystem guides contain their own file tables. These smaller package
 | [`plugins/pending.go`](../app/internal/plugins/pending.go), [`pending_test.go`](../app/internal/plugins/pending_test.go) | Private draft staging/consumption without changing active inputs, and persistence regressions. |
 | [`clinic/home_access.go`](../app/internal/clinic/home_access.go), [`home_access_test.go`](../app/internal/clinic/home_access_test.go) | Loopback home-access port and the one-time settings update for existing clinics. | [Home access](home-access.md). |
 | [`clinic/plugin_transaction.go`](../app/internal/clinic/plugin_transaction.go), [`plugin_transaction_test.go`](../app/internal/clinic/plugin_transaction_test.go) | Durable configuration/image/frontend-row rollback and injected failure/recovery regressions. |
+| [`clinic/stopgate.go`](../app/internal/clinic/stopgate.go), [`stopgate_test.go`](../app/internal/clinic/stopgate_test.go) | The verified stop of the `care-clinic` Compose project that Start, Restart, rebuilds, updates, plugin applies and settings applies run before they change anything. See [the stop gate](clinic-lifecycle.md#the-stop-gate). |
+| [`clinic/env_apply.go`](../app/internal/clinic/env_apply.go), [`env_apply_test.go`](../app/internal/clinic/env_apply_test.go) | Stop, atomic write, start and revert for the two installed environment files. See [configuration and settings](configuration-and-settings.md). |
+| [`clinic/stack_lifecycle_test.go`](../app/internal/clinic/stack_lifecycle_test.go), [`update_apply_test.go`](../app/internal/clinic/update_apply_test.go), [`lifecycle_fake_test.go`](../app/internal/clinic/lifecycle_fake_test.go) | Stop-before-change ordering for Start, Restart, rebuilds and Install now, rollback when a build or backup fails, and the file-backed fake `docker` those tests share. |
 | [`clinic/plugin_health.go`](../app/internal/clinic/plugin_health.go), [`plugin_health_test.go`](../app/internal/clinic/plugin_health_test.go), [`plugin_live_check_test.go`](../app/internal/clinic/plugin_live_check_test.go) | Sustained container/endpoint readiness, Docker metadata compatibility, and opt-in read-only live checks. |
 | [`plugins/catalog.yml`](../app/internal/plugins/catalog.yml) | Embedded list of plugins offered in the panel. |
 | [`plugins/plugins_test.go`](../app/internal/plugins/plugins_test.go) | Literal values, legacy migration, backend/frontend split, validation, catalog refresh, frontend rows. |

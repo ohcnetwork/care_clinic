@@ -99,7 +99,7 @@ func (a *App) handoffAppUpdate(download, version, digest string) (err error) {
 		return fmt.Errorf("couldn't authorize the update handoff: %w", err)
 	}
 	a.updateProgress(phaseRestarting, 0, 0)
-	a.logln("Restarting CARE Clinic to finish updating. Clinic containers and data are left alone.")
+	a.logln("Restarting CARE Clinic to finish updating. Patient data is kept.")
 	a.closing = true
 	a.quitAfterJob()
 	return nil

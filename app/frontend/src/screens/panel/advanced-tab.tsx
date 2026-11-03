@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
 import { bridge } from "@/lib/bridge";
 import { useCare } from "@/state/care-store";
-import type { Section } from "@/types";
 import { AdminPasswordForm, AdminRecoverySettings } from "./admin-recovery";
 import {
   AdvancedError, AdvancedLockProvider, AdvancedLogButton, AdvancedNotice, AdvancedSecretInput, advancedProblem, useAdvancedLock, type AdvancedProblem,
@@ -30,15 +29,13 @@ export function AdvancedTab({ disabled = false }: { disabled?: boolean } = {}) {
 
 function AdvancedContent() {
   const { disabled } = useAdvancedLock();
-  const { tab, flow, busy, restorePending, operationError } = useCare();
+  const { tab, flow, busy, restorePending } = useCare();
   const active = flow === "panel" && tab === "advanced";
   const [adminPassword, setAdminPassword] = useState<string | null>(null);
   const [unlockedAt, setUnlockedAt] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [working, setWorking] = useState(false);
   const [expired, setExpired] = useState(false);
-  const [pendingSettings, setPendingSettings] = useState<Section[]>([]);
-  const [applyingSettings, setApplyingSettings] = useState(false);
   const headingRef = useRef<HTMLDivElement>(null);
   const unlock = (password: string) => {
     setAdminPassword(password);
@@ -71,11 +68,6 @@ function AdvancedContent() {
   useEffect(() => {
     if (active && adminPassword !== null) headingRef.current?.focus();
   }, [active, adminPassword]);
-  useEffect(() => {
-    if (!applyingSettings || busy) return;
-    setApplyingSettings(false);
-    if (!operationError) setPendingSettings([]);
-  }, [applyingSettings, busy, operationError]);
   if (!active) return null;
   return <div className="care-advanced" data-panel-blocked={disabled} tabIndex={-1}>
     <div className="advanced-heading" ref={headingRef} tabIndex={-1}>
@@ -97,8 +89,7 @@ function AdvancedContent() {
       <WebPasswordReset adminPassword={adminPassword} />
       <ExportBackupRecovery adminPassword={adminPassword} />
       <UpdateCheckSettings adminPassword={adminPassword} />
-      <EnvEditor adminPassword={adminPassword} expanded={settingsOpen} onExpandedChange={setSettingsOpen} onWorkingChange={setWorking}
-        pendingFiles={pendingSettings} onPendingFilesChange={setPendingSettings} onApplicationAccepted={() => setApplyingSettings(true)} />
+      <EnvEditor adminPassword={adminPassword} expanded={settingsOpen} onExpandedChange={setSettingsOpen} onWorkingChange={setWorking} />
       <>
         <LogRow />
         <section className="advanced-card advanced-card-pad advanced-danger" aria-labelledby="advanced-careful-title">
@@ -109,7 +100,7 @@ function AdvancedContent() {
           <div className="advanced-danger-row">
             <div className="advanced-grow">
               <h3>Rebuild everything</h3>
-              <p className="advanced-card-description">Re-creates CARE from this app's files. Patient data is kept; CARE is unavailable for a few minutes.</p>
+              <p className="advanced-card-description">Stops CARE, re-creates it from this app's files, then starts it again. Patient data is kept; CARE is unavailable for a few minutes.</p>
             </div>
             <RebuildControl adminPassword={adminPassword} />
           </div>
@@ -231,7 +222,7 @@ function RebuildControl({ adminPassword }: { adminPassword: string }) {
         onEscapeKeyDown={(event) => { if (working) event.preventDefault(); }}>
         <span className="advanced-icon advanced-icon-danger"><Hammer aria-hidden="true" /></span>
         <AlertDialogTitle className="advanced-dialog-title">Rebuild CARE?</AlertDialogTitle>
-        <AlertDialogDescription>CARE will be unavailable for a few minutes while it is re-created from this app's files and current settings. Patient data and backups are kept.</AlertDialogDescription>
+        <AlertDialogDescription>CARE will be stopped, re-created from this app's files and current settings, then started again. It is unavailable for a few minutes. Patient data and backups are kept.</AlertDialogDescription>
         <div className="advanced-dialog-body"><AdvancedError problem={problem} /></div>
         <div className="advanced-dialog-foot">
           <Button type="button" ref={cancelRef} disabled={working} onClick={close}>Cancel</Button>

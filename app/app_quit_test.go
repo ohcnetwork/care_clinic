@@ -37,7 +37,7 @@ func TestRunningJobIsTrackedForTheQuitPrompt(t *testing.T) {
 
 func TestEveryJobOffersQuitWithItsOwnWording(t *testing.T) {
 	seen := map[string]string{}
-	for _, label := range []string{"setup", jobPrereq, "start", "stop", "restore", "uninstall", "app-update", "update", "backup-now", "rebuild-all", ""} {
+	for _, label := range []string{"setup", jobPrereq, "start", "stop", "restore", "uninstall", "app-update", "update", "backup-now", "apply-plugins", "apply-settings", "rebuild-all", ""} {
 		p := jobQuitPrompt(label)
 		if p.doing == "" || p.title == "" || p.message == "" {
 			t.Fatalf("no quit prompt for %q: %+v", label, p)

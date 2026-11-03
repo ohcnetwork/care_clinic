@@ -24,6 +24,7 @@ type Builder struct {
 
 	pending bool
 	refs    map[string]string
+	pinned  map[string]string // service -> the commit a pending build must use
 
 	owner   *Builder
 	groups  atomic.Int32
@@ -38,6 +39,20 @@ func (b *Builder) Pending() *Builder {
 	next := NewBuilder(b.run, b.dir, b.set, b.Log)
 	next.pending = true
 	next.Stop = b.Stop
+	return next
+}
+
+// PendingAt is Pending, but it builds exactly the commits in u instead of
+// resolving the branch heads again, so an install gets what the user was offered.
+func (b *Builder) PendingAt(u Update) *Builder {
+	next := b.Pending()
+	next.pinned = map[string]string{}
+	if release.IsCommitRef(u.Backend) {
+		next.pinned[Backend] = u.Backend
+	}
+	if release.IsCommitRef(u.Frontend) {
+		next.pinned[Frontend] = u.Frontend
+	}
 	return next
 }
 
@@ -61,6 +76,9 @@ func (b *Builder) ref(service, repo, configured string) string {
 func (b *Builder) pickRef(service, repo, configured string) string {
 	if release.IsCommitRef(configured) {
 		return configured
+	}
+	if sha := b.pinned[service]; sha != "" {
+		return sha
 	}
 	lock := ReadLock(b.dir).Get(service)
 	onBranch := lock.Ref == configured && release.IsCommitRef(lock.Current)

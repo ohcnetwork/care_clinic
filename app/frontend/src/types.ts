@@ -187,6 +187,9 @@ export type PluginSetupStep = {
 /** Which of the two .env files an editor is pointed at. */
 export type Section = "backend" | "frontend";
 
+/** One edited .env file, sent to the host together with the others as a single atomic change. */
+export type EnvFileChange = { name: Section; content: string };
+
 export type ChannelStatus = {
   backend_branch: string;
   frontend_branch: string;
@@ -208,6 +211,18 @@ export type CloseChoice = "cancel" | "background" | "quit";
 export type ConfirmationRequest = { id: number; title: string; message: string };
 
 export type StorageLevel = "ok" | "low" | "critical" | "unknown";
+
+export type SystemLevel = "ok" | "warn" | "unknown";
+export type SystemCheck = {
+  id: "os" | "processor" | "memory" | "storage" | "virtualization";
+  label: string;
+  value: string;
+  requirement: string;
+  level: SystemLevel;
+  message: string;
+};
+/** How this computer compares with what CARE expects. Advice only, never a gate. */
+export type SystemReport = { applicable: boolean; checks: SystemCheck[] };
 
 export type DiskStatus = {
   ok: boolean;
@@ -272,3 +287,6 @@ export type AppUpdate = {
   asset: string;
   size: number;
 };
+
+// One CARE web sign-in account, as listed for the Advanced password reset.
+export type WebUser = { username: string; name: string; active: boolean; superuser: boolean };

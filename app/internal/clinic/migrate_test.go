@@ -76,6 +76,7 @@ case "$1 $2" in
     esac
     exit 0 ;;
   'compose down') [ "$CARE_MIGRATION_FAILURE" != down ]; exit $? ;;
+  'ps -aq') exit 0 ;;
   'compose up')
     case "$*" in
       *' --force-recreate caddy') [ "$CARE_MIGRATION_FAILURE" != proxy ]; exit $? ;;

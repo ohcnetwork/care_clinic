@@ -36,7 +36,10 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   backup locations are kept; other operating systems retain their folder behavior.
 - **Server control panel** — start/stop/restart, start at login, clinic address and
   phone/tablet setup QR, with dedicated Backups, Storage, Updates and Advanced
-  pages. Plugins retains its reviewed catalog/table layout.
+  pages. CARE Clinic stops every CARE service, and checks that they stopped,
+  before it starts CARE, rebuilds it, installs an update or plugins, or applies
+  settings; it also does this each time the app opens. Patient data is kept.
+  Plugins retains its reviewed catalog/table layout.
 - **Native client setup** — enter the clinic's `.local` address shown on its
   server. **Find clinic** checks it and changes nothing on the computer;
   **Connect** is the step that does. No Docker, Git, or mDNS advertising runs on
@@ -75,6 +78,8 @@ See [client recovery and earlier-install cleanup](docs/client-recovery.md).
   visits, Billing, Backups, Staff access and Web protection, plus CARE Clinic password recovery,
   log, rebuild and uninstall. Less-used local options keep their defaults or saved
   values and can be overridden in **Extra settings (for support)**.
+  Applying clinic settings stops CARE, saves them together and starts CARE on
+  them; if CARE does not start on the new settings, the previous ones are put back.
   Advanced locks 15 minutes after unlocking, or sooner
   when you leave the tab; protected native actions still check the password.
   Email, SMS/patient sign-in and MFA configuration are not exposed in this editor.
@@ -147,8 +152,10 @@ checks:
 - **Clinic features** the operator turns on, such as SMS sign-in codes and email,
   send data to the provider the operator configured.
 - **Updates** check GitHub release metadata for CARE Clinic. While the clinic
-  is serving, CARE's background update checker can resolve its configured source
-  branches and build newer images; those builds fetch dependencies.
+  is serving, CARE's background update checker looks up the newest commit on its
+  configured source branches; it downloads and builds nothing. Choosing
+  **Install now** stops CARE, then builds the newer images, which fetches their
+  dependencies.
 - **Hosted plugins**, including the default CARE Onboarding plugin for new
   clinics, are downloaded by staff browsers from their configured hosts.
 
@@ -165,6 +172,8 @@ Build with `cd app && node frontend/scripts/stage-install.mjs && wails build`
 Run `cd app && wails dev` to review the real desktop application. This uses the
 native backend and can operate an existing clinic on this computer; use an
 isolated environment for destructive installation, restore and removal tests.
+Opening the app on an installed clinic stops and restarts that computer's
+`care-clinic` Docker Compose stack, so do not open it while the clinic is in use.
 
 Run `cd app/frontend && npm run test:ui` for the Playwright scenarios
 (requires Playwright's Chromium browser; install it with `npx playwright install chromium`

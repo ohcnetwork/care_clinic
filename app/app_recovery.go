@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ohcnetwork/care_desktop/app/internal/backup"
+	"github.com/ohcnetwork/care_desktop/app/internal/clinic"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -492,4 +493,22 @@ func (a *App) ResetWebPassword(username, newPassword, adminPassword string) erro
 		}
 		return a.engine().ResetWebPassword(username, newPassword)
 	})
+}
+
+// ListWebUsers lets Advanced offer a staff picker for ResetWebPassword. It is
+// a read job so opening the dialog doesn't mark the clinic busy.
+func (a *App) ListWebUsers(adminPassword string) ([]clinic.WebUser, error) {
+	var users []clinic.WebUser
+	err := a.withReadJob(func() error {
+		if err := a.requireAdmin(adminPassword); err != nil {
+			return err
+		}
+		if err := a.requireStableClinic(); err != nil {
+			return err
+		}
+		var err error
+		users, err = a.engine().ListWebUsers()
+		return err
+	})
+	return users, err
 }

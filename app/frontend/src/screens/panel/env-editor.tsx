@@ -14,7 +14,7 @@ import { toast } from "@/components/ui/sonner";
 import { bridge } from "@/lib/bridge";
 import { ENV_KEY_RE, getValue, type EnvChange, type EnvLine } from "@/lib/env-file";
 import { useCare } from "@/state/care-store";
-import type { Section } from "@/types";
+import type { EnvFileChange, Section } from "@/types";
 import {
   editableEnvLines, effectiveSetting, mergeEnvChanges, validateExtraSetting, validateSetting, type EnvDraft,
 } from "./advanced-env";
@@ -55,16 +55,13 @@ function customRows(files: Files, take: () => number): CustomRow[] {
   return rows;
 }
 
-export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedChange, onWorkingChange, pendingFiles, onPendingFilesChange, onApplicationAccepted }: {
+export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedChange, onWorkingChange }: {
   adminPassword: string;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   onWorkingChange?: (working: boolean) => void;
-  pendingFiles?: Section[];
-  onPendingFilesChange?: (files: Section[]) => void;
-  onApplicationAccepted?: () => void;
 }) {
-  const { busy, restorePending, runAction, operationError } = useCare();
+  const { busy, restorePending, applySettings, operationError } = useCare();
   const lock = useAdvancedLock();
   const [localExpanded, setLocalExpanded] = useState(false);
   const editing = expandedProp === undefined ? localExpanded : expandedProp;
@@ -78,14 +75,14 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [needsApply, setNeedsApply] = useState<Section[]>(pendingFiles ?? []);
   const [notice, setNotice] = useState("");
   const [discarding, setDiscarding] = useState(false);
   const nextUid = useRef(0);
   const pending = useRef(false);
   const loadVersion = useRef(0);
   const loadingRequest = useRef<{ password: string; promise: Promise<Files> } | null>(null);
-  const savedFiles = useRef(new Set<Section>(pendingFiles ?? []));
+  // What the editor shows as saved once CARE confirms the new settings are running.
+  const submitted = useRef<{ file: Section; text: string }[]>([]);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const take = () => nextUid.current++;
@@ -135,24 +132,6 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
     return () => { loadVersion.current++; };
   }, [load]);
   useEffect(() => { onWorkingChange?.(saving || applying); }, [saving, applying, onWorkingChange]);
-  useEffect(() => {
-    if (!pendingFiles || pending.current || applying) return;
-    savedFiles.current = new Set(pendingFiles);
-    setNeedsApply(pendingFiles);
-  }, [pendingFiles, applying]);
-  useEffect(() => {
-    if (!applying || busy) return;
-    setApplying(false);
-    if (operationError) {
-      setSaveProblem({ title: "Settings were saved, but applying them didn't finish",
-        message: "Your changes are still saved. Check the log, then retry applying them." });
-    } else {
-      savedFiles.current.clear();
-      setNeedsApply([]);
-      onPendingFilesChange?.([]);
-      setNotice("Settings applied.");
-    }
-  }, [applying, busy, operationError, onPendingFilesChange]);
 
   const dirtyKeys = useMemo(() => SETTINGS.filter((setting) =>
     effectiveSetting(setting, draft[setting.key]) !== effectiveSetting(setting, initial[setting.key]))
@@ -201,79 +180,83 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
   const changeCount = dirtyKeys.length + customDelta.changed.length + customDelta.removed.length;
   const hasErrors = Object.keys(errors).length > 0;
   const disabled = locked || loading || !files;
-  const canSave = !disabled && (changeCount > 0 || needsApply.length > 0) && !hasErrors;
-  const touched = new Set([...dirtyKeys.map((key) => SETTING_BY_KEY.get(key)!.file),
-    ...customDelta.changed.map((row) => row.file), ...customDelta.removed.map((row) => row.file), ...needsApply]);
-  const frontendOnly = touched.size > 0 && !touched.has("backend");
+  const canSave = !disabled && changeCount > 0 && !hasErrors;
 
   const commitFile = (file: Section, text: string) => {
+    if (!files) return;
     const next = { text, lines: editableEnvLines(text) };
     setFiles((current) => current ? { ...current, [file]: next } : current);
-    const values = initialDraft({ ...files!, [file]: next });
+    const values = initialDraft({ ...files, [file]: next });
     const committed = Object.fromEntries(SETTINGS.filter((setting) => setting.file === file).map((setting) => [setting.key, values[setting.key]]));
     setInitial((current) => ({ ...current, ...committed }));
     setDraft((current) => ({ ...current, ...committed }));
-    const rows = customRows({ ...files!, [file]: next }, take).filter((row) => row.file === file)
+    const rows = customRows({ ...files, [file]: next }, take).filter((row) => row.file === file)
       .map((row) => ({ ...row, uid: custom.find((before) => before.file === file && before.key.trim() === row.key)?.uid ?? row.uid }));
     setCustomInitial((current) => [...current.filter((row) => row.file !== file), ...rows]);
     setCustom((current) => [...current.filter((row) => row.file !== file), ...rows]);
   };
+  // The editor only treats the new settings as saved once CARE is running on them.
+  // When CARE could not start on them the previous settings are back, so the
+  // edits stay in place for another try.
+  useEffect(() => {
+    if (!applying || busy) return;
+    setApplying(false);
+    const applied = submitted.current;
+    submitted.current = [];
+    if (operationError) {
+      setSaveProblem({ title: "The settings weren't applied",
+        message: `Your edits are still here. ${operationError.action === "apply-settings" ? operationError.message
+          : "Check the log, then try again."}` });
+      return;
+    }
+    for (const { file, text } of applied) commitFile(file, text);
+    setNotice("Settings applied.");
+  }, [applying, busy, operationError]);
   const save = async () => {
     if (!canSave || lock.isLocked() || pending.current || !files) return;
-    const requireUnlocked = () => {
-      if (lock.isLocked()) throw new Error("Advanced changes are locked while another task finishes.");
-    };
     pending.current = true;
     setSaving(true);
     setSaveProblem(null);
     setNotice("");
     try {
-      if (changeCount) {
-        const fresh = await readFiles();
-        for (const file of SECTIONS) {
-          const changes: EnvChange[] = [];
-          for (const key of dirtyKeys) {
-            const setting = SETTING_BY_KEY.get(key)!;
-            if (setting.file !== file) continue;
-            const value = effectiveSetting(setting, draft[key]);
-            changes.push({ key, value: value === "" ? undefined : value });
-          }
-          for (const row of customDelta.removed) if (row.file === file) changes.push({ key: row.key, value: undefined });
-          for (const row of customDelta.changed) {
-            if (row.file === file && row.key.trim()) changes.push({ key: row.key.trim(), value: row.value });
-          }
-          if (!changes.length) continue;
-          const text = mergeEnvChanges(fresh[file].text, changes, file);
-          if (text !== fresh[file].text) {
-            requireUnlocked();
-            await bridge.WriteEnv(file, text, adminPassword);
-            savedFiles.current.add(file);
-            setNeedsApply([...savedFiles.current]);
-            onPendingFilesChange?.([...savedFiles.current]);
-          }
-          commitFile(file, text);
+      const fresh = await readFiles();
+      const touched: { file: Section; text: string }[] = [];
+      const changed: EnvFileChange[] = [];
+      for (const file of SECTIONS) {
+        const changes: EnvChange[] = [];
+        for (const key of dirtyKeys) {
+          const setting = SETTING_BY_KEY.get(key)!;
+          if (setting.file !== file) continue;
+          const value = effectiveSetting(setting, draft[key]);
+          changes.push({ key, value: value === "" ? undefined : value });
         }
+        for (const row of customDelta.removed) if (row.file === file) changes.push({ key: row.key, value: undefined });
+        for (const row of customDelta.changed) {
+          if (row.file === file && row.key.trim()) changes.push({ key: row.key.trim(), value: row.value });
+        }
+        if (!changes.length) continue;
+        const text = mergeEnvChanges(fresh[file].text, changes, file);
+        touched.push({ file, text });
+        if (text !== fresh[file].text) changed.push({ name: file, content: text });
       }
-      if (!savedFiles.current.size) {
+      if (!changed.length) {
+        for (const { file, text } of touched) commitFile(file, text);
         setNotice("The saved settings already match these values.");
         return;
       }
-      const action = savedFiles.current.has("backend") ? "start" : "rebuild-frontend";
-      requireUnlocked();
-      const accepted: unknown = await runAction(action, adminPassword);
+      if (lock.isLocked()) throw new Error("Advanced changes are locked while another task finishes.");
+      const accepted: unknown = await applySettings(changed, adminPassword);
       if (accepted !== true) {
-        setSaveProblem({ title: "Settings were saved, but applying them didn't start",
-          message: "Your changes are still saved. Wait for any other task to finish, then retry applying them." });
+        setSaveProblem({ title: "The settings weren't applied",
+          message: "Nothing was changed and your edits are still here. Check the message at the top of the page, wait for any other task to finish, then try again." });
         return;
       }
+      submitted.current = touched;
       setApplying(true);
-      onApplicationAccepted?.();
-      toast("Settings saved. CARE is applying your changes.");
+      toast("CARE is stopping to apply your settings.");
     } catch (cause) {
-      const partial = savedFiles.current.size > 0;
-      const problem = advancedProblem(cause, partial ? "Some settings were saved" : "The settings couldn't be saved",
-        partial ? "CARE hasn't applied these changes. Retry saving the remaining changes, or discard them and apply the settings already saved."
-          : "No changes were confirmed. Review your settings and try again.");
+      const problem = advancedProblem(cause, "The settings couldn't be applied",
+        "Nothing was changed. Review your settings and try again.");
       setSaveProblem(problem);
       toast(problem.title + ". " + problem.message);
     } finally {
@@ -334,13 +317,12 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
       </div>
     </section>
     <footer className="advanced-settings-foot">
-      <p role="status">{saving ? "Saving settings…" : applying ? "Applying settings — staff may need to wait." :
-        needsApply.length > 0 && !changeCount ? "Saved changes still need to be applied." :
-          frontendOnly ? "CARE may be unavailable for a few minutes while changes are applied." : "CARE may be unavailable for about a minute while changes are applied."}</p>
+      <p role="status">{saving ? "Checking your settings…" : applying ? "Applying settings — CARE is stopped, then started on the new settings. Staff need to wait." :
+        "CARE is stopped while your changes are applied, then started again on the new settings. If it can't start, your previous settings come back."}</p>
       <div className="advanced-actions">
         <Button type="button" disabled={disabled || changeCount === 0} onClick={discard}>Discard</Button>
         <Button type="button" variant="primary" disabled={!canSave} onClick={() => void save()}>
-          {saving || applying ? <Spinner /> : null}{needsApply.length > 0 && !changeCount ? "Apply saved changes" : "Save changes"}
+          {saving || applying ? <Spinner /> : null}Save changes
         </Button>
       </div>
     </footer>
@@ -355,9 +337,6 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
     {loadProblem ? <Button type="button" className="self-start" disabled={busy || loading} onClick={() => void load()}>Try reading settings again</Button> : null}
     <AdvancedError problem={saveProblem} />
     {notice ? <AdvancedNotice title={notice} tone="success" /> : null}
-    {needsApply.length > 0 && !applying && !saveProblem ? <AdvancedNotice title="Saved changes still need to be applied" tone="neutral">
-      {changeCount ? "Save the remaining changes when you're ready." : "Apply the saved settings when staff are ready for a short interruption."}
-    </AdvancedNotice> : null}
 
     <section className="advanced-card" aria-labelledby="advanced-settings-title">
       <header className="advanced-settings-head" data-expanded={editing}>
@@ -369,7 +348,7 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
               disabled={!files || loading || saving || applying || busy || lock.disabled}
               onClick={toggleEditing}>Clinic settings</button>
           </h2>
-          <p className="advanced-card-description" id="advanced-settings-description">Everyday choices for your clinic, all in one place. Save once to apply every change; applying may briefly interrupt staff using CARE.</p>
+          <p className="advanced-card-description" id="advanced-settings-description">Everyday choices for your clinic, all in one place. Saving stops CARE, applies every change together, then starts it again, so staff will have to wait.</p>
         </span>
         {editing ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </header>
@@ -377,7 +356,6 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
         {editing ? expandedContent : null}
       </div>
     </section>
-    {!editing && needsApply.length > 0 ? <Button type="button" className="self-start" disabled={!canSave} onClick={() => void save()}>Apply saved changes</Button> : null}
 
     <AlertDialog open={discarding} onOpenChange={setDiscarding}>
       <AlertDialogContent className="advanced-dialog advanced-dialog-narrow"
@@ -387,7 +365,7 @@ export function EnvEditor({ adminPassword, expanded: expandedProp, onExpandedCha
           toggleRef.current?.focus();
         }}>
         <AlertDialogTitle>Discard unsaved settings?</AlertDialogTitle>
-        <AlertDialogDescription>Your unsaved edits will be lost. Settings already saved to this computer aren't undone.</AlertDialogDescription>
+        <AlertDialogDescription>Your unsaved edits will be lost. The settings CARE is running on aren't changed.</AlertDialogDescription>
         <div className="advanced-dialog-foot">
           <Button type="button" ref={cancelRef} onClick={() => setDiscarding(false)}>Keep editing</Button>
           <Button type="button" disabled={locked} onClick={() => {

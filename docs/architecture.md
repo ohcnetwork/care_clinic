@@ -88,7 +88,7 @@ This is where an operation is allowed or denied. Hiding a button or unlocking an
 
 ### Orchestration: `internal/clinic`
 
-`Clinic` combines lower-level operations into setup, start, stop, rebuild, backup, and removal flows. It knows the installation directory, clinic name, backup destination, image pins, and process runner.
+`Clinic` combines lower-level operations into setup, start, stop, rebuild, update, plugin, settings, backup, and removal flows. It knows the installation directory, clinic name, backup destination, image pins, and process runner.
 
 The `App.engine()` method constructs a `Clinic` from a configuration snapshot. The engine is not a separately running service or a second global application state store.
 
@@ -197,6 +197,7 @@ See [the job protocol](wails-application.md#concurrency-and-job-protocol) for co
 | Named Docker volumes and stable project identity | Data ownership must survive working-directory changes. | Renaming services or volumes is a data migration decision, not cosmetic cleanup. |
 | Atomic file replacement | A partially written configuration can turn a recoverable failure into an unbootable app. | Use the shared primitive; retain its error handling and platform-specific replacement. |
 | Staged restore plus durable journal | Replacing live data has failure points across Docker, PostgreSQL, and filesystem operations. | Preserve ordering and recovery metadata; do not reduce restore to a destructive command sequence. |
+| Stop CARE, prove it stopped, then change anything | Rewriting kit files, images, settings or plugins under running containers can leave them half-updated, and a stray container from an earlier run can still hold the clinic's port or database. | Start, Restart, rebuilds, Install now, plugin applies, settings applies and the desktop update begin with `StopStack` and change nothing if it fails. A new operation that alters what runs must do the same. See [the stop gate](clinic-lifecycle.md#the-stop-gate). |
 | Exported recovery key separate from password | Encryption uses a random key that cannot be regenerated from the password. | Cleanup and backup-folder changes must preserve the matching key before removing its source. |
 | Batch privileged steps, then inspect results | An elevation prompt or command exit status is not proof of the requested native change. | Retain verification and actionable warnings when the operator declines or the OS rejects a change. |
 | Fail closed in error-returning cleanup inspectors | "Could not inspect" is not the same as "nothing remains." | Propagate inspection errors and retain retry information; some older boolean helpers have narrower guarantees, detailed in the native guide. |

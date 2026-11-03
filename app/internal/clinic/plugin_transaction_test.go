@@ -18,6 +18,7 @@ func pluginFixture(t *testing.T) (*Clinic, func() string, []plugins.Plugin) {
 	t.Helper()
 	e, trace, _ := migrationFixture(t)
 	e.pluginReady = func() error { return nil }
+	fastStopSettle(t)
 	script := `#!/bin/sh
 printf '%s\n' "$*" >> "$CARE_MIGRATION_TRACE"
 case "$1 $2" in
@@ -37,6 +38,9 @@ case "$1 $2" in
     esac
     exit 0 ;;
   'compose stop') exit 0 ;;
+  'ps -aq')
+    [ "$CARE_PLUGIN_FAILURE" = stop ] && printf 'stuck\n'
+    exit 0 ;;
   'compose up')
     if [ -f recovering ]; then
       [ "$CARE_PLUGIN_RECOVERY_FAILURE" != yes ]; exit $?
@@ -49,6 +53,7 @@ esac
 case "$1" in
   inspect)
     case "$*" in
+      *'{{.Id}}'*) printf 'stuck /care-clinic-backend-1 running\n' ;;
       *'{{.State.Status}}'*) printf 'exited\n' ;;
       *) printf '%s\n' '{"ID":"old-backend","Service":"backend","Image":"sha256:old","Status":"running","StartedAt":"old"}' '{"ID":"db","Service":"db","Image":"sha256:db","Status":"running","Health":"healthy","StartedAt":"old"}' ;;
     esac
@@ -279,5 +284,128 @@ func TestPluginPartialConfigurationWriteRollsBack(t *testing.T) {
 	after, err := os.ReadFile(filepath.Join(e.InstallDir, "backend.env"))
 	if err != nil || string(before) != string(after) {
 		t.Fatalf("partial backend environment write remained active: %v", err)
+	}
+}
+
+func pluginCalls(trace func() string) callLog {
+	return strings.Split(strings.TrimSpace(trace()), "\n")
+}
+
+func TestPluginApplyStopsCAREBeforeItSavesOrInstallsAnything(t *testing.T) {
+	e, trace, list := pluginFixture(t)
+	if err := plugins.New(e.InstallDir).StagePlugins(list); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ApplyPlugins(); err != nil {
+		t.Fatal(err)
+	}
+	calls := pluginCalls(trace)
+	requireInOrder(t, calls,
+		[2]string{"safety tag", "image tag sha256:old fixture-backend-plugin-rollback"},
+		[2]string{"stop", "=" + stopStackCall},
+		[2]string{"stop check", "ps -aq"},
+		[2]string{"backend build", "build "},
+		[2]string{"backend start", "compose up -d --no-build --pull never --wait --wait-timeout 180 db redis backend"},
+		[2]string{"full start", "=compose up -d --no-build --pull never --wait --wait-timeout 180"},
+	)
+	if strings.Contains(strings.Join(calls, "\n"), "down") {
+		t.Fatal("the stack was torn down instead of stopped")
+	}
+}
+
+func TestPluginApplyChangesNothingWhenCAREWillNotStop(t *testing.T) {
+	e, trace, list := pluginFixture(t)
+	t.Setenv("CARE_PLUGIN_FAILURE", "stop")
+	before, err := os.ReadFile(filepath.Join(e.InstallDir, "backend.env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.New(e.InstallDir).StagePlugins(list); err != nil {
+		t.Fatal(err)
+	}
+	err = e.ApplyPlugins()
+	if err == nil || !strings.Contains(err.Error(), "plugin changes were not applied") ||
+		!strings.Contains(err.Error(), "did not stop completely") || strings.Contains(err.Error(), "back online") {
+		t.Fatalf("a clinic that would not stop was changed or misreported: %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(e.InstallDir, "backend.env"))
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("the backend environment changed while CARE was still running: %v", err)
+	}
+	for _, name := range []string{"plugins.json", "channel.lock", "plugins-pending.json", pluginRecoveryFile} {
+		if _, err := os.Stat(filepath.Join(e.InstallDir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s exists after a change that was never applied: %v", name, err)
+		}
+	}
+	if pending, err := e.PendingPluginRecovery(); err != nil || pending {
+		t.Fatalf("a change that never started left a recovery behind: %v", err)
+	}
+	calls := pluginCalls(trace)
+	for _, forbidden := range []string{"build ", "compose up", "compose down"} {
+		if calls.first(forbidden) >= 0 {
+			t.Fatalf("%q ran although CARE could not be stopped:\n%s", forbidden, strings.Join(calls, "\n"))
+		}
+	}
+	if calls.exact("image rm fixture-backend-plugin-rollback") < 0 {
+		t.Fatalf("the safety image tag of the abandoned change was left behind:\n%s", strings.Join(calls, "\n"))
+	}
+}
+
+func TestPluginRollbackStopsWhatTheFailedAttemptStartedBeforeRestoring(t *testing.T) {
+	e, trace, list := pluginFixture(t)
+	t.Setenv("CARE_PLUGIN_FAILURE", "migration")
+	if err := plugins.New(e.InstallDir).StagePlugins(list); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ApplyPlugins(); err == nil || !strings.Contains(err.Error(), "CARE is back online") {
+		t.Fatalf("the failed change was not rolled back: %v", err)
+	}
+	calls := pluginCalls(trace)
+	stops := calls.positions(stopStackCall)
+	build := calls.first("build ")
+	restore := calls.exact("image tag sha256:old fixture-backend")
+	if len(stops) != 2 || build < stops[0] || stops[1] < build || restore < stops[1] {
+		t.Fatalf("expected stop, build, stop, restore, got stops %v, build %d, restore %d:\n%s",
+			stops, build, restore, strings.Join(calls, "\n"))
+	}
+}
+
+func TestInterruptedPluginRecoveryWaitsUntilCARECanBeStopped(t *testing.T) {
+	e, trace, list := pluginFixture(t)
+	if _, err := e.preparePluginRecovery(list); err != nil {
+		t.Fatal(err)
+	}
+	if err := plugins.New(e.InstallDir).SavePlugins(list); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CARE_PLUGIN_FAILURE", "stop")
+	if err := e.Start(); err == nil || !strings.Contains(err.Error(), "did not stop completely") {
+		t.Fatalf("recovery ran while CARE could not be stopped: %v", err)
+	}
+	if pending, err := e.PendingPluginRecovery(); err != nil || !pending {
+		t.Fatalf("the recovery journal was lost: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(e.InstallDir, "plugins.json")); err != nil {
+		t.Fatalf("the plugin configuration was replaced while CARE was still running: %v", err)
+	}
+	calls := pluginCalls(trace)
+	for _, forbidden := range []string{"build ", "compose up"} {
+		if calls.first(forbidden) >= 0 {
+			t.Fatalf("%q ran although CARE could not be stopped:\n%s", forbidden, strings.Join(calls, "\n"))
+		}
+	}
+	if calls.exact("image tag sha256:old fixture-backend") >= 0 {
+		t.Fatalf("the backend image was replaced although CARE could not be stopped:\n%s", strings.Join(calls, "\n"))
+	}
+
+	t.Setenv("CARE_PLUGIN_FAILURE", "")
+	if err := e.Start(); err != nil {
+		t.Fatalf("the next start did not finish the recovery: %v", err)
+	}
+	if pending, err := e.PendingPluginRecovery(); err != nil || pending {
+		t.Fatalf("the recovery journal is still pending: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(e.InstallDir, "plugins.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the interrupted plugin configuration was not rolled back: %v", err)
 	}
 }

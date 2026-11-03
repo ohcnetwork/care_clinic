@@ -124,6 +124,44 @@ test("start, stop and restart stay busy until native completion and ignore doubl
   await expect(clinic(page).getByRole("heading", { name: "Running", exact: true })).toBeVisible();
 });
 
+test("opening CARE Clinic stops anything already running and starts the clinic, even when it looks healthy", async ({ page }) => {
+  await page.clock.install();
+  await page.goto("/tests/fixtures/index.html?scenario=panel-current&launchStart=1&finishJobs=0");
+  await expect(clinic(page).getByRole("heading", { name: "Starting", exact: true })).toBeVisible();
+  await expect(clinic(page)).toContainText("CARE is stopping anything still running, then starting.");
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ClinicAction").map((call) => call.args[0])))
+    .toEqual(["start"]);
+  expect(await page.evaluate(() => window.careTest.logs.some((line) => line.includes("stopping any running CARE services")))).toBe(true);
+  await page.evaluate(() => window.careTest.finishJob("start"));
+  await expect(clinic(page).getByRole("heading", { name: "Running", exact: true })).toBeVisible();
+  await page.clock.runFor(12_000);
+  expect(await calls(page, "ClinicAction")).toBe(1);
+  expect(await calls(page, "TakeLaunchStart")).toBe(1);
+});
+
+test("a running clinic is left alone when the app doesn't ask for a launch start", async ({ page }) => {
+  await openPanel(page);
+  expect(await calls(page, "TakeLaunchStart")).toBe(1);
+  expect(await calls(page, "ClinicAction")).toBe(0);
+});
+
+test("a failed launch start is reported and leaves Start clinic available", async ({ page }) => {
+  await page.goto("/tests/fixtures/index.html?scenario=panel-current&launchStart=1&finishJobs=0");
+  await expect(clinic(page).getByRole("heading", { name: "Starting", exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.careTest.fixtures.health.active = false;
+    window.careTest.fixtures.clinicStatus = "";
+    window.careTest.fixtures.finishJobs = true;
+    window.careTest.finishJob("start", "CARE did not stop completely (backend still running)");
+  });
+  await expect(page.getByRole("alert").filter({ hasText: "CARE couldn't start" })).toBeVisible();
+  await expect(clinic(page).getByRole("heading", { name: "Stopped", exact: true })).toBeVisible();
+  await clinic(page).getByRole("button", { name: "Start clinic", exact: true }).click();
+  await expect.poll(() => calls(page, "ClinicAction")).toBe(2);
+  await expect(clinic(page).getByRole("heading", { name: "Running", exact: true })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "CARE couldn't start" })).toHaveCount(0);
+});
+
 test("native action rejection is actionable, not a success or a technical error dump", async ({ page }) => {
   await openPanel(page);
   await page.evaluate(() => window.careTest.failNext("ClinicAction", "/private/patient-path: EACCES exit status 1"));

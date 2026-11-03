@@ -190,14 +190,14 @@ New-clinic `Clinic.Setup` calls `InitializeDefaults` before building images. If 
 
 ### Defaults for existing clinics
 
-A catalog entry with both `default: true` and `add_to_existing: true` also reaches clinics set up before it existed. On every start, after the installed kit is refreshed, `refreshInstallDir` calls `AddNewDefaults`, which:
+A catalog entry with both `default: true` and `add_to_existing: true` also reaches clinics set up before it existed. On every Start or Restart, once CARE has stopped and the installed kit has been refreshed, `refreshInstallKit` (which the engine runs as `Clinic.Refresh`) calls `AddNewDefaults`, which:
 
 1. Does nothing while `plugins-pending.json` exists, so an unapplied draft cannot overwrite the addition. It tries again on the next start.
 2. Takes the `add_to_existing` defaults not yet listed in `plugins-offered.json`.
 3. Adds each one that is not already installed. A plugin counts as installed when an entry has the same ID, the same backend module, or the same frontend slug.
 4. Saves the list with `SavePlugins`, so `ADDITIONAL_PLUGS` gains the backend part, and records each entry as offered, whether it was added or was already there.
 
-Because the offer is recorded once, removing the plugin afterwards keeps it removed, and a new clinic is never offered the defaults it got at setup again. The plugin is built into the backend the next time CARE starts; a CARE Clinic upgrade already rebuilds the backend image, since the image fingerprint includes the app version. Startup skips this step, like the rest of the kit refresh, while a restore or plugin recovery is unfinished.
+Because the offer is recorded once, removing the plugin afterwards keeps it removed, and a new clinic is never offered the defaults it got at setup again. The plugin is built into the backend the next time CARE starts; a CARE Clinic upgrade already rebuilds the backend image, since the image fingerprint includes the app version. Start skips this step, like the rest of the kit refresh, while a restore or plugin recovery is unfinished.
 
 `plugins-offered.json` is a sorted JSON list of catalog IDs, mode `0600`, written atomically. `Files on every address` (`care_multihost_files_be`) is the only entry that sets `add_to_existing`.
 
@@ -243,7 +243,9 @@ an installed server with no unfinished restore or plugin rollback; neither
 requires a CARE Clinic admin password. Explicit rebuild actions remain protected.
 
 Plugin application now requires a running, healthy clinic. Start it from
-Overview first if it is stopped. `ApplyPlugins`:
+Overview first if it is stopped. Once the safety snapshot is taken, CARE is
+stopped while the plugins are installed, so the clinic is unavailable for that
+time (patient data is kept). `ApplyPlugins`:
 
 1. Consumes the staged draft and verifies every configured container and the
    clinic's HTTPS `/ping/` endpoint for 30 continuous seconds.
@@ -252,27 +254,35 @@ Overview first if it is stopped. `ApplyPlugins`:
    `backend.env`, `plugins.json` (including absence), `channel.lock`, container
    metadata, and affected frontend registration rows, including manual rows
    sharing a candidate slug.
-3. Writes the candidate configuration. Changed backend inputs trigger a
-   rebuild, worker stop, backend start, migrations, frontend sync, and service
-   startup. A queued backend update built with old plugin inputs is invalidated.
-   Frontend-only changes just sync registrations, without restarting services.
-4. Requires another 30 seconds of continuous container and endpoint health
+3. Stops CARE. The whole `care-clinic` stack is stopped and proven stopped
+   (see [the stop gate](clinic-lifecycle.md#the-stop-gate)) before any plugin
+   file changes. If that cannot be proven, no plugin file is changed: the apply
+   ends with "plugin changes were not applied: ..." and the journal is
+   removed. Containers that did stop stay stopped, so start CARE again.
+4. Writes the candidate configuration, with nothing running. Changed backend
+   inputs trigger a rebuild and clear any waiting CARE update offer, which the
+   next update check offers again. Then come the worker stop, backend start,
+   migrations (only after a rebuild), frontend sync, and service startup.
+   Frontend-only changes skip the rebuild and the migrations; CARE still starts
+   again and the registrations are synced.
+5. Requires another 30 seconds of continuous container and endpoint health
    before removing the journal and reporting success. Readiness has a
    three-minute deadline and detects missing, exited, unhealthy and restarting
    containers, replacement containers, and restarts even between polls. Compose
    startup waits are bounded, and the complete apply attempt has a 20-minute
    deadline.
-5. On build, write, migration, sync, startup, or health failure, restores the
-   saved files, image tag, and frontend rows, then recreates the backend/workers
-   from the preserved image without downloading, rebuilding, applying queued
-   updates, or running migrations again. Recovery has its own eight-minute
-   deadline and must pass the same readiness checks before saying CARE is back
-   online. Volumes are never removed.
+6. On build, write, migration, sync, startup, or health failure, stops CARE
+   again, restores the saved files, image tag, and frontend rows, then
+   recreates the backend/workers from the preserved image without downloading,
+   rebuilding, applying queued updates, or running migrations again. Recovery
+   has its own eight-minute deadline and must pass the same readiness checks
+   before saying CARE is back online. Volumes are never removed.
 
 If recovery fails, the error says CARE could not be recovered and the journal
 and safety image remain. Overview exposes **Recover clinic**, which runs
-`Start`. Start checks the journal before any normal startup/build/update work;
-reopening CARE Clinic also requests this recovery. Other configuration mutations
+`Start`. Start stops CARE, then checks the journal before any normal
+startup or build work; reopening CARE Clinic also requests this recovery.
+Other configuration mutations
 are blocked until it finishes. An interrupted attempt is therefore rolled
 back rather than retried with the bad plugin inputs. Do not delete the journal
 or prune the safety image while recovery is pending.
@@ -342,6 +352,7 @@ addition to the native stable-clinic and operation guards.
 | --- | --- |
 | Plugin loading fails | CARE Clinic restores the previous configuration and image. Check the log for missing settings, `ModuleNotFoundError`, or startup failures, correct the draft, and save again. |
 | Plugin recovery is unfinished | Use **Recover clinic** in Overview. Keep the recovery journal, safety image and backups; if recovery still fails, share the log with support. |
+| "Plugin changes were not applied" with a message that CARE did not stop completely | CARE stops before plugins are installed and nothing is changed when it cannot be proven stopped. Make sure Docker is running, or stop the `care-clinic` containers in Rancher Desktop, start CARE again, then save and apply the plugins again. |
 | Rebuild fails during `pip install` | Wrong `package_name`/`version`, a private repository, or no internet during the build. |
 | Plugin UI does not appear | The browser cannot reach `frontend.url`, the URL is not a `remoteEntry.js`, or the log shows the sync warning. The browser console names the slug that failed. |
 | A setting has no effect | Backend settings apply only after the rebuild that saving triggers. Frontend settings apply on the next page load. Check that the key is what the plugin actually reads. |

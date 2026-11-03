@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -150,18 +151,119 @@ func TestPoisonedLockIsIgnoredRatherThanTrusted(t *testing.T) {
 	}
 }
 
-func TestDroppedStagedBuildIsOfferedAgain(t *testing.T) {
+func TestMissingStagedImageFailsPromotionAndKeepsTheOffer(t *testing.T) {
 	dockerFixture(t)
 	b := builderFixture(t)
 	sha := "1111111111111111111111111111111111111111"
-	if err := WriteLock(b.dir, Lock{Backend: Channel{Ref: "develop", Next: sha, Declined: sha}}); err != nil {
+	want := Lock{Backend: Channel{Ref: "develop", Current: "0000000000000000000000000000000000000000", Next: sha}}
+	if err := WriteLock(b.dir, want); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.ApplyPending(); err != nil {
+	if _, err := b.ApplyPending(); err == nil {
+		t.Fatal("promotion reported success although the staged image is missing")
+	}
+	if got := ReadLock(b.dir); got != want {
+		t.Fatalf("a failed promotion changed the lock: %+v", got)
+	}
+}
+
+func TestDiscoverUpdateOnlyReadsMetadata(t *testing.T) {
+	trace := dockerFixture(t)
+	b := builderFixture(t)
+	repo := filepath.Join(t.TempDir(), "remote")
+	run := gitFixture(t, repo)
+	b.set.BeRepo = repo
+	installed := commitFixture(t, run, "installed")
+	if err := WriteLock(b.dir, Lock{Backend: Channel{Ref: "develop", Current: installed}}); err != nil {
 		t.Fatal(err)
 	}
-	got := ReadLock(b.dir).Backend
-	if got.Next != "" || got.Declined != "" {
-		t.Fatalf("a staged build that vanished left %+v; the commit would be blacklisted forever", got)
+	upstream := commitFixture(t, run, "upstream")
+	b.set.FeRef = "a749b92794ac175db8839d3d75ca36402a196282"
+
+	got, err := b.DiscoverUpdate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Backend != upstream || got.Frontend != "" {
+		t.Fatalf("discovered %+v, want only the backend head %s", got, upstream)
+	}
+	if lock := ReadLock(b.dir).Backend; lock.Next != upstream || lock.Current != installed {
+		t.Fatalf("lock after discovery: %+v", lock)
+	}
+	if data, _ := os.ReadFile(trace); len(data) != 0 {
+		t.Fatalf("discovery ran Docker commands: %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(b.dir, "src")); !os.IsNotExist(err) {
+		t.Fatalf("discovery downloaded source code: %v", err)
+	}
+}
+
+func TestDiscoverUpdateRespectsDeclinesAndOfflineChecks(t *testing.T) {
+	b := builderFixture(t)
+	repo := filepath.Join(t.TempDir(), "remote")
+	run := gitFixture(t, repo)
+	b.set.BeRepo = repo
+	installed := commitFixture(t, run, "installed")
+	upstream := commitFixture(t, run, "upstream")
+	declined := Lock{Backend: Channel{Ref: "develop", Current: installed, Next: upstream, Declined: upstream}}
+	b.set.FeRef = "a749b92794ac175db8839d3d75ca36402a196282"
+	if err := WriteLock(b.dir, declined); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := b.DiscoverUpdate(); err != nil || got.Any() {
+		t.Fatalf("a declined commit was offered again: %+v, %v", got, err)
+	}
+	if got := ReadLock(b.dir); got != declined {
+		t.Fatalf("a declined offer was rewritten: %+v", got)
+	}
+	b.set.BeRepo = filepath.Join(b.dir, "no-such-repository")
+	if got, err := b.DiscoverUpdate(); err != nil || got.Any() {
+		t.Fatalf("an unreachable remote produced %+v, %v", got, err)
+	}
+	if got := ReadLock(b.dir); got != declined {
+		t.Fatalf("an offline check changed the lock: %+v", got)
+	}
+}
+
+func TestDiscoverUpdateForgetsAnOfferTheBranchNoLongerHas(t *testing.T) {
+	b := builderFixture(t)
+	repo := filepath.Join(t.TempDir(), "remote")
+	run := gitFixture(t, repo)
+	b.set.BeRepo = repo
+	installed := commitFixture(t, run, "installed")
+	stale := "2222222222222222222222222222222222222222"
+	b.set.FeRef = "a749b92794ac175db8839d3d75ca36402a196282"
+	if err := WriteLock(b.dir, Lock{Backend: Channel{Ref: "develop", Current: installed, Next: stale, Declined: stale}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := b.DiscoverUpdate(); err != nil || got.Any() {
+		t.Fatalf("an up-to-date clinic was offered %+v, %v", got, err)
+	}
+	if got := ReadLock(b.dir).Backend; got.Next != "" || got.Declined != "" {
+		t.Fatalf("a vanished candidate stayed on offer: %+v", got)
+	}
+}
+
+func TestPendingAtBuildsTheOfferedCommitsEvenAfterTheBranchMoves(t *testing.T) {
+	b := builderFixture(t)
+	repo := filepath.Join(t.TempDir(), "remote")
+	run := gitFixture(t, repo)
+	b.set.BeRepo = repo
+	installed := commitFixture(t, run, "installed")
+	offered := commitFixture(t, run, "offered")
+	if err := WriteLock(b.dir, Lock{Backend: Channel{Ref: "develop", Current: installed, Next: offered}}); err != nil {
+		t.Fatal(err)
+	}
+	moved := commitFixture(t, run, "moved")
+
+	next := builderAt(t, b).PendingAt(Update{Backend: offered})
+	if got := next.BackendRef(); got != offered {
+		t.Fatalf("install resolved %s, want the offered commit %s (branch head is %s)", got, offered, moved)
+	}
+	if got := next.worker(context.Background(), Backend).BackendRef(); got != offered {
+		t.Fatalf("an install worker resolved %s, want the offered commit %s", got, offered)
+	}
+	if got := builderAt(t, b).Pending().BackendRef(); got != moved {
+		t.Fatalf("an unpinned pending builder resolved %s, want the branch head %s", got, moved)
 	}
 }

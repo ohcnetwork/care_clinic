@@ -14,6 +14,7 @@ const TITLES: Record<string, string> = {
   "dismiss-update": "The update couldn't be deferred",
   uninstall: "Removal didn't finish",
   "apply-plugins": "The plugins couldn't be applied",
+  "apply-settings": "The settings couldn't be applied",
 };
 
 export function operationError(action: string, cause: unknown): OperationError {
@@ -30,6 +31,28 @@ export function operationError(action: string, cause: unknown): OperationError {
     if (detail.includes("start CARE successfully before changing plugins")) {
       return { action, title: TITLES[action],
         message: "Start clinic from Overview and wait until it is healthy before changing plugins. The current settings were not changed." };
+    }
+  }
+  if (action === "apply-settings") {
+    if (detail.includes("CARE is running on the previous ones")) {
+      return { action, title: TITLES[action],
+        message: "CARE couldn't start with the new settings, so they weren't applied. CARE is running with your previous settings. Check the settings and try again, or open the log file for support." };
+    }
+    if (detail.includes("nothing was changed")) {
+      return { action, title: TITLES[action],
+        message: "Your settings were not changed. Check Overview and choose Start clinic if CARE isn't running, then try again." };
+    }
+    if (detail.includes("the previous settings are back")) {
+      return { action, title: TITLES[action],
+        message: "The new settings weren't applied. Your previous settings are back, but CARE isn't running yet. Choose Start clinic on Overview, or open the log file for support." };
+    }
+    if (/invalid syntax|unknown env file|given twice|no settings to apply|couldn't read the current/.test(detail)) {
+      return { action, title: TITLES[action],
+        message: "The settings couldn't be checked, so nothing was changed and CARE kept running. Review them and try again." };
+    }
+    if (!/CARE Clinic admin password does not match|restore is unfinished|plugin rollback is unfinished|something else is still running|CARE Clinic is closing/.test(detail)) {
+      return { action, title: TITLES[action],
+        message: "The settings may not have been applied, and CARE may be stopped. Check Overview and choose Start clinic if CARE isn't running. Keep the log file for support." };
     }
   }
   const message = /CARE Clinic admin password does not match/.test(detail)

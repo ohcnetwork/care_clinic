@@ -67,10 +67,6 @@ export function advancedProblem(cause: unknown, title: string, message: string):
     title: "Choose a new filename",
     message: "CARE won't overwrite a recovery sheet. Choose another name or location and try again.",
   };
-  if (/environment file has invalid syntax/i.test(detail)) return {
-    title: "The settings couldn't be saved",
-    message: "One of the settings isn't in a format CARE can read. Review your changes, or ask the person who supports this computer.",
-  };
   if (/protected|managed.*setting|setting.*managed/i.test(detail)) return {
     title: "That setting is managed by CARE Clinic",
     message: "Leave CARE's connection and security settings unchanged. Use the relevant settings page instead.",

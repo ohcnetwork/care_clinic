@@ -456,7 +456,10 @@ and safe retry rules.
 desktop updater independently of CARE's container/image updates. Releases keep
 the existing DMG and NSIS assets and `SHA256SUMS`; no additional executable helper
 or unsigned remote script is downloaded. Locally generated helpers wait for the
-desktop process to exit, replace the installed application, and reopen it.
+desktop process to exit, replace the installed application, and reopen it. On an
+installed server the app stops CARE before it downloads anything, and the
+reopened app starts it again; see
+[the self-update handoff](native-integrations.md#desktop-self-update-handoff).
 
 macOS extracts and verifies the bundle before handoff, then stages a complete
 copy beside the current bundle before renaming it. Windows releases must retain

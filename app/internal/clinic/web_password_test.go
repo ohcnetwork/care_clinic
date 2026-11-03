@@ -30,6 +30,9 @@ case "$1 $2" in
       invalid) printf 'care-clinic:invalid:This password is too short.\ncare-clinic:invalid:This password is too common.\n'; exit 4 ;;
       crash) printf 'Traceback: OperationalError while saving %s\n' "$CARE_WEB_PASSWORD"; exit 1 ;;
       silent) exit 0 ;;
+      users) printf '7 objects imported automatically\ncare-clinic:users:[{"username":"admin","name":"","active":true,"superuser":true},{"username":"nurse","name":"Asha Rao","active":false,"superuser":false}]\n'; exit 0 ;;
+      no-users) printf 'care-clinic:users:[]\n'; exit 0 ;;
+      users-crash) printf 'Traceback: OperationalError\n'; exit 1 ;;
       *) printf '7 objects imported automatically\ncare-clinic:password-set\n'; exit 0 ;;
     esac ;;
 esac
