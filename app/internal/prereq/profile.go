@@ -68,7 +68,7 @@ const rancherProfilePlist = `<?xml version="1.0" encoding="UTF-8"?>
 const rancherProfileKey = `HKCU\Software\Rancher Desktop\Profile\Defaults`
 
 func writeRancherProfile() error {
-	var swapErr error
+	var extraErr error
 	switch runtime.GOOS {
 	case "darwin":
 		home, err := os.UserHomeDir()
@@ -85,16 +85,17 @@ func writeRancherProfile() error {
 			return err
 		}
 		override := filepath.Join(home, "Library", "Application Support", "rancher-desktop", "lima", "_config", "override.yaml")
-		swapErr = writeRancherSwapOverride(override)
+		extraErr = writeRancherSwapOverride(override)
 	case "windows":
 		if err := writeRancherProfileWindows(); err != nil {
 			return err
 		}
+		extraErr = writeRancherHealthcheckFix(rancherHealthcheckFixPath())
 	default:
 		return nil
 	}
 	applyRancherProfileNow()
-	return swapErr
+	return extraErr
 }
 
 const rancherSwapScript = `#!/bin/sh
@@ -125,6 +126,37 @@ func writeRancherSwapOverride(path string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(rancherSwapOverride()), 0o644)
+}
+
+// Rancher Desktop 1.24.0 pings dockerd at http://./_ping, which its distro's
+// curl rejects. After the first failed check Rancher stops the Docker proxy,
+// and from then on every Docker call from Windows times out on the Hyper-V
+// socket (rancher-sandbox/rancher-desktop#10739, fixed upstream in #10740 but
+// not yet released). Rancher runs *.start scripts from its provisioning folder
+// inside the distro at boot; once the fix ships the sed matches nothing.
+const rancherHealthcheckFix = "#!/bin/sh\n" +
+	`sed -i 's|http://\./_ping|http://localhost/_ping|g' /etc/init.d/docker` + "\n"
+
+func rancherHealthcheckFixPath() string {
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "rancher-desktop", "provisioning",
+		"care-clinic-docker-healthcheck.start")
+}
+
+func writeRancherHealthcheckFix(path string) error {
+	if path == "" {
+		return fmt.Errorf("LOCALAPPDATA is not set, so the Docker health check fix was not written")
+	}
+	if got, err := os.ReadFile(path); err == nil && string(got) == rancherHealthcheckFix {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(rancherHealthcheckFix), 0o644)
 }
 
 func writeRancherProfileWindows() error {
