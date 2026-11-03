@@ -275,3 +275,6 @@ export type AppUpdate = {
   asset: string;
   size: number;
 };
+
+// One CARE web sign-in account, as listed for the Advanced password reset.
+export type WebUser = { username: string; name: string; active: boolean; superuser: boolean };

@@ -1,4 +1,4 @@
-import { Globe, UserRound } from "lucide-react";
+import { Globe } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { Spinner } from "@/components/spinner";
@@ -6,13 +6,13 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { bridge } from "@/lib/bridge";
 import { errorText } from "@/lib/format";
 import { useCare } from "@/state/care-store";
 import {
   AdvancedError, AdvancedNotice, AdvancedSecretInput, advancedProblem, useAdvancedLock, type AdvancedProblem,
 } from "./advanced-ui";
+import { WebUserPicker, type WebUserList } from "./web-user-picker";
 
 const DEFAULT_USERNAME = "admin";
 
@@ -20,7 +20,7 @@ function webPasswordProblem(cause: unknown, username: string): AdvancedProblem {
   const detail = errorText(cause);
   if (/no CARE user named/i.test(detail)) return {
     title: "No CARE user has that username",
-    message: `There is no CARE user named "${username}". Type the username exactly as staff use it to sign in; capital letters matter.`,
+    message: `There is no CARE user named "${username}". Pick them from the list, or type the username exactly as staff use it to sign in; capital letters matter.`,
   };
   const rejected = detail.match(/CARE didn't accept that password: ([\s\S]+)/);
   if (rejected) return { title: "CARE didn't accept that password", message: rejected[1].trim() };
@@ -44,6 +44,9 @@ export function WebPasswordReset({ adminPassword }: { adminPassword: string }) {
   const [working, setWorking] = useState(false);
   const [problem, setProblem] = useState<AdvancedProblem | null>(null);
   const [changed, setChanged] = useState("");
+  const [users, setUsers] = useState<WebUserList>({ status: "loading" });
+  const [listOpen, setListOpen] = useState(false);
+  const listRequest = useRef(0);
   const pending = useRef(false);
   const live = useRef(true);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -53,8 +56,25 @@ export function WebPasswordReset({ adminPassword }: { adminPassword: string }) {
   }, []);
   const mismatch = !!confirm && password !== confirm;
   const canSubmit = !blocked && !working && username.trim() !== "" && password !== "" && password === confirm;
+  const loadUsers = async () => {
+    const request = ++listRequest.current;
+    setUsers({ status: "loading" });
+    try {
+      const list = await bridge.ListWebUsers(adminPassword);
+      if (live.current && request === listRequest.current) setUsers({ status: "ready", users: list ?? [] });
+    } catch (cause) {
+      if (!live.current || request !== listRequest.current) return;
+      const detail = errorText(cause);
+      setUsers({
+        status: "failed",
+        message: /CARE isn't running/i.test(detail) ? "Start CARE to see the staff list." : "The staff list couldn't be loaded.",
+      });
+    }
+  };
   const begin = () => {
     if (blocked || lock.isLocked() || pending.current) return;
+    setListOpen(false);
+    void loadUsers();
     setUsername(DEFAULT_USERNAME);
     setPassword("");
     setConfirm("");
@@ -64,6 +84,8 @@ export function WebPasswordReset({ adminPassword }: { adminPassword: string }) {
   };
   const close = () => {
     if (pending.current) return;
+    listRequest.current++;
+    setListOpen(false);
     setOpen(false);
     setPassword("");
     setConfirm("");
@@ -111,27 +133,23 @@ export function WebPasswordReset({ adminPassword }: { adminPassword: string }) {
     <AlertDialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
       <AlertDialogContent className="advanced-dialog advanced-dialog-narrow"
         onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus(); }}
-        onEscapeKeyDown={(event) => { if (working || pending.current) event.preventDefault(); }}>
+        onEscapeKeyDown={(event) => {
+          if (listOpen) { event.preventDefault(); setListOpen(false); return; }
+          if (working || pending.current) event.preventDefault();
+        }}>
         <AlertDialogTitle>Reset a CARE web password</AlertDialogTitle>
         <AlertDialogDescription>
           This changes the password staff use to sign in to CARE in the browser. It doesn't change the CARE Clinic admin password.
         </AlertDialogDescription>
         <div className="advanced-dialog-body"><form className="advanced-admin-form" noValidate onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-          <p>CARE can't email or text password reset links in this setup, so use this when someone is locked out.
+          <p>CARE can't email or text password reset links in this setup, so use this when a staff member forgets their password.
             Anyone already signed in as this user stays signed in until they sign out or their session expires.</p>
           <fieldset disabled={blocked || working}>
-            <div className="advanced-field">
-              <label htmlFor={`${id}-username`}>CARE username</label>
-              <div className="advanced-secret">
-                <UserRound aria-hidden="true" />
-                <Input id={`${id}-username`} value={username} disabled={blocked || working}
-                  onChange={(event) => { if (!lock.isLocked()) setUsername(event.target.value); }}
-                  autoComplete="off" spellCheck={false} autoCapitalize="off" />
-              </div>
-              <div className="advanced-field-hint">The name the person types to sign in to CARE. Capital letters matter.</div>
-            </div>
+            <WebUserPicker id={`${id}-username`} value={username} list={users} disabled={blocked || working}
+              onChange={(next) => { if (!lock.isLocked()) setUsername(next); }}
+              open={listOpen} onOpenChange={setListOpen} />
             <AdvancedSecretInput id={`${id}-password`} label="New CARE web password" value={password}
-              onChange={setPassword} disabled={blocked || working} autoComplete="new-password" autoFocus
+              onChange={setPassword} disabled={blocked || working} autoComplete="new-password"
               hint="CARE checks the password: at least 8 characters, not a common password, not only numbers and not too like the username." />
             <AdvancedSecretInput id={`${id}-confirm`} label="Confirm new CARE web password" value={confirm}
               onChange={setConfirm} disabled={blocked || working} autoComplete="new-password" invalid={mismatch}

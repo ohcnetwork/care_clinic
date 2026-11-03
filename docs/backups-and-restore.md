@@ -338,6 +338,17 @@ new password for any CARE web user, defaulting to `admin`. It never touches the
 CARE Clinic admin password, and changing the CARE Clinic password never touches
 a web password: the two are deliberately not synced.
 
+The username field is also a searchable staff list. When the dialog opens it
+calls `ListWebUsers`, which checks the unlocked admin password and runs a
+read-only `manage.py shell` script that prints each account's username, full
+name, active flag and superuser flag. It skips CARE's soft-deleted users and
+service accounts, returns at most 5,000 accounts and never reads password
+hashes. It runs as a read job, so opening the dialog doesn't mark CARE busy.
+Admins can search by name or username and get an **Admin** or **Inactive**
+badge on each person. Picking a deactivated account shows a warning, because a
+new password doesn't reactivate the account. If the list can't load, for
+example because CARE is stopped, the field stays a plain username box.
+
 The reset needs CARE running and refuses while a restore or plugin rollback is
 unfinished. It runs `manage.py shell` inside the backend container with the
 username and new password passed only as environment variables

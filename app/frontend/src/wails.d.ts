@@ -32,6 +32,7 @@ import type {
   StorageReport,
   ToolPlan,
   UpdateChecks,
+  WebUser,
   WSLStatus,
 } from "./types";
 
@@ -92,6 +93,7 @@ declare global {
           ChangeAdminPassword(currentPassword: string, newPassword: string): Promise<void>;
           ResetAdminPassword(code: string, newPassword: string): Promise<void>;
           ResetWebPassword(username: string, newPassword: string, adminPassword: string): Promise<void>;
+          ListWebUsers(adminPassword: string): Promise<WebUser[]>;
           ClinicAction(action: string, adminPassword: string): Promise<void>;
           ClinicStatus(): Promise<string>;
           RunSetup(

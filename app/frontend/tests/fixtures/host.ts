@@ -39,6 +39,7 @@ type Fixtures = {
   recoveryFile: string;
   adminPassword: string;
   webUsers: Record<string, string>;
+  webUserProfiles: Record<string, { name: string; active: boolean; superuser: boolean }>;
   // Jobs finish by themselves after a moment. ?finishJobs=0 keeps them running
   // until a test finishes them, for the ones that start when the page opens.
   finishJobs: boolean;
@@ -169,6 +170,10 @@ export function installTestHost() {
     recoveryFile: "/test-fixtures/recovery/CARE-backup-recovery.pem",
     adminPassword: "ClinicTest123",
     webUsers: { admin: "ClinicTest123", nurse: "NurseTest123" },
+    webUserProfiles: {
+      admin: { name: "", active: true, superuser: true },
+      nurse: { name: "Asha Rao", active: true, superuser: false },
+    },
     finishJobs: new URLSearchParams(location.search).get("finishJobs") !== "0",
     launchStart: new URLSearchParams(location.search).get("launchStart") === "1",
     quitAccepted: false,
@@ -606,6 +611,14 @@ export function installTestHost() {
       ];
       if (problems.length) throw new Error(`CARE didn't accept that password: ${problems.join(" ")}`);
       fixtures.webUsers[username] = next;
+    },
+    ListWebUsers: async (password: string) => {
+      requireServer();
+      if (password !== fixtures.adminPassword) throw new Error("the CARE Clinic admin password does not match this installation");
+      if (state.restore_pending) throw new Error("a restore is unfinished; start CARE to recover it before making other changes");
+      return Object.keys(fixtures.webUsers).sort().map((username) => ({
+        username, ...(fixtures.webUserProfiles[username] ?? { name: "", active: true, superuser: false }),
+      }));
     },
     RancherDesktopInstalled: async () => fixtures.rancherInstalled,
     RunUninstall: async (_images: boolean, _backups: boolean, _rancher: boolean, password: string) => {

@@ -119,3 +119,61 @@ test("a reset refused by the host is explained", async ({ page }) => {
   await expect(dialog(page)).toContainText("The web password couldn't be changed");
   expect(await page.evaluate(() => window.careTest.fixtures.webUsers.admin)).toBe("ClinicTest123");
 });
+
+const picker = (page: Page) => dialog(page).getByRole("combobox", { name: "CARE username" });
+const staff = (page: Page) => dialog(page).getByRole("listbox", { name: "CARE staff" });
+
+test("staff can be picked from a searchable list instead of typing a username", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await resetButton(page).click();
+  await expect(dialog(page)).toContainText("Pick someone from the list");
+  await dialog(page).getByRole("button", { name: "Show CARE staff" }).click();
+  await expect(staff(page).getByRole("option")).toHaveCount(2);
+  await expect(staff(page).getByRole("option", { name: /^admin\s*Admin$/ })).toHaveAttribute("aria-selected", "true");
+
+  await picker(page).fill("asha");
+  await expect(staff(page).getByRole("option")).toHaveCount(1);
+  await staff(page).getByRole("option", { name: /Asha Rao/ }).click();
+  await expect(staff(page)).toBeHidden();
+  await expect(picker(page)).toHaveValue("nurse");
+
+  await picker(page).fill("zz");
+  await expect(staff(page)).toContainText("No CARE staff match");
+  await picker(page).fill("");
+  await picker(page).press("ArrowDown");
+  await picker(page).press("Enter");
+  await expect(picker(page)).toHaveValue("nurse");
+  await expect(dialog(page)).toBeVisible();
+
+  await picker(page).press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(staff(page)).toBeHidden();
+  await expect(dialog(page)).toBeVisible();
+
+  await fill(page, webPassword);
+  await dialog(page).getByRole("button", { name: "Reset web password", exact: true }).click();
+  await expect(root(page)).toContainText("CARE web password changed for nurse");
+  expect(await calls(page)).toEqual([["nurse", webPassword, desktopPassword]]);
+  expect(await page.evaluate(() => window.careTest.calls.filter((call) => call.method === "ListWebUsers").map((call) => call.args)))
+    .toEqual([[desktopPassword]]);
+});
+
+test("a deactivated account is flagged and an unloadable list falls back to typing", async ({ page }) => {
+  await openAdvanced(page);
+  await unlock(page);
+  await page.evaluate(() => { window.careTest.fixtures.webUserProfiles.nurse.active = false; });
+  await resetButton(page).click();
+  await dialog(page).getByRole("button", { name: "Show CARE staff" }).click();
+  await expect(staff(page).getByRole("option", { name: /Asha Rao/ })).toContainText("Inactive");
+  await staff(page).getByRole("option", { name: /Asha Rao/ }).click();
+  await expect(dialog(page)).toContainText("This account is deactivated in CARE");
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await page.evaluate(() => window.careTest.failNext("ListWebUsers", "CARE isn't running; start CARE from Overview, then try again"));
+  await resetButton(page).click();
+  await expect(dialog(page)).toContainText("Start CARE to see the staff list. Type the username instead.");
+  await expect(dialog(page).getByRole("button", { name: "Show CARE staff" })).toBeDisabled();
+  await picker(page).fill("nurse");
+  await expect(picker(page)).toHaveValue("nurse");
+});

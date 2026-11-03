@@ -18,6 +18,7 @@ case "$1 $2" in
     if [ "$CARE_FAKE_STATE" = stopped ]; then printf 'backend exited\n'; else printf 'backend running\n'; fi
     exit 0 ;;
   'compose exec')
+    if [ -z "$CARE_WEB_PASSWORD" ]; then printf 'care-clinic:users:[{"username":"nurse","name":"Asha Rao","active":true,"superuser":false}]\n'; exit 0; fi
     printf '%s\n' "$CARE_WEB_PASSWORD" > "$CARE_FAKE_SECRET"
     printf 'care-clinic:password-set\n'
     exit 0 ;;
@@ -110,5 +111,22 @@ func TestResetWebPasswordRefusesWhenCareCannotTakeIt(t *testing.T) {
 				t.Fatal("the password change ran anyway")
 			}
 		})
+	}
+}
+
+func TestListWebUsersRequiresTheAdminPassword(t *testing.T) {
+	a, calls, _ := webPasswordApp(t)
+	if _, err := a.ListWebUsers("WrongPassword123"); err == nil || !strings.Contains(err.Error(), "admin password does not match") {
+		t.Fatalf("got %v", err)
+	}
+	if calls() != "" {
+		t.Fatal("docker ran before the admin password was checked")
+	}
+	users, err := a.ListWebUsers(settingsPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 1 || users[0].Username != "nurse" || users[0].Name != "Asha Rao" {
+		t.Fatalf("unexpected users: %+v", users)
 	}
 }

@@ -172,3 +172,18 @@
 @media (prefers-reduced-motion: reduce) {
   .care-advanced *, .advanced-dialog * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.web-user-picker .web-user-toggle { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 8px; color: #647e71; }
+.web-user-picker .web-user-toggle:hover:not(:disabled) { background: #f1f6f3; }
+.web-user-picker .web-user-toggle svg { width: 16px; height: 16px; }
+.web-user-list { max-height: 216px; margin: 6px 0 0; padding: 4px; overflow-y: auto; list-style: none; border: 1px solid #dce5df; border-radius: 12px; background: #fff; box-shadow: 0 8px 24px #10251a14; }
+.web-user-list [role="option"] { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.web-user-list [role="option"].is-active { background: #eef7f2; }
+.web-user-list [role="option"][aria-selected="true"] .web-user-name { color: #007d57; }
+.web-user-text { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+.web-user-name { overflow: hidden; color: #17251e; font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.web-user-username { overflow: hidden; color: #697f75; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.web-user-badge { display: inline-flex; flex: none; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: #e6f5ee; color: #007d57; font-size: 11px; font-weight: 600; }
+.web-user-badge svg { width: 12px; height: 12px; }
+.web-user-badge.is-muted { background: #f1f3f2; color: #697f75; }
+.web-user-empty { padding: 10px; color: #697f75; font-size: 12.5px; }
