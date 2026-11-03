@@ -169,3 +169,46 @@ func TestRancherSwapOverrideKeepsAnExistingFile(t *testing.T) {
 		t.Fatalf("an operator's own override was replaced: %q", got)
 	}
 }
+
+func TestRancherHealthcheckFixRewritesTheDockerPing(t *testing.T) {
+	if strings.Contains(rancherHealthcheckFix, "\r") {
+		t.Fatal("the provisioning script must use LF line endings or the distro's sh rejects it")
+	}
+	if !strings.HasPrefix(rancherHealthcheckFix, "#!/bin/sh\n") {
+		t.Fatalf("script needs a shebang:\n%s", rancherHealthcheckFix)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	initScript := filepath.Join(t.TempDir(), "docker")
+	if err := os.WriteFile(initScript, []byte("curl http://./_ping\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := strings.ReplaceAll(rancherHealthcheckFix, "/etc/init.d/docker", initScript)
+	script = strings.ReplaceAll(script, "sed -i ", "sed -i.bak ")
+	if out, err := exec.Command("sh", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("script failed: %v\n%s", err, out)
+	}
+	if got, _ := os.ReadFile(initScript); string(got) != "curl http://localhost/_ping\n" {
+		t.Fatalf("ping URL not rewritten: %q", got)
+	}
+}
+
+func TestRancherHealthcheckFixIsWrittenAndRefreshed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rancher-desktop", "provisioning", "fix.start")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("stale\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRancherHealthcheckFix(path); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != rancherHealthcheckFix {
+		t.Fatalf("stale script not replaced: %q", got)
+	}
+	if err := writeRancherHealthcheckFix(""); err == nil {
+		t.Fatal("an unknown LOCALAPPDATA must be reported, not written relative to the working directory")
+	}
+}

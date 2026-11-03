@@ -87,6 +87,11 @@ func (pr *Provisioner) InstallWSL() (string, error) {
 		return "", fmt.Errorf("could not turn on the Virtual Machine Platform that WSL 2 needs; "+
 			"turn WSL 2 on from %s and try again: %w", wslInstallPage, err)
 	}
+	// The wsl.exe that ships with older Windows 10 builds rejects --no-distribution
+	// and exits -1; updating first replaces it with one that understands the flag.
+	if err := pr.runElevated("wsl", "--update"); err != nil {
+		pr.logln("Warning: could not update WSL before turning it on: " + err.Error())
+	}
 	if err := pr.runElevated("wsl", "--install", "--no-distribution"); err != nil {
 		return "", fmt.Errorf("could not turn on WSL 2; turn it on from %s and try again: %w",
 			wslInstallPage, err)

@@ -1715,6 +1715,20 @@ Unlike the memory setting, which `rdctl set` cannot change without restarting
 the VM and is therefore applied on first run only, the swap override also
 reaches installations that already exist.
 
+#### Docker health check fix on Windows
+
+Rancher Desktop 1.24.0 checks dockerd at `http://./_ping`, which the curl in its
+WSL distro rejects. After the first failed check Rancher stops its Docker proxy,
+and every Docker call from Windows then fails with `timed out dialing Hyper-V
+socket` (rancher-sandbox/rancher-desktop#10739, fixed upstream by #10740 but not
+in any release yet). On Windows, `writeRancherProfile` writes
+`%LOCALAPPDATA%\rancher-desktop\provisioning\care-clinic-docker-healthcheck.start`
+with LF line endings; Rancher runs it inside its distro on every boot, and it
+rewrites the URL to `http://localhost/_ping` in `/etc/init.d/docker`. It is
+rewritten whenever its contents differ, so existing installs get it, and it
+takes effect the next time Rancher starts. Once a fixed Rancher release is
+pinned the `sed` matches nothing, and the script can be removed.
+
 Defaults are applied on first run only. An operator's later preference changes
 are kept, and an administrator's managed profile in `/Library/Managed
 Preferences` or `HKLM` still takes precedence over this user profile. Because of
