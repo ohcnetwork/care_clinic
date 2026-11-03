@@ -10,6 +10,7 @@ import { SetupScreen } from "@/screens/setup/setup-screen";
 import { RoleScreen } from "@/screens/role-screen";
 import { ClientScreen } from "@/screens/client-screen";
 import { RemoveScreen } from "@/screens/remove-screen";
+import { SYSTEM_CHECK_REVIEWED, SystemCheckScreen } from "@/screens/system-check-screen";
 import { useCare } from "@/state/care-store";
 import { EMPTY_SETUP_FORM, type SetupForm } from "@/state/forms";
 
@@ -38,6 +39,17 @@ export function App() {
     setSetupForm({ ...EMPTY_SETUP_FORM, hostInput: care.mdnsName.replace(/\.local$/i, "") });
   }, [care.setupReset, care.mdnsName]);
 
+  // The requirements check shows once per launch, before a role is chosen.
+  const [systemReviewed, setSystemReviewed] = useState(() => readReviewed());
+  const reviewSystem = useCallback(() => {
+    try {
+      sessionStorage.setItem(SYSTEM_CHECK_REVIEWED, "1");
+    } catch {
+      // Storage can be unavailable; the in-memory flag still holds for this run.
+    }
+    setSystemReviewed(true);
+  }, []);
+
   const patchSetup = useCallback(
     (values: Partial<SetupForm>) => setSetupForm((form) => ({ ...form, ...values })),
     [],
@@ -53,7 +65,11 @@ export function App() {
         care.flow === "remove" ? (
           <RemoveScreen />
         ) : care.flow === "role" ? (
-          <RoleScreen />
+          !systemReviewed && care.platform !== "linux" ? (
+            <SystemCheckScreen onContinue={reviewSystem} />
+          ) : (
+            <RoleScreen />
+          )
         ) : care.flow === "client" ? (
           <ClientScreen />
         ) : care.flow === "setup" ? (
@@ -71,4 +87,12 @@ export function App() {
       </div>
     </div>
   );
+}
+
+function readReviewed(): boolean {
+  try {
+    return sessionStorage.getItem(SYSTEM_CHECK_REVIEWED) === "1";
+  } catch {
+    return false;
+  }
 }

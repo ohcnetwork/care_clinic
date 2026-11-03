@@ -1,7 +1,7 @@
 import type {
   AppState, AppUpdate, AppUpdateProgress, Backup, BackupPolicy, BackupSpace, ChannelStatus, ClientPreflight,
   ClientReachability, ConfirmationRequest, DiskStatus, DockerStatus, EnvFileChange, NetworkStatus, ResidueReport,
-  CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, CloseChoice, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, ToolPlan,
+  CarePlugin, Health, HomeAccess, ImportedBackup, PluginCatalogEntry, QuitRequest, CloseChoice, RestartPlan, Section, SetupIssue, SetupRecoveryStatus, StorageReport, SystemReport, ToolPlan,
   UpdateChecks,
 } from "../../src/types";
 
@@ -12,6 +12,7 @@ type Handler = (...data: unknown[]) => void;
 type Results = { [K in Method]: Awaited<ReturnType<Host[K]>> };
 type Fixtures = {
   disk: DiskStatus;
+  system: SystemReport;
   docker: DockerStatus;
   dockerScans: boolean;
   git: DockerStatus;
@@ -132,6 +133,13 @@ export function installTestHost() {
   };
   const fixtures: Fixtures = {
     disk: { ok: true, message: "212 GB free", how: "", free: 212 * 2 ** 30, need: 30 * 2 ** 30 },
+    system: { applicable: true, checks: [
+      { id: "os", label: "Operating system", value: "macOS 15.1 Sequoia", requirement: "macOS 13 Ventura or later", level: "ok", message: "" },
+      { id: "processor", label: "Processor", value: "Apple Silicon · 8 cores", requirement: "4 or more cores", level: "ok", message: "" },
+      { id: "memory", label: "Memory (RAM)", value: "16 GB", requirement: "8 GB or more", level: "ok", message: "" },
+      { id: "storage", label: "Free storage", value: "212 GB free", requirement: "30 GB or more free", level: "ok", message: "" },
+      { id: "virtualization", label: "Virtualization", value: "Turned on", requirement: "Turned on", level: "ok", message: "" },
+    ] },
     docker: { ok: true, message: "" },
     dockerScans: false,
     git: { ok: true, message: "" },
@@ -200,6 +208,24 @@ export function installTestHost() {
   const recoveryCodeCount = new URLSearchParams(location.search).get("recoveryCodes");
   if (recoveryCodeCount !== null) {
     fixtures.recoveryCodes = fixtures.recoveryCodes.map((code, index) => index < Number(recoveryCodeCount) ? code : "");
+  }
+  // The system check opens before the start screen once per launch. Most specs
+  // begin on the start screen, so they see it as already reviewed unless they
+  // ask for it with ?systemCheck=1.
+  if (new URLSearchParams(location.search).get("systemCheck") === "1") sessionStorage.removeItem("care.systemCheckReviewed");
+  else sessionStorage.setItem("care.systemCheckReviewed", "1");
+  if (scenario === "system-windows10") {
+    state.platform = "windows";
+    fixtures.system.checks = [
+      { id: "os", label: "Operating system", value: "Windows 10 Pro 22H2 (build 19045)", requirement: "Windows 11", level: "warn",
+        message: "Rancher Desktop, which runs CARE on Windows, doesn't support Windows 10. CARE may install, but it can fail or stop working after an update. Upgrade to Windows 11 if you can." },
+      { id: "processor", label: "Processor", value: "64-bit (x64) · 4 cores", requirement: "64-bit Intel or AMD, 4 or more cores", level: "ok", message: "" },
+      { id: "memory", label: "Memory (RAM)", value: "4.0 GB", requirement: "8 GB or more", level: "warn",
+        message: "CARE needs at least 8 GB of memory to run smoothly. With 4.0 GB it may be slow, or stop when the clinic is busy." },
+      { id: "storage", label: "Free storage", value: "212 GB free", requirement: "30 GB or more free", level: "ok", message: "" },
+      { id: "virtualization", label: "Virtualization", value: "Unknown", requirement: "Turned on", level: "unknown",
+        message: "Couldn't check whether virtualization is turned on. Setup will tell you if it's missing." },
+    ];
   }
   if (scenario.startsWith("setup-")) state.role = "server";
   if (scenario === "setup-space") fixtures.disk = { ...fixtures.disk, ok: false, free: 12 * 2 ** 30 };
@@ -426,6 +452,7 @@ export function installTestHost() {
     },
     DisableHomeAccess: async () => { requireServer(); fixtures.homeAccess.enabled = false; },
     DiskStatus: async () => ({ ...fixtures.disk }),
+    SystemRequirements: async () => structuredClone(fixtures.system),
     MDNSStatus: async () => ({ ok: !fixtures.addressTaken, message: fixtures.addressTaken ? "care.local is already in use on this network (192.0.2.1)" : "" }),
     ScanResidue: async () => {
       if (fixtures.dockerScans && !fixtures.docker.ok) throw new Error("could not locate the earlier installation; start Docker and try again");

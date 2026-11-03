@@ -28,6 +28,7 @@ import type {
   ResidueReport,
   RestartPlan,
   SetupIssue,
+  SystemReport,
   SetupRecoveryStatus,
   StorageReport,
   ToolPlan,
@@ -76,6 +77,7 @@ declare global {
           ValidateBackupDir(dir: string): Promise<string>;
           BackupDirSpace(dir: string): Promise<BackupSpace>;
           DiskStatus(): Promise<DiskStatus>;
+          SystemRequirements(): Promise<SystemReport>;
           StorageStatus(): Promise<StorageReport>;
           RecheckStorage(): Promise<StorageReport>;
           SetMDNSName(name: string): Promise<void>;

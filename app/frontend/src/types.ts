@@ -212,6 +212,18 @@ export type ConfirmationRequest = { id: number; title: string; message: string }
 
 export type StorageLevel = "ok" | "low" | "critical" | "unknown";
 
+export type SystemLevel = "ok" | "warn" | "unknown";
+export type SystemCheck = {
+  id: "os" | "processor" | "memory" | "storage" | "virtualization";
+  label: string;
+  value: string;
+  requirement: string;
+  level: SystemLevel;
+  message: string;
+};
+/** How this computer compares with what CARE expects. Advice only, never a gate. */
+export type SystemReport = { applicable: boolean; checks: SystemCheck[] };
+
 export type DiskStatus = {
   ok: boolean;
   message: string;

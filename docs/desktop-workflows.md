@@ -13,6 +13,25 @@ language for failures; **Open log** provides diagnostic detail for support.
 
 ## First launch and saved roles
 
+On Windows and macOS, a **System requirements** page opens before the Start
+screen once per app launch, while no role is saved yet. It shows the operating
+system, processor and cores, memory, free storage and virtualization next to
+what CARE needs:
+
+| Check | Requirement | Source |
+| --- | --- | --- |
+| Operating system | Windows 11 (or Windows Server 2025); macOS 13 Ventura or later | Rancher Desktop's supported systems. Windows 10 is flagged because Rancher Desktop doesn't support it. |
+| Processor | 4 or more cores; on Windows, 64-bit Intel or AMD | Rancher Desktop's recommendation; it has no Windows on ARM build. |
+| Memory | 8 GB or more | Rancher Desktop's recommendation. The profile gives its VM 3 GB on macOS; WSL 2 takes half the host's memory on Windows. |
+| Free storage | 30 GB or more | `storage.InstallMinFree`, the same figure setup checks. |
+| Virtualization | Turned on | Rancher Desktop runs CARE in a virtual machine. |
+
+The page is advice only. Anything below a requirement shows a warning that CARE
+may not work as expected, and **Continue anyway** still opens the Start screen.
+Values that couldn't be read show as **Not checked**. Linux skips the page.
+The checks live in `internal/prereq/system.go` and are exposed as
+`SystemRequirements`.
+
 The Start screen offers **Start setup** and **Connect to an existing server on
 the local network**. Viewing this screen saves no role and performs no cleanup.
 Checking for a CARE Clinic update also does not select a role.

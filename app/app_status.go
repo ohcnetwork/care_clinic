@@ -64,6 +64,18 @@ func (a *App) GitStatus() prereq.Status      { return prereq.GitCheck(a.engine()
 func (a *App) RancherDesktopInstalled() bool { return prereq.RancherDesktopInstalled() }
 func (a *App) ClinicHealth() health.Health   { return health.Ping() }
 
+// SystemRequirements compares this computer with what CARE expects. It is only
+// advice shown before setup; nothing refuses to run because of it.
+func (a *App) SystemRequirements() prereq.SystemReport {
+	disk := a.DiskStatus()
+	return prereq.SystemCheckReport(prereq.DiskFacts{
+		Known: !disk.OK || disk.Free > 0,
+		OK:    disk.OK,
+		Free:  disk.Free,
+		Need:  disk.Need,
+	})
+}
+
 func (a *App) NetworkStatus() netfix.Status { return netfix.Check(a.engine().Runner()) }
 
 func (a *App) FixNetwork() error {
