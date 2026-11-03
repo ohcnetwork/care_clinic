@@ -141,6 +141,7 @@ test("staff can be picked from a searchable list instead of typing a username", 
   await picker(page).fill("zz");
   await expect(staff(page)).toContainText("No CARE staff match");
   await picker(page).fill("");
+  await expect(staff(page).getByRole("option")).toHaveCount(2);
   await picker(page).press("ArrowDown");
   await picker(page).press("Enter");
   await expect(picker(page)).toHaveValue("nurse");
